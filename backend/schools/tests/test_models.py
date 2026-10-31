@@ -18,6 +18,8 @@ from schools.models import (
     StudentStatusEvent,
     Subject,
     Term,
+    scheduled_change,
+    status_as_of,
 )
 from tenancy.rls import school_scope
 
@@ -238,10 +240,14 @@ def test_triggers_that_read_a_parent_row_lock_it_so_a_concurrent_change_cannot_s
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT prosrc FROM pg_proc "
-            "WHERE proname IN ('term_inside_school_year', 'grade_number_fits_level')"
+            "WHERE proname IN ('term_inside_school_year', 'grade_number_fits_level',"
+            " 'enrollment_fits_student_membership')"
         )
         sources = [source for (source,) in cursor.fetchall()]
-    assert len(sources) == 2 and all("FOR SHARE" in source for source in sources)
+    assert len(sources) == 3 and all("FOR SHARE" in source for source in sources)
+    # The student row is locked whether or not it has a Membership yet, then the rule is applied.
+    (membership_rule,) = [source for source in sources if "INTO m" in source]
+    assert "membership_id IS NOT NULL" not in membership_rule
 
 
 # --- People: students, enrollments, Guardian links ----------------------------------------------
@@ -262,24 +268,38 @@ def enroll(school, student, klass, start=None, closed=False):
     )
 
 
+NATIONAL_ID = "012345678901"
+
+
 def test_student_ids_are_unique_per_school_and_blank_means_none(schools):
     a, b = schools
     with school_scope(a.pk):
         blank = make_student(a, ministry_student_id="  ", national_id="")
         make_student(a, "Second blank", ministry_student_id="", national_id="")  # not a clash
-        make_student(a, "Third", ministry_student_id="M1", national_id="N1")
+        make_student(a, "Third", ministry_student_id="M1", national_id=NATIONAL_ID)
         assert (blank.ministry_student_id, blank.national_id) == (None, None)
     with school_scope(b.pk):
-        make_student(b, "Other School", ministry_student_id="M1", national_id="N1")  # fine
+        make_student(b, "Other School", ministry_student_id="M1", national_id=NATIONAL_ID)  # fine
     for field, constraint in (
         ("ministry_student_id", "student_ministry_student_id_key"),
         ("national_id", "student_national_id_key"),
     ):
         with pytest.raises(IntegrityError, match=constraint), school_scope(a.pk):
-            make_student(a, "Clash", **{field: "M1" if "ministry" in field else "N1"})
+            make_student(a, "Clash", **{field: "M1" if "ministry" in field else NATIONAL_ID})
     with pytest.raises(IntegrityError, match="student_ids_are_null_not_blank"):
         with school_scope(a.pk):  # a raw write that skips Student.save()
             Student.objects.filter(pk=blank.pk).update(national_id="")
+
+
+def test_national_id_is_12_digits_when_set(schools):
+    a, _ = schools
+    with school_scope(a.pk):
+        make_student(a, national_id=None)
+        make_student(a, "Twelve", national_id="000000000012")
+    for bad in ("12345678901", "1234567890123", "12345678901a", "٠١٢٣٤٥٦٧٨٩٠١٢"):
+        with pytest.raises(IntegrityError, match="student_national_id_is_12_digits"):
+            with school_scope(a.pk):
+                make_student(a, "Bad", national_id=bad)
 
 
 def test_a_membership_signs_in_one_student_only_and_only_in_lower_or_upper_secondary(schools):
@@ -483,43 +503,74 @@ def test_the_status_history_is_append_only_for_the_app_role(schools):
         assert StudentStatusEvent.objects.get(pk=event.pk).reason == ""
 
 
-def test_student_status_only_changes_through_an_event_and_follows_the_latest_one(schools):
+def test_student_status_is_derived_from_the_events_as_of_a_date(schools):
     a, _ = schools
     account = make_account("recorder@example.com")
     with school_scope(a.pk):
         recorder = make_membership(a, account)
-        student = make_student(a)
+        student, other = make_student(a), make_student(a, "Other")
 
-    def record(status, on):
-        StudentStatusEvent.objects.create(
-            school=a, student=student, status=status, on=on, recorded_by=recorder
+    def record(status, on, who=None):
+        return StudentStatusEvent.objects.create(
+            school=a, student=who or student, status=status, on=on, recorded_by=recorder
         )
 
-    def current():
-        return Student.objects.get(pk=student.pk).status
+    def status_on(day, who=None):
+        found = Student.objects.with_status(day).get(pk=(who or student).pk)
+        events = StudentStatusEvent.objects.filter(student=found)
+        # The SQL annotation and the Python rule agree.
+        assert status_as_of(events, day) == found.current_status
+        return found.current_status
 
     with school_scope(a.pk):
-        assert current() == "studying"
-    for write in (
-        lambda: Student.objects.filter(pk=student.pk).update(status="graduated"),
-        lambda: make_student(a, "Born graduated", status="graduated"),
-    ):
-        with pytest.raises(IntegrityError, match="student_status_follows_events"):
-            with school_scope(a.pk):
-                write()
-    with school_scope(a.pk):
+        assert status_on(D(2026, 1, 1)) == "studying"  # no event: studying
         record("transferred_out", D(2026, 1, 10))
-        assert current() == "transferred_out"
         record("studying", D(2026, 3, 1))  # came back
-        assert current() == "studying"
-        record("dropped_out", D(2026, 2, 1))  # entered late with an earlier date: not the latest
-        assert current() == "studying"
+        record("dropped_out", D(2026, 2, 1))  # entered late with an earlier date
         record("graduated", D(2026, 3, 1))  # same day: the later event decides
-        assert current() == "graduated"
-        # Saving a student whose status is stale cannot move it either.
-        student.status = "dropped_out"
-        with pytest.raises(IntegrityError, match="student_status_follows_events"):
-            student.save()
+        record("dropped_out", D(2026, 1, 5), other)
+        assert [status_on(D(2026, *md)) for md in ((1, 9), (1, 10), (2, 1), (2, 28), (3, 1))] == [
+            "studying",
+            "transferred_out",
+            "dropped_out",
+            "dropped_out",
+            "graduated",
+        ]
+        assert status_on(D(2026, 1, 4), other) == "studying"
+        assert status_on(D(2026, 1, 5), other) == "dropped_out"
+        events = list(StudentStatusEvent.objects.filter(student=student))
+    # The next change after a day; a change cancelled by a later event of its day is none.
+    assert scheduled_change(events, D(2025, 12, 1)) == {
+        "status": "transferred_out",
+        "on": D(2026, 1, 10),
+    }
+    assert scheduled_change(events, D(2026, 1, 10)) == {
+        "status": "dropped_out",
+        "on": D(2026, 2, 1),
+    }
+    assert scheduled_change(events, D(2026, 3, 1)) is None
+    cancelled = [e for e in events if e.on != D(2026, 3, 1)] + [
+        StudentStatusEvent(id=10**6, student=student, status="studying", on=D(2026, 1, 10)),
+        StudentStatusEvent(id=10**6 - 1, student=student, status="graduated", on=D(2026, 1, 10)),
+    ]
+    assert scheduled_change(cancelled, D(2025, 12, 1)) == {
+        "status": "dropped_out",
+        "on": D(2026, 2, 1),
+    }
+
+
+def test_the_stored_status_and_its_triggers_are_gone(schools):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM information_schema.columns"
+            " WHERE table_name = 'schools_student' AND column_name = 'status'"
+        )
+        assert cursor.fetchone() == (0,)
+        cursor.execute(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN"
+            " ('student_status_follows_events', 'status_event_sets_student_status')"
+        )
+        assert cursor.fetchone() == (0,)
 
 
 def test_guardian_links_of_one_pair_cannot_overlap(schools):

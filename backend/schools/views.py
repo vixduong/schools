@@ -7,7 +7,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import DateField, IntegerField
+from rest_framework.fields import ChoiceField, DateField, IntegerField
 from rest_framework.response import Response
 
 from accounts.models import RoleAssignment
@@ -28,7 +28,15 @@ from .models import (
     Subject,
     SubjectGroup,
     Term,
+    status_as_of,
 )
+
+# What a leave does to the student's status: the same word, except the transfer.
+LEAVE_STATUS = {
+    Enrollment.ReasonEnded.TRANSFER_OUT: Student.Status.TRANSFERRED_OUT,
+    Enrollment.ReasonEnded.DROPPED_OUT: Student.Status.DROPPED_OUT,
+    Enrollment.ReasonEnded.GRADUATED: Student.Status.GRADUATED,
+}
 
 
 class SetupViewSet(
@@ -70,6 +78,20 @@ class SetupViewSet(
 class SchoolYearViewSet(SetupViewSet):
     queryset = SchoolYear.objects.order_by("starts_on", "id")
     serializer_class = serializers.SchoolYearSerializer
+
+    @extend_schema(request=None, responses=serializers.SchoolYearSerializer)
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        """End every open enrollment of the year on its last day (`year_end`), in one
+        transaction. Idempotent: a second call finds none open. Run it before enrolling
+        continuing students in the next year, whose periods may not overlap."""
+        self.get_object()  # 404 for another School's row
+        with self._database_rules():
+            year = SchoolYear.objects.select_for_update().get(pk=pk)
+            Enrollment.objects.filter(school_year=year, valid_to__isnull=True).update(
+                valid_to=year.ends_on, reason_ended=Enrollment.ReasonEnded.YEAR_END
+            )
+        return Response(self.get_serializer(year).data)
 
 
 class TermViewSet(SetupViewSet):
@@ -130,9 +152,33 @@ class RoleAssignmentViewSet(SetupViewSet):
         return Response(self.get_serializer(assignment).data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status", str, enum=Student.Status.values, description="Only this status today"
+            )
+        ]
+    )
+)
 class StudentViewSet(SetupViewSet):
-    queryset = Student.objects.order_by("full_name", "id")
+    queryset = Student.objects.order_by("full_name", "id").prefetch_related(
+        "studentstatusevent_set"
+    )
     serializer_class = serializers.StudentSerializer
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return serializers.StudentListSerializer
+        return super().get_serializer_class()
+
+    def filter_queryset(self, queryset):
+        if self.action == "list" and "status" in self.request.query_params:
+            wanted = ChoiceField(Student.Status.choices).run_validation(
+                self.request.query_params["status"]
+            )
+            queryset = queryset.with_status().filter(current_status=wanted)
+        return queryset
 
     @extend_schema(methods=["GET"], responses=serializers.StudentStatusEventSerializer(many=True))
     @extend_schema(
@@ -142,8 +188,9 @@ class StudentViewSet(SetupViewSet):
     )
     @action(detail=True, methods=["get", "post"], url_path="status-events")
     def status_events(self, request, pk=None):
-        """The student's status history (GET) and the only way to change the status (POST): the
-        event is appended and a database trigger sets `Student.status` from the latest one."""
+        """The student's status history (GET) and the way to record a return (POST, `studying`
+        only, which may be dated in the future). The status on a date is the latest event up to
+        that date; leaving goes through `leave/`."""
         student = self.get_object()
         context = self.get_serializer_context()
         if request.method == "GET":
@@ -156,21 +203,22 @@ class StudentViewSet(SetupViewSet):
         self._save(serializer, student=student, recorded_by=request.membership)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(
-        request=serializers.TransferOutSerializer, responses=serializers.StudentSerializer
-    )
-    @action(detail=True, methods=["post"], url_path="transfer-out")
-    def transfer_out(self, request, pk=None):
-        """The student leaves for another School: the open enrollment ends on `on`
-        (`transfer_out`) and a `transferred_out` status event is recorded, in one transaction.
-        Nothing is deleted; this School keeps the student's records."""
+    @extend_schema(request=serializers.LeaveSerializer, responses=serializers.StudentSerializer)
+    @action(detail=True, methods=["post"])
+    def leave(self, request, pk=None):
+        """The student leaves (transfer out, drop out, graduation): the open enrollment ends on
+        `on` and the matching status event is recorded with that date, in one transaction. A
+        future `on` schedules the leave: the student stays in the class and `studying` until
+        then. Nothing is deleted; this School keeps the student's records."""
         self.get_object()  # 404 for another School's row
-        leaving = serializers.TransferOutSerializer(data=request.data)
+        leaving = serializers.LeaveSerializer(data=request.data)
         leaving.is_valid(raise_exception=True)
-        on, destination = leaving.validated_data["on"], leaving.validated_data["destination"]
+        reason, on = leaving.validated_data["reason"], leaving.validated_data["on"]
+        destination = leaving.validated_data.get("destination", "")
         with self._database_rules():
             student = Student.objects.select_for_update().get(pk=pk)
-            if student.status != Student.Status.STUDYING:
+            events = StudentStatusEvent.objects.filter(student=student)
+            if status_as_of(events, on) != Student.Status.STUDYING:
                 raise ValidationError({"status": ["not_studying"]})
             row = (
                 Enrollment.objects.select_for_update()
@@ -182,18 +230,51 @@ class StudentViewSet(SetupViewSet):
             if on < row.valid_from:
                 raise ValidationError({"on": ["before_enrollment_start"]})
             row.valid_to = on
-            row.reason_ended = Enrollment.ReasonEnded.TRANSFER_OUT
+            row.reason_ended = reason
             row.save(update_fields=["valid_to", "reason_ended"])
             StudentStatusEvent.objects.create(
                 school=request.school,
                 student=student,
-                status=Student.Status.TRANSFERRED_OUT,
+                status=LEAVE_STATUS[reason],
                 on=on,
-                reason=f"Transferred out to {destination}",
+                reason=f"Transferred out to {destination}"
+                if reason == Enrollment.ReasonEnded.TRANSFER_OUT
+                else Enrollment.ReasonEnded(reason).label,
                 recorded_by=request.membership,
             )
-        student.refresh_from_db()  # the event's trigger set the status
-        return Response(self.get_serializer(student).data)
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
+
+    @extend_schema(request=None, responses=serializers.StudentSerializer)
+    @action(detail=True, methods=["post"], url_path="leave/cancel")
+    def cancel_leave(self, request, pk=None):
+        """Cancel a leave scheduled for a later day: a `studying` event with the leave's date
+        (the later event wins) and the enrollment open again, in one transaction. A leave whose
+        day has come is a fact and is refused. This is the only way a `valid_to` is cleared."""
+        self.get_object()  # 404 for another School's row
+        with self._database_rules():
+            student = Student.objects.select_for_update().get(pk=pk)
+            row = (
+                Enrollment.objects.select_for_update()
+                .filter(student=student, reason_ended__in=list(LEAVE_STATUS))
+                .order_by("-valid_to")
+                .first()
+            )
+            if row is None:
+                raise ValidationError({"leave": ["no_leave"]})
+            if row.valid_to <= timezone.localdate():
+                raise ValidationError({"leave": ["leave_already_effective"]})
+            StudentStatusEvent.objects.create(
+                school=request.school,
+                student=student,
+                status=Student.Status.STUDYING,
+                on=row.valid_to,
+                reason="Leave cancelled",
+                recorded_by=request.membership,
+            )
+            row.valid_to = None
+            row.reason_ended = None
+            row.save(update_fields=["valid_to", "reason_ended"])
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
 
 
 @extend_schema_view(

@@ -11,6 +11,7 @@ from django.utils import timezone
 from accounts.models import Membership, RoleAssignment
 from schools.models import (
     AssessmentProfileVersion,
+    Enrollment,
     Grade,
     Level,
     Room,
@@ -588,6 +589,7 @@ def test_a_pending_request_can_be_withdrawn_by_ending_it(admin, schools):
 # --- Slice 4b: students, enrollments, Guardian links, assessment profiles -----------------------
 
 STUDENT = {"full_name": "Nguyen An", "date_of_birth": "2012-05-01", "gender": "male"}
+NATIONAL_ID = "012345678901"
 
 
 def get(client, host, name, pk=None, suffix=""):
@@ -653,7 +655,7 @@ def test_school_admin_enrolls_a_student_and_links_a_guardian_end_to_end(admin, a
 
 
 def test_student_ids_are_unique_per_school_and_blank_ones_never_clash(admin, client, schools):
-    ids = {"ministry_student_id": "M-1", "national_id": "012345678901"}
+    ids = {"ministry_student_id": "M-1", "national_id": NATIONAL_ID}
     assert post(admin, A, "students", {**STUDENT, **ids}).status_code == 201
     for field in ids:
         clash = post(admin, A, "students", {**STUDENT, field: ids[field]})
@@ -668,48 +670,67 @@ def test_student_ids_are_unique_per_school_and_blank_ones_never_clash(admin, cli
     assert post(client, B, "students", {**STUDENT, **ids}).status_code == 201
 
 
-def test_student_status_changes_only_through_events(admin, schools):
+def test_a_student_is_created_without_ministry_id_national_id_or_membership(admin):
+    created = post(admin, A, "students", STUDENT)
+    assert created.status_code == 201, created.json()
+    student = created.json()
+    assert (student["ministry_student_id"], student["national_id"], student["membership"]) == (
+        None,
+        None,
+        None,
+    )
+    bad = post(admin, A, "students", {**STUDENT, "national_id": "12345"})
+    assert bad.status_code == 400 and bad.json() == {"national_id": ["invalid_national_id"]}
+
+
+def test_the_student_list_masks_the_national_id_and_one_student_shows_it_in_full(admin):
+    ids = {"ministry_student_id": "M-1", "national_id": NATIONAL_ID}
+    full = post(admin, A, "students", {**STUDENT, **ids}).json()
+    post(admin, A, "students", {**STUDENT, "full_name": "Zed"})  # no national ID
+    assert full["national_id"] == NATIONAL_ID
+    listed = get(admin, A, "students").json()
+    assert [s["national_id"] for s in listed] == ["*********901", None]
+    assert get(admin, A, "students", full["id"]).json()["national_id"] == NATIONAL_ID
+    assert listed[0]["ministry_student_id"] == "M-1"  # only the national ID is hidden
+
+
+def test_student_status_is_derived_and_only_a_return_is_posted_as_an_event(admin, schools):
     a, _ = schools
     student = post(admin, A, "students", {**STUDENT, "status": "graduated"}).json()
-    assert student["status"] == "studying"  # not writable on create
+    assert (student["status"], student["scheduled_change"]) == ("studying", None)
     pk = student["id"]
     refused = patch(admin, A, "students", pk, {"status": "graduated", "full_name": "Changed"})
     assert refused.status_code == 400 and refused.json() == {"status": ["immutable"]}
-    assert (
-        patch(admin, A, "students", pk, {"status": "studying", "full_name": "Fixed"}).json()[
-            "full_name"
-        ]
-        == "Fixed"
-    )
+    patched = patch(admin, A, "students", pk, {"status": "studying", "full_name": "Fixed"})
+    assert patched.json()["full_name"] == "Fixed"
 
     events = f"{url('students', pk)}status-events/"
-    body = {"status": "transferred_out", "on": "2026-01-10", "reason": "moved to Hue"}
+
+    def record(**body):
+        return admin.post(events, body, content_type="application/json", HTTP_HOST=A)
+
+    # Leaving goes through `leave/`, so the enrollment ends with the status.
+    for leaving in ("transferred_out", "dropped_out", "graduated"):
+        refused = record(status=leaving, on="2026-01-10")
+        assert refused.status_code == 400 and refused.json() == {"status": ["use_leave"]}
+    assert record(status="expelled", on="2026-01-10").status_code == 400
+
     with school_scope(a.pk):
         mine = Membership.objects.get(account__email="admin-a@example.com")
     spoof = {"recorded_by": 999, "student": 999}
-    created = admin.post(events, {**body, **spoof}, content_type="application/json", HTTP_HOST=A)
+    created = record(status="studying", on="2026-02-01", reason="returned", **spoof)
     assert created.status_code == 201, created.json()
     assert (created.json()["recorded_by"], created.json()["student"]) == (mine.pk, pk)
-    assert get(admin, A, "students", pk).json()["status"] == "transferred_out"
-    again = {"status": "studying", "on": "2026-02-01", "reason": ""}
-    assert (
-        admin.post(events, again, content_type="application/json", HTTP_HOST=A).status_code == 201
-    )
+    # A scheduled return may be dated in the future; history is append-only.
+    later = str(timezone.localdate() + timedelta(days=5))
+    assert record(status="studying", on=later).status_code == 201
     history = admin.get(events, HTTP_HOST=A).json()
     assert [(e["status"], e["on"]) for e in history] == [
-        ("transferred_out", "2026-01-10"),
         ("studying", "2026-02-01"),
+        ("studying", later),
     ]
-    assert get(admin, A, "students", pk).json()["status"] == "studying"
-    # No way to rewrite or remove history, and a bad event leaves the status alone.
     assert admin.delete(events, HTTP_HOST=A).status_code == 405
-    bad = admin.post(
-        events,
-        {"status": "expelled", "on": "2026-03-01"},
-        content_type="application/json",
-        HTTP_HOST=A,
-    )
-    assert bad.status_code == 400 and "status" in bad.json()
+    assert get(admin, A, "students", pk).json()["status"] == "studying"
 
 
 def test_school_b_cannot_read_or_extend_school_a_students_history(
@@ -779,6 +800,13 @@ def test_enrollment_rules_through_the_api(admin, schools):
     year_end = str(klass.school_year.ends_on)
     bare = patch(admin, A, "enrollments", pk, {"valid_to": year_end})
     assert bare.json() == {"reason_ended": ["required_with_valid_to"]}
+    # Only the year's end is a reason given here: leaving and class changes have their own routes.
+    for reason in ("transfer_out", "dropped_out", "graduated", "class_change"):
+        wrong = patch(admin, A, "enrollments", pk, {"valid_to": year_end, "reason_ended": reason})
+        assert wrong.json() == {"reason_ended": ["only_year_end"]}, reason
+    # The class of a period that has started changes through `move/`, not in place.
+    in_place = patch(admin, A, "enrollments", pk, {"school_class": other_class.pk})
+    assert in_place.json() == {"school_class": ["use_move"]}
     ended = patch(admin, A, "enrollments", pk, {"valid_to": year_end, "reason_ended": "year_end"})
     assert ended.status_code == 200 and ended.json()["reason_ended"] == "year_end"
     assert patch(admin, A, "enrollments", pk, {"valid_to": None}).json() == {
@@ -823,6 +851,13 @@ def test_moving_class_mid_year_ends_one_row_and_starts_the_next(admin, schools):
         str(move_on - timedelta(days=1)),
         "class_change",
     )
+    # An ended row keeps its class, and its reason changes only together with `valid_to`.
+    assert patch(admin, A, "enrollments", row["id"], {"school_class": other.pk}).json() == {
+        "school_class": ["use_move"]
+    }
+    assert patch(admin, A, "enrollments", row["id"], {"reason_ended": "year_end"}).json() == {
+        "reason_ended": ["set_with_valid_to"]
+    }
     # Contiguous, no gap and no overlap; the old row cannot be moved again.
     assert date.fromisoformat(new["valid_from"]) - date.fromisoformat(old["valid_to"]) == timedelta(
         1
@@ -841,7 +876,20 @@ def test_moving_class_mid_year_ends_one_row_and_starts_the_next(admin, schools):
     assert get(admin, A, "enrollments", suffix="?on=not-a-date").status_code == 400
 
 
-def test_transfer_out_ends_the_enrollment_and_records_the_event_in_one_transaction(
+def leave_url(student, suffix="leave/"):
+    return f"{url('students', student.pk)}{suffix}"
+
+
+def post_to(client, path, **body):
+    return client.post(path, body, content_type="application/json", HTTP_HOST=A)
+
+
+def history_of(admin, student):
+    events = admin.get(f"{url('students', student.pk)}status-events/", HTTP_HOST=A).json()
+    return [(e["status"], e["on"]) for e in events]
+
+
+def test_leave_ends_the_enrollment_and_records_the_event_in_one_transaction(
     admin, schools, monkeypatch
 ):
     a, _ = schools
@@ -849,70 +897,198 @@ def test_transfer_out_ends_the_enrollment_and_records_the_event_in_one_transacti
         klass = make_class(a)
         student = make_student(a)
     row = enroll_via_api(admin, student.pk, klass).json()
-    leave = f"{url('students', student.pk)}transfer-out/"
-    day = klass.school_year.starts_on + timedelta(days=40)
-
-    def transfer_out(**body):
-        return admin.post(leave, body, content_type="application/json", HTTP_HOST=A)
+    today = timezone.localdate()
+    day = today - timedelta(days=3)  # backdated: the student has already left
+    leave = leave_url(student)
 
     def state():
         enrollment = get(admin, A, "enrollments", row["id"]).json()
-        history = admin.get(f"{url('students', student.pk)}status-events/", HTTP_HOST=A).json()
         return (
             enrollment["valid_to"],
             get(admin, A, "students", student.pk).json()["status"],
-            history,
+            history_of(admin, student),
         )
 
-    assert transfer_out(on=str(day)).status_code == 400  # no destination
+    # A reason from the list, and a destination for a transfer out only.
+    assert post_to(admin, leave, reason="transfer_out", on=str(day)).json() == {
+        "destination": ["required"]
+    }
+    assert post_to(admin, leave, reason="expelled", on=str(day)).status_code == 400
+    assert post_to(admin, leave, reason="graduated").status_code == 400  # no date
 
     # Neither half sticks when the other fails: the event insert fails ...
     def fail_to_insert(**kwargs):
         raise IntegrityError("simulated")
 
     monkeypatch.setattr(StudentStatusEvent.objects, "create", fail_to_insert)
-    assert transfer_out(on=str(day), destination="THCS B").json() == {"constraint": ["unknown"]}
+    failed = post_to(admin, leave, reason="transfer_out", on=str(day), destination="THCS B")
+    assert failed.json() == {"constraint": ["unknown"]}
     assert state() == (None, "studying", [])
     monkeypatch.undo()
     # ... or the enrollment update fails (a date outside the school year).
     late = str(klass.school_year.ends_on + timedelta(days=1))
-    failed = transfer_out(on=late, destination="THCS B")
+    failed = post_to(admin, leave, reason="dropped_out", on=late)
     assert failed.json() == {"constraint": ["enrollment_inside_school_year"]}
     assert state() == (None, "studying", [])
-    before = transfer_out(on=str(klass.school_year.starts_on - timedelta(days=1)), destination="X")
-    assert before.json() == {"on": ["before_enrollment_start"]}
+    early = str(klass.school_year.starts_on - timedelta(days=1))
+    assert post_to(admin, leave, reason="dropped_out", on=early).json() == {
+        "on": ["before_enrollment_start"]
+    }
 
-    done = transfer_out(on=str(day), destination="THCS B, Hue")
+    done = post_to(admin, leave, reason="transfer_out", on=str(day), destination="THCS B, Hue")
     assert done.status_code == 200, done.json()
-    assert done.json()["status"] == "transferred_out"
-    valid_to, status, history = state()
-    assert (valid_to, status) == (str(day), "transferred_out")
-    assert [(e["status"], e["on"], e["reason"]) for e in history] == [
-        ("transferred_out", str(day), "Transferred out to THCS B, Hue")
-    ]
-    ended = get(admin, A, "enrollments", row["id"]).json()
-    assert ended["reason_ended"] == "transfer_out"
+    assert (done.json()["status"], done.json()["scheduled_change"]) == ("transferred_out", None)
+    assert state() == (str(day), "transferred_out", [("transferred_out", str(day))])
+    events = admin.get(f"{url('students', student.pk)}status-events/", HTTP_HOST=A).json()
+    assert events[0]["reason"] == "Transferred out to THCS B, Hue"
+    assert get(admin, A, "enrollments", row["id"]).json()["reason_ended"] == "transfer_out"
     # Records stay: the student and the enrollment are still there, but not in the class after.
-    listed = get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={day}").json()
-    assert [r["student"] for r in listed] == [student.pk]
+    in_class = f"?school_class={klass.pk}&on="
+    assert [
+        r["student"] for r in get(admin, A, "enrollments", suffix=in_class + str(day)).json()
+    ] == [student.pk]
     after = day + timedelta(days=1)
-    assert get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={after}").json() == []
-    assert transfer_out(on=str(day), destination="again").json() == {"status": ["not_studying"]}
+    assert get(admin, A, "enrollments", suffix=in_class + str(after)).json() == []
+    again = post_to(admin, leave, reason="graduated", on=str(day))
+    assert again.json() == {"status": ["not_studying"]}
 
 
-def test_a_student_who_transferred_out_can_return_and_a_transfer_in_starts_mid_year(admin, schools):
+def test_every_leave_reason_ends_the_enrollment_with_the_matching_status(admin, schools):
+    a, _ = schools
+    today = timezone.localdate()
+    with school_scope(a.pk):
+        klass = make_class(a)
+        students = {
+            reason: make_student(a, reason)
+            for reason in ("transfer_out", "dropped_out", "graduated")
+        }
+    expected = {
+        "transfer_out": "transferred_out",
+        "dropped_out": "dropped_out",
+        "graduated": "graduated",
+    }
+    for reason, student in students.items():
+        row = enroll_via_api(admin, student.pk, klass).json()
+        body = {"destination": "THCS B"} if reason == "transfer_out" else {}
+        done = post_to(admin, leave_url(student), reason=reason, on=str(today), **body)
+        assert done.status_code == 200, done.json()
+        assert done.json()["status"] == expected[reason]
+        ended = get(admin, A, "enrollments", row["id"]).json()
+        assert (ended["valid_to"], ended["reason_ended"]) == (str(today), reason)
+    # The old route is gone, and the list can be filtered by today's status.
+    assert post_to(admin, leave_url(students["graduated"], "transfer-out/")).status_code == 404
+    only = get(admin, A, "students", suffix="?status=graduated").json()
+    assert [s["full_name"] for s in only] == ["graduated"]
+    assert get(admin, A, "students", suffix="?status=studying").json() == []
+    assert get(admin, A, "students", suffix="?status=expelled").status_code == 400
+
+
+def test_a_scheduled_leave_keeps_the_student_in_class_until_the_day(admin, schools, monkeypatch):
+    a, _ = schools
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student = make_student(a)
+    today = timezone.localdate()
+    row = enroll_via_api(admin, student.pk, klass).json()
+    friday = today + timedelta(days=7)
+    scheduled = post_to(
+        admin, leave_url(student), reason="transfer_out", on=str(friday), destination="THCS B"
+    )
+    assert scheduled.status_code == 200, scheduled.json()
+    assert scheduled.json()["status"] == "studying"
+    assert scheduled.json()["scheduled_change"] == {"status": "transferred_out", "on": str(friday)}
+    ended = get(admin, A, "enrollments", row["id"]).json()
+    assert (ended["valid_to"], ended["reason_ended"]) == (str(friday), "transfer_out")
+
+    def in_class(day):
+        listed = get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={day}")
+        return [r["student"] for r in listed.json()]
+
+    def listed_as(status):
+        return [s["id"] for s in get(admin, A, "students", suffix=f"?status={status}").json()]
+
+    # Today and on the last day: still studying and in the class; the day after, out.
+    assert in_class(today) == in_class(friday) == [student.pk]
+    assert in_class(friday + timedelta(days=1)) == []
+    assert (listed_as("studying"), listed_as("transferred_out")) == ([student.pk], [])
+    listed = get(admin, A, "students").json()[0]
+    assert listed["scheduled_change"] == {"status": "transferred_out", "on": str(friday)}
+    assert history_of(admin, student) == [("transferred_out", str(friday))]
+    # It cannot be scheduled twice while the enrollment is already ending.
+    earlier = str(friday - timedelta(days=1))
+    twice = post_to(admin, leave_url(student), reason="graduated", on=earlier)
+    assert twice.json() == {"enrollment": ["no_open_enrollment"]}
+    same_day = post_to(admin, leave_url(student), reason="graduated", on=str(friday))
+    assert same_day.json() == {"status": ["not_studying"]}
+
+    # The day after, with nothing else changed: transferred out, nothing scheduled.
+    monkeypatch.setattr(timezone, "localdate", lambda: friday + timedelta(days=1))
+    now = get(admin, A, "students", student.pk).json()
+    assert (now["status"], now["scheduled_change"]) == ("transferred_out", None)
+    assert (listed_as("transferred_out"), listed_as("studying")) == ([student.pk], [])
+
+
+def test_a_scheduled_leave_can_be_cancelled_until_its_day(admin, schools, monkeypatch):
+    a, _ = schools
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student = make_student(a)
+    today = timezone.localdate()
+    row = enroll_via_api(admin, student.pk, klass).json()
+    cancel = leave_url(student, "leave/cancel/")
+    assert post_to(admin, cancel).json() == {"leave": ["no_leave"]}
+    friday = today + timedelta(days=7)
+    body = {"reason": "dropped_out", "on": str(friday)}
+    assert post_to(admin, leave_url(student), **body).status_code == 200
+
+    cancelled = post_to(admin, cancel)
+    assert cancelled.status_code == 200, cancelled.json()
+    assert (cancelled.json()["status"], cancelled.json()["scheduled_change"]) == ("studying", None)
+    reopened = get(admin, A, "enrollments", row["id"]).json()
+    assert (reopened["valid_to"], reopened["reason_ended"]) == (None, None)
+    # History is kept: the leave and its cancellation, the later event winning on the same day.
+    assert history_of(admin, student) == [("dropped_out", str(friday)), ("studying", str(friday))]
+    listed = get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={friday}")
+    assert [r["student"] for r in listed.json()] == [student.pk]
+    assert post_to(admin, cancel).json() == {"leave": ["no_leave"]}  # nothing left to cancel
+    # The same student can be scheduled to leave again afterwards, and again cancelled.
+    assert post_to(admin, leave_url(student), **body).status_code == 200
+    assert post_to(admin, cancel).status_code == 200
+    assert post_to(admin, leave_url(student), **body).status_code == 200
+
+    # On the day (or after) the leave is a fact: nothing to cancel.
+    monkeypatch.setattr(timezone, "localdate", lambda: friday)
+    assert post_to(admin, cancel).json() == {"leave": ["leave_already_effective"]}
+    assert get(admin, A, "students", student.pk).json()["status"] == "dropped_out"
+    reopened = get(admin, A, "enrollments", row["id"]).json()
+    assert (reopened["valid_to"], reopened["reason_ended"]) == (str(friday), "dropped_out")
+
+
+def test_a_backdated_leave_cannot_be_cancelled(admin, schools):
+    a, _ = schools
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student = make_student(a)
+    enroll_via_api(admin, student.pk, klass)
+    yesterday = str(timezone.localdate() - timedelta(days=1))
+    assert post_to(admin, leave_url(student), reason="graduated", on=yesterday).status_code == 200
+    cancel = post_to(admin, leave_url(student, "leave/cancel/"))
+    assert cancel.json() == {"leave": ["leave_already_effective"]}
+    assert get(admin, A, "students", student.pk).json()["status"] == "graduated"
+
+
+def test_a_student_who_left_can_return_and_a_transfer_in_starts_mid_year(admin, schools):
     a, _ = schools
     with school_scope(a.pk):
         klass = make_class(a)
         student = make_student(a)
     start = klass.school_year.starts_on
     enroll_via_api(admin, student.pk, klass)
-    leave = f"{url('students', student.pk)}transfer-out/"
     out_on = start + timedelta(days=20)
-    body = {"on": str(out_on), "destination": "THCS B"}
-    assert admin.post(leave, body, content_type="application/json", HTTP_HOST=A).status_code == 200
-    back_on = start + timedelta(days=60)
-    # Back in this School: first the status goes back to studying, then a `return` period starts.
+    body = {"reason": "transfer_out", "on": str(out_on), "destination": "THCS B"}
+    assert post_to(admin, leave_url(student), **body).status_code == 200
+    back_on = start + timedelta(days=60)  # a scheduled return
+    # Back in this School: first a `studying` event, then a `return` period.
     refused = enroll_via_api(admin, student.pk, klass, start=back_on, reason="return")
     assert refused.json() == {"student": ["student_not_studying"]}
     events = f"{url('students', student.pk)}status-events/"
@@ -922,18 +1098,150 @@ def test_a_student_who_transferred_out_can_return_and_a_transfer_in_starts_mid_y
     )
     returned = enroll_via_api(admin, student.pk, klass, start=back_on, reason="return")
     assert returned.status_code == 201, returned.json()
-    assert get(admin, A, "students", student.pk).json()["status"] == "studying"
     rows = get(admin, A, "enrollments", suffix=f"?student={student.pk}").json()
     assert [(r["reason_started"], r["reason_ended"]) for r in rows] == [
         ("new_year", "transfer_out"),
         ("return", None),
     ]
+    now = get(admin, A, "students", student.pk).json()
+    if back_on > timezone.localdate():
+        assert now["scheduled_change"] == {"status": "studying", "on": str(back_on)}
     # A student arriving from another School mid-year is a new student with a transfer_in period.
     newcomer = post(admin, A, "students", {**STUDENT, "full_name": "Tran Binh"}).json()
     arrived = enroll_via_api(
         admin, newcomer["id"], klass, start=start + timedelta(days=100), reason="transfer_in"
     )
     assert arrived.status_code == 201 and arrived.json()["reason_started"] == "transfer_in"
+
+
+def test_closing_a_school_year_ends_its_open_enrollments(admin, schools):
+    a, _ = schools
+    with school_scope(a.pk):
+        klass = make_class(a)
+        year = klass.school_year
+        next_year = SchoolYear.objects.create(
+            school=a,
+            name="next",
+            starts_on=year.ends_on + timedelta(days=1),
+            ends_on=year.ends_on + timedelta(days=366),
+        )
+        next_class = make_class(a, next_year, "8A")
+        continuing, leaver = make_student(a), make_student(a, "Leaver")
+    enroll_via_api(admin, continuing.pk, klass)
+    left = enroll_via_api(admin, leaver.pk, klass).json()
+    leave_on = str(timezone.localdate())
+    post_to(admin, leave_url(leaver), reason="graduated", on=leave_on)
+    after_year = year.ends_on + timedelta(days=1)
+
+    # An unclosed row is open-ended but not in force once its year is over.
+    listed = get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={year.ends_on}")
+    assert [r["student"] for r in listed.json()] == [continuing.pk]
+    listed = get(admin, A, "enrollments", suffix=f"?school_class={klass.pk}&on={after_year}")
+    assert listed.json() == []
+    with school_scope(a.pk):
+        assert not Enrollment.objects.in_force(after_year).exists()
+        assert Enrollment.objects.in_force(year.ends_on).count() == 1
+    # While it is unclosed, the continuing student cannot start next year's period ...
+    blocked = enroll_via_api(admin, continuing.pk, next_class, start=next_year.starts_on)
+    assert blocked.json() == {"constraint": ["enrollment_no_overlapping_periods"]}
+
+    close = f"{url('school-years', year.pk)}close/"
+    closed = admin.post(close, HTTP_HOST=A)
+    assert closed.status_code == 200, closed.json()
+    assert closed.json()["id"] == year.pk
+    rows = get(admin, A, "enrollments", suffix=f"?student={continuing.pk}").json()
+    assert [(r["valid_to"], r["reason_ended"]) for r in rows] == [(str(year.ends_on), "year_end")]
+    # ... and can after it. The leaver's row keeps its own end and reason.
+    started = enroll_via_api(admin, continuing.pk, next_class, start=next_year.starts_on)
+    assert started.status_code == 201, started.json()
+    untouched = get(admin, A, "enrollments", left["id"]).json()
+    assert (untouched["valid_to"], untouched["reason_ended"]) == (leave_on, "graduated")
+
+    # Closing again changes nothing.
+    snapshot = get(admin, A, "enrollments").json()
+    assert admin.post(close, HTTP_HOST=A).status_code == 200
+    assert get(admin, A, "enrollments").json() == snapshot
+    assert admin.post(f"{url('school-years', 999999)}close/", HTTP_HOST=A).status_code == 404
+
+
+def test_only_a_school_admin_closes_a_school_year(client, alice, admin_b, schools):
+    a, _ = schools
+    with school_scope(a.pk):
+        year = make_class(a).school_year
+    sign_in(client, A, "alice@example.com")  # a homeroom teacher
+    close = f"{url('school-years', year.pk)}close/"
+    assert client.post(close, HTTP_HOST=A).status_code == 403
+    client.logout()
+    sign_in(client, B, "admin-b@example.com")
+    assert client.post(close, HTTP_HOST=B).status_code == 404
+
+
+def test_membership_kinds_stay_apart(admin, alice, schools):
+    a, _ = schools
+    kid = new_membership(a, "kid@example.com")
+    parent = new_membership(a, "parent@example.com")
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student, sibling = make_student(a), make_student(a, "Sibling")
+        staff = Membership.objects.get(account=alice)
+        mine = Membership.objects.get(account__email="admin-a@example.com")
+    enroll_via_api(admin, student.pk, klass)
+    link = {"student": sibling.pk, "relation": "mother", "valid_from": "2026-01-01"}
+    assert post(admin, A, "guardian-links", {**link, "membership": parent.pk}).status_code == 201
+
+    # A student's sign-in: not the requester's, not a staff member's, not a Guardian's.
+    for membership, code in (
+        (mine, "membership_is_requester"),
+        (staff, "membership_has_role_assignment"),
+        (parent, "membership_has_guardian_link"),
+    ):
+        refused = patch(admin, A, "students", student.pk, {"membership": membership.pk})
+        assert refused.json() == {"membership": [code]}, code
+    assert patch(admin, A, "students", student.pk, {"membership": kid.pk}).status_code == 200
+
+    # ... and a student's sign-in holds neither a Guardian link nor a staff role.
+    as_guardian = post(admin, A, "guardian-links", {**link, "membership": kid.pk})
+    assert as_guardian.json() == {"membership": ["membership_is_student"]}
+    role = {"membership": kid.pk, "role": "school_admin", "valid_from": "2026-09-01"}
+    assert post(admin, A, "role-assignments", role).json() == {
+        "membership": ["membership_is_student"]
+    }
+    # Staff may be a Guardian.
+    as_staff = post(admin, A, "guardian-links", {**link, "membership": staff.pk})
+    assert as_staff.status_code == 201, as_staff.json()
+
+
+def test_a_guardian_links_relation_is_frozen_once_the_link_has_ended(admin, alice, schools):
+    a, _ = schools
+    today = timezone.localdate()
+    with school_scope(a.pk):
+        student = make_student(a)
+        guardian = Membership.objects.get(account=alice)
+    base = {"membership": guardian.pk, "student": student.pk, "relation": "mother"}
+    past = post(
+        admin,
+        A,
+        "guardian-links",
+        {
+            **base,
+            "valid_from": str(today - timedelta(days=100)),
+            "valid_to": str(today - timedelta(days=10)),
+        },
+    )
+    assert past.status_code == 201, past.json()
+    frozen = patch(admin, A, "guardian-links", past.json()["id"], {"relation": "father"})
+    assert frozen.json() == {"relation": ["period_already_ended"]}
+    same = patch(admin, A, "guardian-links", past.json()["id"], {"relation": "mother"})
+    assert same.status_code == 200
+    # Ending today or later leaves the relation open to correction.
+    current = post(
+        admin,
+        A,
+        "guardian-links",
+        {**base, "valid_from": str(today - timedelta(days=5)), "valid_to": str(today)},
+    )
+    corrected = patch(admin, A, "guardian-links", current.json()["id"], {"relation": "father"})
+    assert corrected.status_code == 200 and corrected.json()["relation"] == "father"
 
 
 def test_guardian_links_end_with_valid_to_and_never_overlap(admin, alice, schools):
@@ -966,16 +1274,16 @@ def test_guardian_links_end_with_valid_to_and_never_overlap(admin, alice, school
 def test_every_member_reads_the_assessment_profiles_and_nobody_writes_them(alice, client, schools):
     with owner_role():
         AssessmentProfileVersion.objects.create(
-            level_kind="lower_secondary",
-            effective_from="2021-09-05",
-            source="Circular 22/2021/TT-BGDĐT",
+            level_kind="primary",  # the secondary versions are seeded by migration
+            effective_from="2030-01-01",
+            source="test",
             rules={"schema": 1},
         )
     sign_in(client, A, "alice@example.com")  # a homeroom teacher, not a School admin
     listed = get(client, A, "assessment-profiles")
     assert listed.status_code == 200
-    (profile,) = listed.json()
-    assert profile["level_kind"] == "lower_secondary" and profile["rules"] == {"schema": 1}
+    (profile,) = [p for p in listed.json() if p["level_kind"] == "primary"]
+    assert profile["rules"] == {"schema": 1}
     assert get(client, A, "assessment-profiles", profile["id"]).status_code == 200
     assert post(client, A, "assessment-profiles", {}).status_code == 405
     assert patch(client, A, "assessment-profiles", profile["id"], {}).status_code == 405

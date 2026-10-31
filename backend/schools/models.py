@@ -1,7 +1,8 @@
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.db import models
-from django.db.models import Func, Q, Value
+from django.db.models import Func, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 
@@ -184,12 +185,26 @@ def _daterange(start: str, end: str) -> Func:
     return Func(start, end, Value("[]"), function="daterange", output_field=DateRangeField())
 
 
+class StudentQuerySet(models.QuerySet):
+    def with_status(self, on=None):
+        """Annotates `current_status`: the status as of `on` (default today), for filtering."""
+        on = on or timezone.localdate()
+        latest = (
+            StudentStatusEvent.objects.filter(student=OuterRef("pk"), on__lte=on)
+            .order_by("-on", "-id")
+            .values("status")[:1]
+        )
+        return self.annotate(
+            current_status=Coalesce(Subquery(latest), Value(Student.Status.STUDYING))
+        )
+
+
 class Student(TenantModel):
     """A student of this School. `membership` (the student's sign-in) exists only for Lower and
     Upper Secondary students, so a trigger (student_membership_needs_secondary_level) requires an
     Enrollment in such a class first, and Enrollment refuses a lower-level class afterwards.
-    `status` is never written directly: it always equals the latest StudentStatusEvent (by `on`,
-    then id), or 'studying' while there is none; the database refuses any other value."""
+    There is no stored status: it is derived from the StudentStatusEvents as of a date
+    (`status_as_of`, `with_status`), so a leave can be scheduled without changing today's status."""
 
     class Gender(models.TextChoices):
         MALE = "male"
@@ -210,7 +225,8 @@ class Student(TenantModel):
     membership = models.ForeignKey(
         "accounts.Membership", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
     )
-    status = models.CharField(max_length=20, choices=Status, default=Status.STUDYING)
+
+    objects = StudentQuerySet.as_manager()
 
     class Meta:
         constraints = [
@@ -226,8 +242,11 @@ class Student(TenantModel):
                 condition=~Q(ministry_student_id="") & ~Q(national_id=""),
                 name="student_ids_are_null_not_blank",
             ),
-            # The secondary-level rule and "status follows the events" are triggers, in the
-            # migration.
+            models.CheckConstraint(
+                condition=Q(national_id__isnull=True) | Q(national_id__regex=r"^[0-9]{12}$"),
+                name="student_national_id_is_12_digits",
+            ),
+            # The secondary-level rule is a trigger, in the migration.
         ]
 
     def __str__(self):
@@ -240,8 +259,9 @@ class Student(TenantModel):
 
 
 class StudentStatusEvent(TenantModel):
-    """Append-only history of a student's status: the app role has SELECT and INSERT only. An
-    insert sets `Student.status` through a trigger."""
+    """Append-only history of a student's status: the app role has SELECT and INSERT only. The
+    status on a date is the latest event (by `on`, then id) with `on` up to that date; an event
+    dated in the future is a scheduled change."""
 
     student = models.ForeignKey(Student, on_delete=models.PROTECT, db_constraint=False)
     status = models.CharField(max_length=20, choices=Student.Status)
@@ -262,18 +282,43 @@ class StudentStatusEvent(TenantModel):
         return f"{self.student_id} {self.status} on {self.on}"
 
 
+def status_as_of(events, on):
+    """The status on `on` from a student's events (any iterable): the latest one up to that day,
+    'studying' when there is none. Same rule as `StudentQuerySet.with_status`."""
+    past = [e for e in events if e.on <= on]
+    return max(past, key=lambda e: (e.on, e.id)).status if past else Student.Status.STUDYING
+
+
+def scheduled_change(events, today):
+    """`{"status", "on"}` of the next change of status after today, or None. A change cancelled
+    by a later event of the same day is no change."""
+    events = list(events)
+    status = status_as_of(events, today)
+    for day in sorted({e.on for e in events if e.on > today}):
+        if (later := status_as_of(events, day)) != status:
+            return {"status": later, "on": day}
+    return None
+
+
 class EnrollmentQuerySet(models.QuerySet):
     def in_force(self, on=None):
-        """Periods containing `on` (default: today); an open period (no `valid_to`) is ongoing."""
+        """Periods containing `on` (default: today) and lying in a school year that contains it:
+        an open period (no `valid_to`) is ongoing only until its year ends."""
         on = on or timezone.localdate()
-        return self.filter(Q(valid_from__lte=on), Q(valid_to__isnull=True) | Q(valid_to__gte=on))
+        return self.filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=on),
+            valid_from__lte=on,
+            school_year__starts_on__lte=on,
+            school_year__ends_on__gte=on,
+        )
 
 
 class Enrollment(TenantModel):
     """A student's place in one School and class for a period of one school year (GLOSSARY). A
     student moves class mid-year, or arrives or leaves, by ending one row and starting another, so
     the history stays. A period is [valid_from, valid_to] inside the school year (open-ended while
-    ongoing; close it with `year_end` when the year is over); periods of one student never overlap.
+    ongoing, but in force only within its year; `school-years/{id}/close/` ends the open ones with
+    `year_end`); periods of one student never overlap.
     The class must belong to the year: (school_id, school_year_id, school_class_id) references the
     class's (school_id, school_year_id, id). `valid_to` and `reason_ended` are set together."""
 
@@ -394,6 +439,9 @@ class AssessmentProfileVersion(models.Model):
          "weights": {"regular": 1, "mid_term": 2, "end_term": 3},
          "semester_average": "<formula text>",
          "year_average": {"weights": {"semester_1": 1, "semester_2": 2}, "formula": "<text>"},
+         "year_average_uses_rounded_semester_averages": true,
+         "rounding": "ROUND_HALF_UP",        # a decimal.Decimal rounding mode
+         "not_modelled": ["<what this shape does not capture yet>"],
          "learning_ratings": [               # best first; the last one has "otherwise": true
              {"name": "Tốt",
               "comment_subjects_not_passed_max": 0,

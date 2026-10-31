@@ -1,6 +1,8 @@
+import re
 from collections.abc import Mapping
 
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.models import Membership, RoleAssignment
@@ -19,6 +21,8 @@ from .models import (
     Subject,
     SubjectGroup,
     Term,
+    scheduled_change,
+    status_as_of,
 )
 
 
@@ -105,8 +109,9 @@ class SchoolClassSerializer(
 
 class PeriodSerializer(SetupSerializer):
     """A row with a period `valid_from`..`valid_to` (inclusive, open-ended when null). History
-    stays: an ended period is closed, and a period never reopens or starts earlier. A subclass
-    refuses an ending by overriding `check_may_end_earlier`."""
+    stays: an ended period is closed, and a period never reopens or starts earlier (the one
+    exception is cancelling a leave scheduled in the future, `students/{id}/leave/cancel/`). A
+    subclass refuses an ending by overriding `check_may_end_earlier`."""
 
     def check_may_end_earlier(self, row, valid_to):
         pass
@@ -165,7 +170,7 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
     def validate_membership(self, membership):
         if membership.status != Membership.Status.ACTIVE:
             raise serializers.ValidationError("membership_inactive")
-        return membership
+        return _not_a_student(membership)
 
     def validate_subject(self, subject):
         if subject is not None and not subject.is_active:
@@ -212,17 +217,36 @@ def _active_membership(membership):
     return membership
 
 
+def _not_a_student(membership):
+    """A student's sign-in never holds a staff role or a Guardian link (a staff member may be a
+    Guardian)."""
+    if Student.objects.filter(membership=membership).exists():
+        raise serializers.ValidationError("membership_is_student")
+    return membership
+
+
 def _id_or_none(value):
     """An identifier left blank is NULL, so the per-School uniques never collide on blanks."""
     return (value or "").strip() or None
 
 
+class ScheduledChangeSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Student.Status.choices)
+    on = serializers.DateField()
+
+
 class StudentSerializer(SetupSerializer):
-    """`status` is read-only: it changes only through `students/{id}/status-events/`, and sending
-    a different one on update answers 400 `immutable`. `membership` (the student's sign-in) is
-    for Lower and Upper Secondary students and needs an Enrollment in such a class first."""
+    """`status` is the status today and `scheduled_change` the next change after today (or null),
+    both derived from the status events: neither is writable (sending a different `status` on
+    update answers 400 `immutable`); events come through `students/{id}/status-events/` and
+    `students/{id}/leave/`. `membership` (the student's sign-in) is for Lower and Upper Secondary
+    students and needs an Enrollment in such a class first; it is never a staff or Guardian
+    Membership, nor the requester's own."""
 
     IMMUTABLE = ("status",)
+
+    status = serializers.SerializerMethodField()
+    scheduled_change = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
@@ -236,34 +260,75 @@ class StudentSerializer(SetupSerializer):
             "national_id",
             "membership",
             "status",
+            "scheduled_change",
         ]
-        read_only_fields = ["status"]
+
+    @extend_schema_field(serializers.ChoiceField(choices=Student.Status.choices))
+    def get_status(self, student):
+        return status_as_of(student.studentstatusevent_set.all(), timezone.localdate())
+
+    @extend_schema_field(ScheduledChangeSerializer(allow_null=True))
+    def get_scheduled_change(self, student):
+        return scheduled_change(student.studentstatusevent_set.all(), timezone.localdate())
 
     def validate_ministry_student_id(self, value):
         return _id_or_none(value)
 
     def validate_national_id(self, value):
-        return _id_or_none(value)
+        value = _id_or_none(value)
+        if value is not None and not re.fullmatch(r"[0-9]{12}", value):
+            raise serializers.ValidationError("invalid_national_id")
+        return value
 
     def validate_membership(self, membership):
-        return _active_membership(membership)
+        membership = _active_membership(membership)
+        if membership is None:
+            return None
+        if membership == self.context["request"].membership:
+            raise serializers.ValidationError("membership_is_requester")
+        if RoleAssignment.objects.filter(membership=membership).exists():
+            raise serializers.ValidationError("membership_has_role_assignment")
+        if GuardianLink.objects.filter(membership=membership).exists():
+            raise serializers.ValidationError("membership_has_guardian_link")
+        return membership
+
+
+class StudentListSerializer(StudentSerializer):
+    """The list hides all but the last 3 digits of `national_id`; the full value is only on
+    retrieve of one student."""
+
+    def to_representation(self, student):
+        data = super().to_representation(student)
+        if data["national_id"]:
+            data["national_id"] = "*" * (len(data["national_id"]) - 3) + data["national_id"][-3:]
+        return data
 
 
 class StudentStatusEventSerializer(SetupSerializer):
-    """`student` and `recorded_by` come from the URL and the request, never from the body."""
+    """`student` and `recorded_by` come from the URL and the request, never from the body. Only
+    `studying` (a return, dated today or later) is recorded here; leaving goes through
+    `students/{id}/leave/`, which ends the enrollment in the same transaction."""
 
     class Meta:
         model = StudentStatusEvent
         fields = ["school", "id", "student", "status", "on", "reason", "recorded_by"]
         read_only_fields = ["student", "recorded_by"]
 
+    def validate_status(self, status):
+        if status != Student.Status.STUDYING:
+            raise serializers.ValidationError("use_leave")
+        return status
+
 
 class EnrollmentSerializer(PeriodSerializer):
     """A student's period in a class. Student, year, start and `reason_started` never change;
-    `valid_to` (with `reason_ended`) only ends the period, never clears it. A class change goes
-    through `enrollments/{id}/move/` and a transfer out through `students/{id}/transfer-out/`, so
-    the history stays. Only a student who is studying can start a period (a student who
-    transferred out and returns first gets a `studying` status event, then a `return` period)."""
+    `valid_to` (with `reason_ended`) only ends the period, never clears it, and the only reason
+    accepted here is `year_end`: a class change goes through `enrollments/{id}/move/` and a
+    leave through `students/{id}/leave/`, so the history and the student's status stay
+    consistent. The class changes in place only for a period that is open and has not started
+    yet; `reason_ended` changes only in the request that sets `valid_to`. Only a student who is
+    studying on the first day can start a period (a student who left and returns first gets a
+    `studying` status event, then a `return` period)."""
 
     IMMUTABLE = ("student", "school_year", "valid_from", "reason_started")
 
@@ -281,20 +346,30 @@ class EnrollmentSerializer(PeriodSerializer):
             "reason_ended",
         ]
 
-    def validate_student(self, student):
-        if student.status != Student.Status.STUDYING:
-            raise serializers.ValidationError("student_not_studying")
-        return student
+    def validate_reason_ended(self, reason):
+        kept = self.instance is not None and reason == self.instance.reason_ended
+        if reason not in (None, Enrollment.ReasonEnded.YEAR_END) and not kept:
+            raise serializers.ValidationError("only_year_end")
+        return reason
 
     def validate(self, attrs):
-        """`valid_to` and `reason_ended` come together."""
         row = self.instance
+        if row is None:
+            events = attrs["student"].studentstatusevent_set.all()
+            if status_as_of(events, attrs["valid_from"]) != Student.Status.STUDYING:
+                raise serializers.ValidationError({"student": ["student_not_studying"]})
         valid_to = attrs.get("valid_to", row.valid_to if row else None)
         reason = attrs.get("reason_ended", row.reason_ended if row else None)
         if valid_to is not None and reason is None:
             raise serializers.ValidationError({"reason_ended": ["required_with_valid_to"]})
         if valid_to is None and reason is not None:
             raise serializers.ValidationError({"valid_to": ["required_with_reason_ended"]})
+        if row is not None:
+            moved = "school_class" in attrs and attrs["school_class"].pk != row.school_class_id
+            if moved and (row.valid_to is not None or row.valid_from < timezone.localdate()):
+                raise serializers.ValidationError({"school_class": ["use_move"]})
+            if reason != row.reason_ended and valid_to == row.valid_to:
+                raise serializers.ValidationError({"reason_ended": ["set_with_valid_to"]})
         return attrs
 
 
@@ -305,16 +380,30 @@ class EnrollmentMoveSerializer(serializers.Serializer):
     on = serializers.DateField()
 
 
-class TransferOutSerializer(serializers.Serializer):
-    """`on` is the student's last day at this School; `destination` is free text."""
+class LeaveSerializer(serializers.Serializer):
+    """`on` is the student's last day at this School; a future date schedules the leave.
+    `destination` (free text) is required for a transfer out."""
 
+    reason = serializers.ChoiceField(
+        choices=[
+            Enrollment.ReasonEnded.TRANSFER_OUT,
+            Enrollment.ReasonEnded.DROPPED_OUT,
+            Enrollment.ReasonEnded.GRADUATED,
+        ]
+    )
     on = serializers.DateField()
-    destination = serializers.CharField(max_length=200)
+    destination = serializers.CharField(max_length=200, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if attrs["reason"] == Enrollment.ReasonEnded.TRANSFER_OUT and not attrs.get("destination"):
+            raise serializers.ValidationError({"destination": ["required"]})
+        return attrs
 
 
 class GuardianLinkSerializer(PeriodSerializer):
     """A Guardian's link to a student. End it with `valid_to`; to link again later, create a new
-    one. Never deleted."""
+    one. Never deleted. The relation can be corrected until the link has ended. A student's own
+    sign-in is no Guardian."""
 
     IMMUTABLE = ("membership", "student", "valid_from")
 
@@ -331,7 +420,14 @@ class GuardianLinkSerializer(PeriodSerializer):
         ]
 
     def validate_membership(self, membership):
-        return _active_membership(membership)
+        return _not_a_student(_active_membership(membership))
+
+    def validate(self, attrs):
+        row = self.instance
+        ended = row is not None and row.valid_to is not None and row.valid_to < timezone.localdate()
+        if ended and attrs.get("relation", row.relation) != row.relation:
+            raise serializers.ValidationError({"relation": ["period_already_ended"]})
+        return attrs
 
 
 class AssessmentProfileVersionSerializer(serializers.ModelSerializer):
