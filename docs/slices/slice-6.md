@@ -15,6 +15,20 @@ The shaping constraint: **a School never creates or edits a person's Account** (
 - Issuing: School admin issues any kind (`accounts.manage`, `guardian_invite.issue`); a homeroom teacher issues guardian and student invitations for their own class (`guardian_invite.issue`). Revoke = status `revoked`. A printable list per class (JSON now; PDF with the report-card pipeline) shows student, relation, code, expiry.
 - Membership lifecycle: `POST /api/setup/memberships/{id}/deactivate/` ends the person's Role Assignments and Guardian links in force (dated today) and sets the Membership inactive, refusing the last in-force School admin (the slice 4 handover rule); `reactivate/` sets it active without restoring roles.
 
+### How 6a implements it
+
+These refine the bullets above where they differ.
+
+- **Expiry is derived**, not stored: `status` is `pending`, `accepted` or `revoked`; the API reads `expired` for a pending invitation past `expires_at` (history rule: derived state is computed).
+- **Codes**: 10 characters from an alphabet without 0/O/1/I/L, shown as `XXXXX-XXXXX`; case, spaces and dashes are ignored when typed. Stored as an HMAC keyed by `SECRET_KEY` (`code_digest`, unique per School), so rotating `SECRET_KEY` voids pending codes.
+- **Printing issues fresh codes.** A digest cannot be shown again, so `POST /api/setup/invitations/print/` (`school_class`) gives every pending guardian and student invitation of the class's students today a new code and a new 30-day expiry; the previous print's codes stop working.
+- **Errors at activation**: the generic `invalid_invitation` for a bad code or credentials; after both check out, `{"invitation": ["cannot_apply"]}` (inactive subject, the student already has a sign-in) or `{"constraint": [name]}` (an overlapping period, the membership-kind triggers, the secondary-level trigger), and nothing is written, the Account included. A weak password for a new Account answers `{"password": [...]}` (Django's minimum length and common-password validators).
+- **An inactive Membership is reactivated** by accepting a new invitation: the School issued it, so it means to take the person back.
+- **Staff invitations carry no named duties** (`title`, `can_reopen_gradebooks`, `signs_for_principal`): another admin or board member sets them after acceptance, as for any row.
+- **Listing**: each member lists the invitations they may issue; the principal board reads staff invitations (`accounts.manage` 👁) and revokes none.
+- **Memberships**: `GET /api/setup/memberships/` (School admin, principal board read) shows id, the Account's display name, status and Ministry staff ID, no identifiers. Deactivating ends the rows still running after today on today, or on their first day for a future row.
+- **Deferred**: rate limiting of activation (with login), an `accepted_at` timestamp (the audit log, slice 7).
+
 ## 6b: Excel import
 
 - Templates: `GET /api/setup/imports/templates/{kind}.xlsx` for `staff`, `students` (with enrollment class), `guardians`; Vietnamese headers, a locked header row, text-formatted ID and phone columns, a sample row, a sheet explaining each column.

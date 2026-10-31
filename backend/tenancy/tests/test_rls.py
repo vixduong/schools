@@ -133,11 +133,14 @@ def test_app_role_reaches_only_global_or_rls_tables(db):
         assert policies == ["tenant_isolation"], f"{name}: expected one policy, got {policies}"
 
 
-def test_app_role_cannot_create_delete_or_edit_accounts(app_conn):
-    """Column grants on accounts_account: sign-in updates password and last_login, nothing else."""
-    for sql in (
+def test_app_role_cannot_delete_or_edit_accounts(app_conn):
+    """Grants on accounts_account: activation inserts an Account, sign-in updates password and
+    last_login, nothing else."""
+    app_conn.execute(
         "INSERT INTO accounts_account (password, display_name, email, is_active)"
-        " VALUES ('x', 'x', 'x@example.com', true)",
+        " SELECT 'x', 'x', 'x@example.com', true WHERE false"
+    )
+    for sql in (
         "UPDATE accounts_account SET email = 'x@example.com' WHERE false",
         "UPDATE accounts_account SET is_active = true WHERE false",
         "DELETE FROM accounts_account WHERE false",

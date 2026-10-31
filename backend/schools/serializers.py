@@ -4,8 +4,11 @@ from collections.abc import Mapping
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
-from accounts.models import Membership, RoleAssignment
+from accounts.invitations import issue_code
+from accounts.models import Invitation, InvitationRole, Membership, RoleAssignment
+from accounts.serializers import IdentifierField
 from permissions.actor import Actor
 from permissions.engine import can
 
@@ -221,20 +224,7 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
         or last beyond the new `valid_to`. Every in-force School admin row is locked first (in id
         order, so two admins cannot deadlock): two admins ending each other's rows at once
         serialize here, and the second sees the first's committed end and is refused."""
-        if role.role != RoleAssignment.Role.SCHOOL_ADMIN:
-            return
-        in_force = list(
-            RoleAssignment.objects.in_force()
-            .filter(role=role.role)
-            .select_for_update(of=("self",))
-            .order_by("pk")
-        )
-        covered = any(
-            r.membership_id != role.membership_id and (r.valid_to is None or r.valid_to > valid_to)
-            for r in in_force
-        )
-        if any(r.pk == role.pk for r in in_force) and not covered:
-            raise serializers.ValidationError("last_school_admin")
+        ensure_school_admin_coverage(role, valid_to)
 
     def create(self, validated_data):
         me = self.context["request"].membership
@@ -247,6 +237,25 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
                 "requested_by": me,
             }
         return super().create(validated_data)
+
+
+def ensure_school_admin_coverage(role, valid_to):
+    """Ending `role` on `valid_to` (an assignment, or a Membership being deactivated) must leave
+    School admin coverage continuous; see `check_may_end_earlier`."""
+    if role.role != RoleAssignment.Role.SCHOOL_ADMIN:
+        return
+    in_force = list(
+        RoleAssignment.objects.in_force()
+        .filter(role=role.role)
+        .select_for_update(of=("self",))
+        .order_by("pk")
+    )
+    covered = any(
+        r.membership_id != role.membership_id and (r.valid_to is None or r.valid_to > valid_to)
+        for r in in_force
+    )
+    if any(r.pk == role.pk for r in in_force) and not covered:
+        raise serializers.ValidationError("last_school_admin")
 
 
 def _active_membership(membership):
@@ -477,6 +486,131 @@ class GuardianLinkSerializer(PeriodSerializer):
         if ended and attrs.get("relation", row.relation) != row.relation:
             raise serializers.ValidationError({"relation": ["period_already_ended"]})
         return attrs
+
+
+class MembershipSerializer(serializers.ModelSerializer):
+    """A person in this School, by the name on their Account (no identifiers: least data).
+    Status changes through `deactivate/` and `reactivate/`."""
+
+    display_name = serializers.CharField(source="account.display_name", read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = ["id", "display_name", "status", "ministry_staff_id"]
+        read_only_fields = fields
+
+
+class InvitationRoleSerializer(serializers.ModelSerializer):
+    """A Role Assignment a staff invitation creates on acceptance: the setup API's rules at
+    issue time (scope per role and class-in-year are database constraints), checked again at
+    acceptance."""
+
+    class Meta:
+        model = InvitationRole
+        fields = ["role", "school_year", "subject_group", "school_class", "subject", "valid_from"]
+
+    def validate_subject(self, subject):
+        return RoleAssignmentSetupSerializer.validate_subject(self, subject)
+
+
+def may_issue(actor, kind, student, school) -> bool:
+    """Staff invitations are `accounts.manage` on the School; guardian and student invitations
+    are `guardian_invite.issue` on the student (the School admin, or the student's homeroom
+    teacher)."""
+    if kind == Invitation.Kind.STAFF:
+        return can(actor, "accounts.manage", school)
+    return can(actor, "guardian_invite.issue", student)
+
+
+class InvitationSerializer(SetupSerializer):
+    """Who the School expects, and as what. `code` is in the response only when the invitation
+    is issued (and in `invitations/print/`, which issues fresh codes). `status` reads `expired`
+    for a pending invitation past `expires_at`. `identifier` (VN mobile or email) binds the
+    invitation to one sign-in; empty, anyone holding the code may activate it. Payload per
+    `kind`: staff `roles`; guardian `student` and `relation`; student `student` (Lower or Upper
+    Secondary, without a sign-in yet). Never edited: revoke and issue a new one."""
+
+    identifier = IdentifierField(max_length=254, required=False, allow_null=True, allow_blank=True)
+    relation = serializers.ChoiceField(
+        GuardianLink.Relation.choices, required=False, allow_null=True
+    )
+    roles = InvitationRoleSerializer(many=True, required=False)
+    student_name = serializers.CharField(source="student.full_name", read_only=True, default=None)
+    status = serializers.SerializerMethodField()
+    code = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = [
+            "school",
+            "id",
+            "kind",
+            "identifier",
+            "display_name",
+            "student",
+            "student_name",
+            "relation",
+            "roles",
+            "status",
+            "expires_at",
+            "created_by",
+            "accepted_membership",
+            "code",
+        ]
+        read_only_fields = ["expires_at", "created_by", "accepted_membership"]
+
+    @extend_schema_field(serializers.ChoiceField(choices=[*Invitation.Status.values, "expired"]))
+    def get_status(self, invitation):
+        return "expired" if invitation.is_expired else invitation.status
+
+    def validate(self, attrs):
+        kind, student = attrs["kind"], attrs.get("student")
+        errors = {}
+        if kind == Invitation.Kind.STAFF:
+            errors |= {n: ["not_for_kind"] for n in ("student", "relation") if attrs.get(n)}
+        else:
+            if student is None:
+                errors["student"] = ["required"]
+            if attrs.get("roles"):
+                errors["roles"] = ["not_for_kind"]
+        if kind == Invitation.Kind.GUARDIAN and not attrs.get("relation"):
+            errors["relation"] = ["required"]
+        if kind == Invitation.Kind.STUDENT and student is not None:
+            if attrs.get("relation"):
+                errors["relation"] = ["not_for_kind"]
+            if student.membership_id is not None:
+                errors["student"] = ["student_has_membership"]
+            # As the trigger student_membership_needs_secondary_level checks at acceptance.
+            elif not Enrollment.objects.filter(
+                student=student,
+                school_class__grade__level__kind__in=[
+                    Level.Kind.LOWER_SECONDARY,
+                    Level.Kind.UPPER_SECONDARY,
+                ],
+            ).exists():
+                errors["student"] = ["student_not_secondary"]
+        if errors:
+            raise serializers.ValidationError(errors)
+        request = self.context["request"]
+        if not may_issue(Actor.of(request), kind, student, request.school):
+            raise PermissionDenied()
+        return attrs
+
+    def create(self, validated_data):
+        roles = validated_data.pop("roles", [])
+        invitation = Invitation(**validated_data)
+        code = issue_code(invitation)
+        invitation.save()
+        InvitationRole.objects.bulk_create(
+            InvitationRole(school=invitation.school, invitation=invitation, **role)
+            for role in roles
+        )
+        invitation.code = code
+        return invitation
+
+
+class InvitationPrintSerializer(serializers.Serializer):
+    school_class = serializers.PrimaryKeyRelatedField(queryset=SchoolClass.objects.all())
 
 
 class AssessmentProfileVersionSerializer(serializers.ModelSerializer):

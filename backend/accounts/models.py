@@ -137,12 +137,23 @@ def _period() -> Func:
     )
 
 
-def _role_scope(role: str, *scoped: str) -> Q:
+def _role_scope(role: str, *scoped: str, columns=SCOPE_COLUMNS) -> Q:
     """`role` is valid only with exactly the `scoped` scope columns set."""
     q = Q(role=role)
-    for column in SCOPE_COLUMNS:
+    for column in columns:
         q &= Q(**{f"{column}__isnull": column not in scoped})
     return q
+
+
+def _roles_match_scope(columns=SCOPE_COLUMNS) -> Q:
+    # student and guardian are absent on purpose: they are never RoleAssignment rows.
+    return (
+        _role_scope("school_admin", columns=columns)
+        | _role_scope("principal_board", columns=columns)
+        | _role_scope("group_leader", "subject_group", columns=columns)
+        | _role_scope("homeroom_teacher", "school_year", "school_class", columns=columns)
+        | _role_scope("subject_teacher", "school_year", "subject", "school_class", columns=columns)
+    )
 
 
 class RoleAssignment(models.Model):
@@ -225,14 +236,8 @@ class RoleAssignment(models.Model):
 
     class Meta:
         constraints = [
-            # student and guardian are absent on purpose: they are never RoleAssignment rows.
             models.CheckConstraint(
-                condition=_role_scope("school_admin")
-                | _role_scope("principal_board")
-                | _role_scope("group_leader", "subject_group")
-                | _role_scope("homeroom_teacher", "school_year", "school_class")
-                | _role_scope("subject_teacher", "school_year", "subject", "school_class"),
-                name="roleassignment_scope_matches_role",
+                condition=_roles_match_scope(), name="roleassignment_scope_matches_role"
             ),
             models.CheckConstraint(
                 condition=Q(valid_to__isnull=True) | Q(valid_to__gte=models.F("valid_from")),
@@ -297,3 +302,114 @@ class RoleAssignment(models.Model):
 
     def __str__(self):
         return f"{self.role} ({self.school_year_id})"
+
+
+class Invitation(models.Model):
+    """How a person joins a School (ADR 0002: a School never creates or edits an Account). The
+    School says who is expected and as what; the person activates the invitation on the School's
+    host with its one-time code, creating their Account or proving they own one. Tenant table (RLS).
+
+    Only an HMAC of the code is stored (`code_digest`): the plain code is shown when the
+    invitation is issued and when a class's list is printed, which issues fresh codes. Expiry is
+    derived (`pending` and past `expires_at`), not stored. Kind-specific payload: a staff
+    invitation's roles are InvitationRole rows; a guardian invitation names `student` and
+    `relation`; a student invitation names `student`."""
+
+    class Kind(models.TextChoices):
+        STAFF = "staff"
+        GUARDIAN = "guardian"
+        STUDENT = "student"
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        ACCEPTED = "accepted"
+        REVOKED = "revoked"
+
+    school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE)
+    kind = models.CharField(max_length=20, choices=Kind)
+    # Normalised VN mobile or lower-case email the person must activate with; NULL for a printed
+    # code anyone holding it may activate.
+    identifier = models.CharField(max_length=254, null=True, blank=True)  # noqa: DJ001
+    display_name = models.CharField(max_length=200)
+    code_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
+    created_by = models.ForeignKey(
+        Membership, on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    accepted_membership = models.ForeignKey(
+        Membership,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="+",
+    )
+    student = models.ForeignKey(
+        "schools.Student", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    relation = models.CharField(max_length=20, null=True, blank=True)  # noqa: DJ001
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="invitation_school_id_key"),
+            models.UniqueConstraint(fields=["school", "code_digest"], name="invitation_code_key"),
+            models.CheckConstraint(
+                condition=Q(kind="staff", student__isnull=True, relation__isnull=True)
+                | Q(kind="guardian", student__isnull=False, relation__isnull=False)
+                | Q(kind="student", student__isnull=False, relation__isnull=True),
+                name="invitation_payload_matches_kind",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="accepted", accepted_membership__isnull=False)
+                | (~Q(status="accepted") & Q(accepted_membership__isnull=True)),
+                name="invitation_accepted_has_membership",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} invitation {self.pk}"
+
+    @property
+    def is_expired(self) -> bool:
+        return self.status == self.Status.PENDING and self.expires_at <= timezone.now()
+
+
+INVITATION_SCOPE_COLUMNS = ("school_year", "subject_group", "school_class", "subject")
+
+
+class InvitationRole(models.Model):
+    """A Role Assignment a staff invitation creates on acceptance, from `valid_from`. Same scope
+    rule as RoleAssignment (no grade: no current role uses it); composite same-School FKs, and a
+    class-scoped role's year is its class's year."""
+
+    school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE)
+    invitation = models.ForeignKey(
+        Invitation, on_delete=models.PROTECT, db_constraint=False, related_name="roles"
+    )
+    role = models.CharField(max_length=30, choices=RoleAssignment.Role)
+    school_year = models.ForeignKey(
+        "schools.SchoolYear", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    subject_group = models.ForeignKey(
+        "schools.SubjectGroup", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    school_class = models.ForeignKey(
+        "schools.SchoolClass", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    subject = models.ForeignKey(
+        "schools.Subject", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    valid_from = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="invitationrole_school_id_key"),
+            models.CheckConstraint(
+                condition=_roles_match_scope(INVITATION_SCOPE_COLUMNS),
+                name="invitationrole_scope_matches_role",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.role} for invitation {self.invitation_id}"

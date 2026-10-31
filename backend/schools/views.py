@@ -1,18 +1,23 @@
 from contextlib import contextmanager
 from datetime import timedelta
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
+from django.db.models import F, Q, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.fields import ChoiceField, DateField, IntegerField
 from rest_framework.response import Response
 
-from accounts.models import RoleAssignment
+from accounts.invitations import issue_code
+from accounts.models import Invitation, Membership, RoleAssignment
 from accounts.permissions import HasMembership, NotRequesterOrAssignee
+from permissions.actor import Actor
 from permissions.drf import Can
+from permissions.engine import can, visible_students
 
 from . import serializers
 from .models import (
@@ -40,6 +45,19 @@ LEAVE_STATUS = {
 }
 
 
+@contextmanager
+def database_rules():
+    """Writes in one savepoint. A rule only the database can check (overlap, term inside year,
+    grade range, role scope, same-School references) answers 400 naming the constraint, not 500,
+    and undoes every write in the block."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as error:
+        name = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+        raise ValidationError({"constraint": [name or "unknown"]}) from error
+
+
 class SetupViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -65,17 +83,7 @@ class SetupViewSet(
         with self._database_rules():
             serializer.save(**extra)
 
-    @contextmanager
-    def _database_rules(self):
-        """Writes in one savepoint. A rule only the database can check (overlap, term inside
-        year, grade range, role scope, same-School references) answers 400 naming the constraint,
-        not 500, and undoes every write in the block."""
-        try:
-            with transaction.atomic():
-                yield
-        except IntegrityError as error:
-            name = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
-            raise ValidationError({"constraint": [name or "unknown"]}) from error
+    _database_rules = staticmethod(database_rules)
 
 
 class SchoolYearViewSet(SetupViewSet):
@@ -387,6 +395,125 @@ class EnrollmentViewSet(SetupViewSet):
 class GuardianLinkViewSet(SetupViewSet):
     queryset = GuardianLink.objects.order_by("id")
     serializer_class = serializers.GuardianLinkSerializer
+
+
+class MembershipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """The people of this School: read by the School admin and the principal board, deactivated
+    and reactivated by the School admin (`accounts.manage`). People join through invitations."""
+
+    permission_classes = [HasMembership, Can("accounts.manage", read=True)]
+    queryset = Membership.objects.select_related("account").order_by("id")
+    serializer_class = serializers.MembershipSerializer
+
+    @extend_schema(request=None)
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """End the person's Role Assignments and Guardian links still running after today (dated
+        today, or their first day when that is later) and set the Membership inactive, which
+        also ends their sessions' access. Refused for the last in-force School admin (appoint
+        the replacement first). Idempotent."""
+        today = timezone.localdate()
+        membership = self.get_object()
+        with database_rules():
+            # The admin rows first, then the Membership, in the order role edits lock them.
+            for role in RoleAssignment.objects.in_force().filter(
+                membership=membership, role=RoleAssignment.Role.SCHOOL_ADMIN
+            ):
+                try:
+                    serializers.ensure_school_admin_coverage(role, today)
+                except ValidationError as error:
+                    raise ValidationError({"status": error.detail}) from None
+            membership = Membership.objects.select_for_update().get(pk=membership.pk)
+            today_value = Value(today, output_field=models.DateField())
+            ends = {"valid_to": Greatest(today_value, F("valid_from"))}
+            running = Q(valid_to__isnull=True) | Q(valid_to__gt=today)
+            RoleAssignment.objects.filter(running, membership=membership).update(**ends)
+            GuardianLink.objects.filter(running, membership=membership).update(**ends)
+            membership.status = Membership.Status.INACTIVE
+            membership.save(update_fields=["status"])
+        return Response(self.get_serializer(membership).data)
+
+    @extend_schema(request=None)
+    @action(detail=True, methods=["post"])
+    def reactivate(self, request, pk=None):
+        """Set the Membership active again; no role or link comes back (assign them anew)."""
+        membership = self.get_object()
+        membership.status = Membership.Status.ACTIVE
+        membership.save(update_fields=["status"])
+        return Response(self.get_serializer(membership).data)
+
+
+class InvitationViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Invitations to join this School. The School admin issues every kind (`accounts.manage`,
+    `guardian_invite.issue`); a homeroom teacher issues guardian and student invitations for
+    students of their class (`guardian_invite.issue`). Each member lists the invitations they
+    may issue (the principal board reads staff invitations). Never edited or deleted: `revoke/`.
+    """
+
+    permission_classes = [HasMembership]
+    queryset = Invitation.objects.select_related("student").prefetch_related("roles").order_by("id")
+    serializer_class = serializers.InvitationSerializer
+
+    def get_queryset(self):
+        actor = Actor.of(self.request)
+        visible = Q(student__in=visible_students(actor, "guardian_invite.issue"))
+        if can(actor, "accounts.manage", self.request.school, read=True):
+            visible |= Q(kind=Invitation.Kind.STAFF)
+        return super().get_queryset().filter(visible)
+
+    def perform_create(self, serializer):
+        with database_rules():
+            serializer.save(created_by=self.request.membership)
+
+    @extend_schema(request=None)
+    @action(detail=True, methods=["post"])
+    def revoke(self, request, pk=None):
+        """A pending invitation (expired or not) stops working."""
+        invitation = self.get_object()
+        actor = Actor.of(request)
+        if not serializers.may_issue(actor, invitation.kind, invitation.student, request.school):
+            raise PermissionDenied()
+        if invitation.status != Invitation.Status.PENDING:
+            raise ValidationError({"status": ["not_pending"]})
+        invitation.status = Invitation.Status.REVOKED
+        invitation.save(update_fields=["status"])
+        return Response(self.get_serializer(invitation).data)
+
+    @extend_schema(
+        request=serializers.InvitationPrintSerializer,
+        responses=serializers.InvitationSerializer(many=True),
+    )
+    @action(detail=False, methods=["post"])
+    def print(self, request):
+        """The printable list of a class: the pending guardian and student invitations of the
+        students in the class today, each with a fresh code and expiry (codes are stored only as
+        a digest, so printing again replaces the codes of the previous print). JSON for now; a
+        PDF comes with the report-card pipeline."""
+        body = serializers.InvitationPrintSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        school_class = body.validated_data["school_class"]
+        if not can(Actor.of(request), "guardian_invite.issue", school_class):
+            raise PermissionDenied()
+        invitations = list(
+            Invitation.objects.select_for_update(of=("self",))
+            .filter(
+                status=Invitation.Status.PENDING,
+                student__in=Enrollment.objects.in_force()
+                .filter(school_class=school_class)
+                .values("student_id"),
+            )
+            .select_related("student")
+            .order_by("student__full_name", "student_id", "kind", "id")
+        )
+        for invitation in invitations:
+            invitation.code = issue_code(invitation)
+            invitation.save(update_fields=["code_digest", "expires_at"])
+        return Response(self.get_serializer(invitations, many=True).data)
 
 
 class AssessmentProfileViewSet(viewsets.ReadOnlyModelViewSet):

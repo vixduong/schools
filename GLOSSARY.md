@@ -36,6 +36,10 @@ _Avoid_: Tenant user, school account
 A Membership's duty in one scope for one school year, such as homeroom teacher of 7A or subject teacher of Maths in 7A and 7B. Permissions come from the assignments in force, never from an account type.
 _Avoid_: Account type, user type, role (alone, when the scoped assignment is meant)
 
+**Invitation**:
+A School's statement that a person is expected, and as what (staff with their Role Assignments, Guardian of a student, or the student themself), carried by a one-time code. The person activates it on the School's host, creating their Account or proving they own one; a School never creates an Account itself.
+_Avoid_: Invite code (for the whole record; the code is one part of it), account creation
+
 **Guardian**:
 An adult who answers for a student to the School: a parent, grandparent or other carer, linked to one or more students.
 _Avoid_: Parent (in English text, as a type), phụ huynh (in English text)

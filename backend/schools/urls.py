@@ -17,6 +17,8 @@ for prefix, viewset in {
     "enrollments": views.EnrollmentViewSet,
     "guardian-links": views.GuardianLinkViewSet,
     "assessment-profiles": views.AssessmentProfileViewSet,
+    "memberships": views.MembershipViewSet,
+    "invitations": views.InvitationViewSet,
 }.items():
     router.register(prefix, viewset, basename=prefix)
 

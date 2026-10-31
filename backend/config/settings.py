@@ -41,6 +41,11 @@ MIDDLEWARE = [
 ]
 
 AUTH_USER_MODEL = "accounts.Account"
+# Applied when activation creates an Account (the only place a password is chosen today).
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},  # 8
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+]
 
 # Cookies (ADR 0003). Host-only: no Domain, and the __Host- prefix makes browsers enforce it.
 # The prefix needs Secure, so plain-http local dev sets SECURE_COOKIES=false (see .env.example);

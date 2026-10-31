@@ -6,9 +6,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from permissions.actor import Actor
+from schools.views import database_rules
 
 from .authentication import CsrfOnlyAuthentication
-from .serializers import LoginSerializer, MeSerializer, me_data
+from .invitations import accept
+from .models import Account
+from .serializers import ActivateSerializer, LoginSerializer, MeSerializer, me_data
 
 
 class LoginView(APIView):
@@ -23,6 +26,34 @@ class LoginView(APIView):
         membership = serializer.validated_data["membership"]
         login(request._request, account)
         # After login(): it flushes a session that belongs to someone else.
+        request.session["school_id"] = request.school.pk
+        return Response(me_data(account, request.school, membership, Actor(membership)))
+
+
+class ActivateView(APIView):
+    """Accept an invitation and sign in. Everything is written in one savepoint (Account when
+    new, Membership, roles or link, invitation `accepted`); the session key rotates last.
+    The only view that creates an Account (a test scans for others)."""
+
+    authentication_classes = [CsrfOnlyAuthentication]
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=ActivateSerializer, responses=MeSerializer, auth=[])
+    def post(self, request):
+        serializer = ActivateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        invitation, account = data["invitation"], data["account"]
+        with database_rules():
+            if account is None:
+                account = Account(
+                    display_name=data.get("display_name") or invitation.display_name,
+                    **{data["identifier_key"]: data["identifier"]},
+                )
+                account.set_password(data["password"])
+                account.save()
+            membership = accept(invitation, account)
+        login(request._request, account)
         request.session["school_id"] = request.school.pk
         return Response(me_data(account, request.school, membership, Actor(membership)))
 
