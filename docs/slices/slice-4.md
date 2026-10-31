@@ -38,8 +38,10 @@ API (School admin only for now: a temporary `IsSchoolAdmin` permission = a `scho
 - `Student`: `full_name`, `date_of_birth`, `gender`, `ministry_student_id` (nullable), `national_id` (nullable), `account` (nullable, global; only Lower/Upper Secondary get one), `status` (studying, transferred_out, dropped_out, graduated). Unique `(school, ministry_student_id)` and `(school, national_id)` when set.
 - `StudentStatusEvent`: append-only history (status, on, reason, by whom).
 - `Enrollment`: `student`, `school_year`, `school_class`, `status`; unique `(school, student, school_year)`.
-- `GuardianLink`: guardian `membership`, `student`, `relation` (mother, father, grandparent, other).
-- RoleAssignment `student` scope FK and the student/guardian checks switched on.
+- `GuardianLink`: guardian `membership`, `student`, `relation` (mother, father, grandparent, other), `valid_from`, `valid_to`; no overlapping links for the same pair.
+- `Student.membership` (nullable, unique) replaces `Student.account`, so a student signs in through a Membership like everyone else.
+- Leftovers from 4a: lock the in-force School admin rows before the last-admin count; PATCH of an immutable field answers 400 instead of being ignored.
+- ~~RoleAssignment `student` scope FK~~ Changed after the 4a review: students and Guardians get no RoleAssignment rows. A student's rights come from `Student.membership` + `Enrollment`, a Guardian's from `GuardianLink`, so each link has one source of truth.
 - `AssessmentProfileVersion` (global, read-only to the app role): `level_kind`, `effective_from`, `effective_to`, `rules` (JSON). Seed the Lower/Upper Secondary version from Circular 22/2021 as data (score columns by periods per year, weights 1/2/3, one decimal, semester and year averages); Primary and Preschool versions come with their phases.
 
 Done when the School admin can set up a school year end to end through the API (years, terms, Levels, Grades, groups, subjects, rooms, classes, students with enrollments, Guardians linked, role assignments), with every rule above covered by tests.
