@@ -3,7 +3,9 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import Membership, RoleAssignment
@@ -219,12 +221,11 @@ def test_role_ends_and_resumes_through_the_api(admin, alice, schools):
     )
     assert ended.status_code == 200
     # Scope and role cannot be rewritten afterwards.
-    ignored = patch(
+    rewrite = patch(
         admin, A, "role-assignments", first["id"], {"role": "principal_board", "school_class": None}
     )
-    assert (
-        ignored.json()["role"] == "homeroom_teacher" and ignored.json()["school_class"] == klass.pk
-    )
+    assert rewrite.status_code == 400
+    assert rewrite.json() == {"role": ["immutable"], "school_class": ["immutable"]}
     resumed = post(
         admin, A, "role-assignments", {**base, "valid_from": str(today - timedelta(days=5))}
     )
@@ -283,16 +284,19 @@ def test_a_class_never_moves_to_another_year_or_grade(admin, schools):
         other_year = SchoolYear.objects.create(
             school=a, name="other", starts_on="2090-09-01", ends_on="2091-05-31"
         )
-    changed = patch(
+    refused = patch(
         admin,
         A,
         "classes",
         klass.pk,
         {"name": "7Z", "grade": other_grade.pk, "school_year": other_year.pk},
     )
-    assert changed.status_code == 200
-    assert (changed.json()["name"], changed.json()["grade"]) == ("7Z", klass.grade_id)
-    assert changed.json()["school_year"] == klass.school_year_id
+    assert refused.status_code == 400
+    assert refused.json() == {"grade": ["immutable"], "school_year": ["immutable"]}
+    # Sending the stored values back is fine, and the rest of the row still changes.
+    same = {"name": "7Z", "grade": klass.grade_id, "school_year": klass.school_year_id}
+    changed = patch(admin, A, "classes", klass.pk, same)
+    assert changed.status_code == 200 and changed.json()["name"] == "7Z"
 
 
 def test_a_grade_never_changes_number_or_level(admin, schools):
@@ -300,9 +304,11 @@ def test_a_grade_never_changes_number_or_level(admin, schools):
     with school_scope(a.pk):
         grade = make_class(a).grade
         other_level = Level.objects.create(school=a, kind=Level.Kind.PRIMARY)
-    changed = patch(admin, A, "grades", grade.pk, {"number": 3, "level": other_level.pk})
-    assert changed.status_code == 200
-    assert (changed.json()["number"], changed.json()["level"]) == (grade.number, grade.level_id)
+    refused = patch(admin, A, "grades", grade.pk, {"number": 3, "level": other_level.pk})
+    assert refused.status_code == 400
+    assert refused.json() == {"number": ["immutable"], "level": ["immutable"]}
+    same = {"number": grade.number, "level": grade.level_id}
+    assert patch(admin, A, "grades", grade.pk, same).status_code == 200
 
 
 def test_inactive_rooms_subjects_and_memberships_are_no_new_targets(admin, alice, schools):
@@ -369,7 +375,8 @@ def test_role_history_is_kept(admin, alice, schools):
         return patch(admin, A, "role-assignments", pk, body)
 
     # valid_from never changes.
-    assert end(row.pk, valid_from=str(today)).json()["valid_from"] == str(row.valid_from)
+    assert end(row.pk, valid_from=str(today)).json() == {"valid_from": ["immutable"]}
+    assert end(row.pk, valid_from=str(row.valid_from)).status_code == 200
     # valid_to may not precede valid_from.
     before = end(row.pk, valid_to=str(row.valid_from - timedelta(days=1)))
     assert before.json() == {"valid_to": ["valid_to_before_valid_from"]}
@@ -414,6 +421,20 @@ def test_the_last_school_admin_cannot_end_their_role(admin, schools):
         RoleAssignment.objects.filter(pk=theirs.pk).update(valid_from=timezone.localdate())
     assert patch(admin, A, "role-assignments", mine.pk, {"valid_to": yesterday}).status_code == 200
     assert admin.get(url("classes"), HTTP_HOST=A).status_code == 403  # the first admin is out now
+
+
+def test_ending_a_school_admin_row_locks_the_in_force_admin_rows_before_counting(admin, schools):
+    """Two admins ending each other's rows at once must serialize on these row locks."""
+    a, _ = schools
+    second_admin(a)
+    theirs = assignment_of(a, "admin2@example.com", Role.SCHOOL_ADMIN)
+    yesterday = str(timezone.localdate() - timedelta(days=1))
+    with CaptureQueriesContext(connection) as queries:
+        patch(admin, A, "role-assignments", theirs.pk, {"valid_to": yesterday})
+    locks = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+    assert len(locks) == 1
+    assert 'FOR UPDATE OF "accounts_roleassignment"' in locks[0]
+    assert 'ORDER BY "accounts_roleassignment"."id"' in locks[0]
 
 
 def test_ending_another_admins_role_keeps_one_admin_in_force(admin, schools):

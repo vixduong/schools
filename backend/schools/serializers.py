@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -16,12 +18,30 @@ class CurrentSchool:
         return serializer_field.context["request"].school
 
 
+def _text(value):
+    return None if value is None else str(value)
+
+
 class SetupSerializer(serializers.ModelSerializer):
-    """`IMMUTABLE` fields are read-only once the row exists (ignored on update)."""
+    """`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
+    from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
+    client may PUT the whole row back)."""
 
     IMMUTABLE: tuple[str, ...] = ()
 
     school = serializers.HiddenField(default=CurrentSchool())
+
+    def to_internal_value(self, data):
+        if self.instance is not None and isinstance(data, Mapping):
+            stored = self.to_representation(self.instance)
+            changed = {
+                name: ["immutable"]
+                for name in self.IMMUTABLE
+                if name in data and _text(data[name]) != _text(stored[name])
+            }
+            if changed:
+                raise serializers.ValidationError(changed)
+        return super().to_internal_value(data)
 
     def get_fields(self):
         fields = super().get_fields()
@@ -128,9 +148,17 @@ class RoleAssignmentSetupSerializer(SetupSerializer):
             raise serializers.ValidationError("valid_to_before_valid_from")
         ends_earlier = role.valid_to is None or valid_to < role.valid_to
         if ends_earlier and role.role == RoleAssignment.Role.SCHOOL_ADMIN:
-            in_force = RoleAssignment.objects.in_force().filter(role=role.role)
-            if in_force.filter(pk=role.pk).exists() and not (
-                in_force.exclude(membership=role.membership_id).exists()
+            # Lock every in-force School admin row (in id order, so two admins cannot deadlock)
+            # before counting: two admins ending each other's rows at once serialize here, and the
+            # second re-reads the first's committed end and is refused.
+            in_force = list(
+                RoleAssignment.objects.in_force()
+                .filter(role=role.role)
+                .select_for_update(of=("self",))
+                .order_by("pk")
+            )
+            if any(r.pk == role.pk for r in in_force) and not any(
+                r.membership_id != role.membership_id for r in in_force
             ):
                 raise serializers.ValidationError("last_school_admin")
         return valid_to
