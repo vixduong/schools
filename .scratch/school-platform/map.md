@@ -14,6 +14,7 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 - Stack chosen by the user before charting: backend Django + DRF; frontend TanStack (Router/Query/Table) + Tailwind + shadcn/ui; Postgres 16 with RLS; Cloudflare in front (DNS/CDN/WAF/Pages), files in S3-compatible storage (R2 by default).
 - Style direction: the statechart-art look (warm paper, typewriter serif, italic labels, pinned ticket cards, pastel pencil regions, red ink) is a **brand layer**: ticket cards for states, pastel regions per Level/role, red ink for warnings only; data tables stay clean sans with tabular numbers; illustrations only in empty states, onboarding, parent portal, Preschool. Reference images: `docs/design/reference/` (order, day, counter, bug).
 - Prototype: static clickable HTML, 5 screens — login by School, teacher dashboard, gradebook, student profile, parent view.
+- Any design decision made while resolving a ticket updates `DESIGN.md` in the same change.
 - Skills: `/hallmark` for design tickets, `/prototype` for prototype tickets, `/grilling` + `/domain-modeling` for grilling tickets, `/research` for research tickets. Ponytail principles: smallest complete plan, no speculative features.
 
 ## Decisions so far
