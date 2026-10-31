@@ -43,3 +43,10 @@ API (School admin only for now: a temporary `IsSchoolAdmin` permission = a `scho
 - `AssessmentProfileVersion` (global, read-only to the app role): `level_kind`, `effective_from`, `effective_to`, `rules` (JSON). Seed the Lower/Upper Secondary version from Circular 22/2021 as data (score columns by periods per year, weights 1/2/3, one decimal, semester and year averages); Primary and Preschool versions come with their phases.
 
 Done when the School admin can set up a school year end to end through the API (years, terms, Levels, Grades, groups, subjects, rooms, classes, students with enrollments, Guardians linked, role assignments), with every rule above covered by tests.
+
+## Decisions after the 4a review (owner, 2026-10-31)
+
+- **No role is clipped by school-year dates.** Schools run summer activities, extra classes and next-year setup, so admins and teachers stay in force between years; a role is in force by its own period and an active Membership. `school_year` is set only on class-scoped roles (homeroom teacher, subject teacher) and always equals the class's year.
+- **Grade scope stays** for grade-wide activities: RoleAssignment carries a nullable `grade` scope; the role that uses it is defined with the activities phase.
+- **Schools never act on each other.** Role assignments are managed by the School's own admins; the cross-School case does not exist. Whether an admin may change their own assignments is pending (see below).
+- Pending: may a School admin create, change or end **their own** role assignments? (Ending the last in-force School admin is refused either way.)
