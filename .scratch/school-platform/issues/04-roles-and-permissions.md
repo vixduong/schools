@@ -11,3 +11,4 @@ Settle the role model: School admin, principal board, homeroom teacher, subject 
 ## Comments
 
 - Round 1 (owner): Q1 accepted; **deferred roles recorded**: clerical staff (văn thư), accountant (kế toán), school nurse (y tế) come after the MVP. Q2 to Q5, Q7, Q8 accepted as recommended. Q6 changed: Lower and Upper Secondary students get accounts to view grades, timetable and notices **and to take tests that teachers author and publish online**; Primary and Preschool students have no account.
+- Round 2 (owner): Q9 extended: regular tests include short 15 and 30-minute quizzes, published by the subject teacher alone; periodic tests need the group leader's approval. Q10 to Q15 accepted as recommended. Draft matrix: `docs/roles.md`.
