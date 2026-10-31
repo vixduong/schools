@@ -28,3 +28,11 @@ Features behind most actions (scores, leave requests, tests, notices) do not exi
 - Date cases: a role ending yesterday grants nothing today; a scheduled leave keeps access until its day; post-transfer reads stop after the year's `ends_on`.
 
 Done when every matrix cell has a passing test, the doc-vs-code test passes, slice 4 endpoints run on the engine, and no endpoint hand-rolls a role check.
+
+## Decisions after slice 5 (owner, 2026-10-31)
+
+- **Principal board reads the School setup** (years, classes, subjects, role assignments) without editing it, as the matrix's 👁 says.
+- **Continuing students keep access between school years.** A student whose last enrollment ended with `year_end` (not a leave) and their Guardians keep their access through the break until the next enrollment starts; leavers follow the post-transfer rule.
+- **Teachers may read other classes.** Any member with a teaching role in force (subject teacher, homeroom teacher, group leader) may view the profiles and scores of students in every class of the School, read only; writing stays within their own scope. Sensitive fields (national ID, Ministry IDs, Guardian contact details, later health data) stay limited to the student's own homeroom teacher, the principal board and the School admin. Every cross-class read is audited from slice 7.
+- **A student still at the School sees every class they have been in**: all class information (activities, classmates' basic profile, teachers, class records) of every past and current class, read only, together with their own scores of all years; the same for their Guardians. The post-transfer limits apply only to students who left.
+- These change the matrix in `docs/roles.md`; the doc and `permissions/matrix.py` change together in one commit so the doc-vs-code test stays green.
