@@ -46,6 +46,15 @@ Both faces ship a Vietnamese subset; any replacement face must too. Type scale r
 - Inputs: 1px muted edge, inset focus ring, error = red edge + red wash + message under the field.
 - Every data region draws four states: loading (skeleton), empty (what goes here, one action), error (what broke, what to do), full.
 
+## Dense components (specimen: `docs/design/specimen/components.html`)
+- **Data table**: a filter row above (search, selects, density toggle Gọn/Thoáng); sortable heads are buttons with `aria-sort`; the header sticks under the top bar; the selection is a pen-blue wash (`--color-select`) with a bulk bar above stating the count; a warning value is red ink, its label a red-outlined tag; pagination states the range in words. No zebra stripes, no outer border. On phones the name column pins and the scores scroll sideways.
+- **Select**: a native `<select>` up to about seven options; beyond that a combobox (typing filters, the match underlined in pen blue, the active row on `--color-paper-3`, the chosen one bold with a tick); multi-select is chips inside one field box, removed by x or Backspace.
+- **Date and time**: dates are `dd/mm/yyyy`, weeks start on Monday (T2 to CN), times are 24-hour, typed straight in. The calendar popover: today outlined in ink, the picked day filled pen blue, days outside the month and Sundays muted, a gold dot on days that already have an event (the waiting-pin colour). A range shows both ends and errors when the end precedes the start. In shadcn this is `Calendar` (react-day-picker) with the `vi` locale and `weekStartsOn: 1`.
+
+## Dark mode
+- Same hues, re-derived lightness in `tokens.css` (`[data-mode="dark"]` plus `prefers-color-scheme`): paper L 17, raised surfaces lighter (L 21), wells darker (L 14); ink L 93; pen blue lifts to L 72 with dark text on it; red ink to L 69; Level pastels become deep fills with light edges; the hatch drops to 30% ink. No drop shadows.
+- Toggle sets `data-mode` on `<html>`, stored in `localStorage`, read before first paint.
+
 ## Motion
 - Character: still. Colour and a 1px press only; no reveals; reduced motion turns the spinner static.
 

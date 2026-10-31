@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hệ thiết kế: bảng, chọn và ngày giờ</title>
+<meta name="description" content="Bảng mẫu các thành phần dày đặc: bảng dữ liệu, ô chọn, ô chọn ngày giờ, ở chế độ sáng và tối.">
+<script>try { const m = localStorage.getItem('mode'); if (m) document.documentElement.dataset.mode = m; } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hepta+Slab:wght@300;400&family=Be+Vietnam+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="specimen.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="container">
+    <a class="wordmark" href="index.html" aria-label="Trang chủ">sổ trường</a>
+    <nav aria-label="Chính">
+      <ul>
+        <li><a href="#">Lớp học</a></li>
+        <li><a href="#">Sổ điểm</a></li>
+        <li><a href="#">Điểm danh</a></li>
+        <li><a href="#" aria-current="page">Học sinh</a></li>
+        <li><a href="#">Thông báo</a></li>
+      </ul>
+    </nav>
+    <span class="school">Trường liên cấp Mẫu</span>
+    <button class="btn" type="button" id="mode-toggle" aria-pressed="false">Giao diện tối</button>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-head">
+    <h1>Bảng, ô chọn, ngày giờ</h1>
+    <p class="note">Những chỗ giáo viên làm việc cả ngày: gọn, rõ, không trang trí.</p>
+  </div>
+
+  <section aria-labelledby="h-table" style="margin-top: 0">
+    <header>
+      <h2 id="h-table">Danh sách học sinh</h2>
+      <p class="note">Lọc trên một hàng, sắp xếp ở tiêu đề cột, thao tác hàng loạt hiện khi đã chọn.</p>
+    </header>
+
+    <div class="toolbar" role="search">
+      <div class="field inline">
+        <label for="q" class="visually-hidden">Tìm học sinh</label>
+        <span class="input-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" name="q" type="search" placeholder="Tên hoặc mã học sinh" autocomplete="off">
+        </span>
+      </div>
+      <div class="field inline">
+        <label for="f-class" class="visually-hidden">Lớp</label>
+        <select id="f-class" name="class"><option>Tất cả lớp</option><option selected>Lớp 7A</option><option>Lớp 7B</option></select>
+      </div>
+      <div class="field inline">
+        <label for="f-status" class="visually-hidden">Tình trạng</label>
+        <select id="f-status" name="status"><option>Đang học</option><option>Đã chuyển trường</option><option>Tất cả</option></select>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Mật độ">
+        <label><input type="radio" name="density" value="compact" checked><span>Gọn</span></label>
+        <label><input type="radio" name="density" value="comfy"><span>Thoáng</span></label>
+      </div>
+    </div>
+
+    <div class="bulkbar" role="status">
+      <span>Đã chọn 2 học sinh</span>
+      <button class="btn" type="button">Chuyển lớp</button>
+      <button class="btn" type="button">Gửi thông báo cho phụ huynh</button>
+      <button class="btn quiet" type="button">Bỏ chọn</button>
+    </div>
+
+    <div class="table-wrap data">
+      <table class="datatable">
+        <caption class="visually-hidden">Học sinh lớp 7A, đang học. Dữ liệu mẫu.</caption>
+        <thead>
+          <tr>
+            <th class="check"><input type="checkbox" aria-label="Chọn tất cả" class="mixed"></th>
+            <th aria-sort="ascending"><button type="button" class="sort">Họ và tên<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg></button></th>
+            <th>Mã học sinh</th>
+            <th aria-sort="none"><button type="button" class="sort">Ngày sinh<svg viewBox="0 0 24 24" aria-hidden="true" class="idle"><path d="m8 10 4-4 4 4M8 14l4 4 4-4"/></svg></button></th>
+            <th>Phụ huynh</th>
+            <th class="num" aria-sort="none"><button type="button" class="sort">Vắng<svg viewBox="0 0 24 24" aria-hidden="true" class="idle"><path d="m8 10 4-4 4 4M8 14l4 4 4-4"/></svg></button></th>
+            <th>Tình trạng</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="check"><input type="checkbox" aria-label="Chọn Lê Quốc Bảo"></td><td class="name">Lê Quốc Bảo</td><td>HS0703</td><td class="num">14/02/2014</td><td>Lê Văn Hùng</td><td class="num">2</td><td>Đang học</td></tr>
+          <tr aria-selected="true"><td class="check"><input type="checkbox" checked aria-label="Chọn Nguyễn Minh An"></td><td class="name">Nguyễn Minh An</td><td>HS0701</td><td class="num">03/09/2014</td><td>Nguyễn Thị Lan</td><td class="num">0</td><td>Đang học</td></tr>
+          <tr><td class="check"><input type="checkbox" aria-label="Chọn Phạm Gia Hân"></td><td class="name">Phạm Gia Hân</td><td>HS0704</td><td class="num">21/11/2014</td><td>Phạm Minh Tuấn</td><td class="num">1</td><td>Đang học</td></tr>
+          <tr aria-selected="true"><td class="check"><input type="checkbox" checked aria-label="Chọn Trần Thu Hà"></td><td class="name">Trần Thu Hà</td><td>HS0702</td><td class="num">30/06/2014</td><td>Trần Văn Nam</td><td class="num">0</td><td>Đang học</td></tr>
+          <tr><td class="check"><input type="checkbox" aria-label="Chọn Võ Đức Duy"></td><td class="name">Võ Đức Duy</td><td>HS0705</td><td class="num">08/01/2014</td><td>Võ Thị Mai</td><td class="num warn">9</td><td><span class="flag">Vắng nhiều</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <nav class="pager" aria-label="Phân trang">
+      <span>Hiển thị 1 đến 5 trong 38 học sinh</span>
+      <div class="row">
+        <button class="btn" type="button" disabled>Trang trước</button>
+        <span class="page-of">Trang 1 / 8</span>
+        <button class="btn" type="button">Trang sau</button>
+      </div>
+    </nav>
+  </section>
+
+  <section aria-labelledby="h-select">
+    <header>
+      <h2 id="h-select">Ô chọn và ô tìm chọn</h2>
+      <p class="note">Dưới bảy lựa chọn dùng ô chọn thường. Nhiều hơn thì cho gõ để lọc.</p>
+    </header>
+    <div class="demo-grid">
+      <div class="field">
+        <label for="s-term">Học kỳ</label>
+        <span class="select-wrap">
+          <select id="s-term" name="term"><option>Học kỳ I</option><option>Học kỳ II</option><option>Cả năm</option></select>
+        </span>
+        <span class="help">Ô chọn thường, mở bằng bàn phím như mặc định</span>
+      </div>
+
+      <div class="field combo">
+        <label for="c-teacher" id="c-teacher-label">Giáo viên chủ nhiệm</label>
+        <span class="input-icon trailing">
+          <input id="c-teacher" role="combobox" aria-expanded="true" aria-controls="c-teacher-list" aria-autocomplete="list" aria-activedescendant="opt-2" value="ngu" autocomplete="off">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </span>
+        <ul class="listbox" id="c-teacher-list" role="listbox" aria-labelledby="c-teacher-label">
+          <li role="option" id="opt-1" aria-selected="false"><span><mark>Ngu</mark>yễn Thị Lan</span><span class="meta">Toán</span></li>
+          <li role="option" id="opt-2" aria-selected="false" class="active"><span><mark>Ngu</mark>yễn Văn Bình</span><span class="meta">Ngữ văn</span></li>
+          <li role="option" id="opt-3" aria-selected="true"><span><mark>Ngu</mark>yễn Hoài Thu</span><span class="meta">Tiếng Anh</span><svg viewBox="0 0 24 24" aria-hidden="true" class="tick"><path d="m5 12 5 5 9-10"/></svg></li>
+        </ul>
+      </div>
+
+      <div class="field">
+        <label for="m-subjects">Môn giảng dạy</label>
+        <div class="tokens">
+          <span class="token">Toán<button type="button" aria-label="Bỏ Toán"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></span>
+          <span class="token">Tin học<button type="button" aria-label="Bỏ Tin học"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></span>
+          <input id="m-subjects" name="subjects" placeholder="Thêm môn" autocomplete="off">
+        </div>
+        <span class="help">Chọn nhiều: mỗi lựa chọn là một thẻ, bỏ bằng nút x hoặc phím xoá lùi</span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-date">
+    <header>
+      <h2 id="h-date">Ngày và giờ</h2>
+      <p class="note">Ngày viết dd/mm/yyyy, tuần bắt đầu từ thứ Hai, giờ 24 tiếng.</p>
+    </header>
+    <div class="demo-grid">
+      <div class="field datepick">
+        <label for="d-test">Ngày kiểm tra</label>
+        <span class="input-icon trailing">
+          <input id="d-test" name="test-date" inputmode="numeric" placeholder="dd/mm/yyyy" value="15/10/2026" aria-haspopup="dialog" aria-expanded="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+        </span>
+        <div class="calendar" role="dialog" aria-label="Chọn ngày kiểm tra">
+          <div class="cal-head">
+            <button class="icon-btn" type="button" aria-label="Tháng trước"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 7-5 5 5 5"/></svg></button>
+            <span class="cal-title">Tháng 10, 2026</span>
+            <button class="icon-btn" type="button" aria-label="Tháng sau"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 7 5 5-5 5"/></svg></button>
+          </div>
+          <table class="cal-grid" role="grid">
+            <thead><tr><th abbr="Thứ Hai">T2</th><th abbr="Thứ Ba">T3</th><th abbr="Thứ Tư">T4</th><th abbr="Thứ Năm">T5</th><th abbr="Thứ Sáu">T6</th><th abbr="Thứ Bảy">T7</th><th abbr="Chủ nhật">CN</th></tr></thead>
+            <tbody>
+              <tr><td><button type="button" class="out" tabindex="-1">28</button></td><td><button type="button" class="out" tabindex="-1">29</button></td><td><button type="button" class="out" tabindex="-1">30</button></td><td><button type="button" tabindex="-1">1</button></td><td><button type="button" tabindex="-1">2</button></td><td><button type="button" tabindex="-1">3</button></td><td><button type="button" tabindex="-1" class="off">4</button></td></tr>
+              <tr><td><button type="button" tabindex="-1">5</button></td><td><button type="button" tabindex="-1">6</button></td><td><button type="button" tabindex="-1">7</button></td><td><button type="button" tabindex="-1">8</button></td><td><button type="button" tabindex="-1">9</button></td><td><button type="button" tabindex="-1">10</button></td><td><button type="button" tabindex="-1" class="off">11</button></td></tr>
+              <tr><td><button type="button" tabindex="-1">12</button></td><td><button type="button" tabindex="-1">13</button></td><td><button type="button" tabindex="-1">14</button></td><td><button type="button" aria-pressed="true">15</button></td><td><button type="button" tabindex="-1">16</button></td><td><button type="button" tabindex="-1">17</button></td><td><button type="button" tabindex="-1" class="off">18</button></td></tr>
+              <tr><td><button type="button" tabindex="-1">19</button></td><td><button type="button" tabindex="-1" class="has-event" aria-label="20, đã có bài kiểm tra">20</button></td><td><button type="button" tabindex="-1">21</button></td><td><button type="button" tabindex="-1">22</button></td><td><button type="button" tabindex="-1">23</button></td><td><button type="button" tabindex="-1">24</button></td><td><button type="button" tabindex="-1" class="off">25</button></td></tr>
+              <tr><td><button type="button" tabindex="-1">26</button></td><td><button type="button" tabindex="-1">27</button></td><td><button type="button" tabindex="-1">28</button></td><td><button type="button" tabindex="-1">29</button></td><td><button type="button" tabindex="-1">30</button></td><td><button type="button" tabindex="-1" aria-current="date">31</button></td><td><button type="button" tabindex="-1" class="out off">1</button></td></tr>
+            </tbody>
+          </table>
+          <p class="cal-foot"><span class="dot-key" aria-hidden="true"></span>Ngày đã có bài kiểm tra của lớp. Chủ nhật mờ vì không có tiết học.</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="t-start">Giờ bắt đầu</label>
+        <span class="input-icon trailing">
+          <input id="t-start" name="start-time" inputmode="numeric" placeholder="hh:mm" value="07:30">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+        </span>
+        <span class="help">Gõ thẳng giờ. Gợi ý theo tiết: tiết 1 bắt đầu 07:00</span>
+      </div>
+
+      <div class="field">
+        <label for="r-from">Kỳ nghỉ</label>
+        <div class="range">
+          <input id="r-from" name="from" inputmode="numeric" placeholder="dd/mm/yyyy" value="09/02/2027" aria-label="Từ ngày">
+          <span aria-hidden="true">đến</span>
+          <input id="r-to" name="to" inputmode="numeric" placeholder="dd/mm/yyyy" value="05/02/2027" aria-label="Đến ngày" aria-invalid="true" aria-describedby="r-err">
+        </div>
+        <span class="help error" id="r-err">Ngày kết thúc phải sau ngày bắt đầu.</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="page-foot">
+    <p>Dữ liệu trên trang là dữ liệu mẫu. <a href="index.html">Về trang hệ thiết kế chính</a></p>
+  </footer>
+</main>
+<script>
+  const t = document.getElementById('mode-toggle');
+  const sync = () => { const dark = document.documentElement.dataset.mode === 'dark' || (!document.documentElement.dataset.mode && matchMedia('(prefers-color-scheme: dark)').matches); t.setAttribute('aria-pressed', dark); t.textContent = dark ? 'Giao diện sáng' : 'Giao diện tối'; };
+  t.addEventListener('click', () => { const next = t.getAttribute('aria-pressed') === 'true' ? 'light' : 'dark'; document.documentElement.dataset.mode = next; try { localStorage.setItem('mode', next); } catch (e) {} sync(); });
+  sync();
+</script>
+</body>
+</html>

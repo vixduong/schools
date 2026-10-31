@@ -20,5 +20,5 @@ Approved by the owner (2026-10-31): the brand layer as drafted in `DESIGN.md` an
 - Type: Hepta Slab 300/400 for titles, section heads and ticket states; Be Vietnam Pro for every working surface. Both have a Vietnamese subset.
 - Working surfaces (tables, forms) stay plain sans with no hatch and no pins in rows.
 - Illustration is commissioned hand-drawn art, only in empty states, onboarding, the parent portal and Preschool.
-- Deferred to implementation, refined in place against `DESIGN.md`: tables (sorting, filters, density), select/combobox, date and datetime pickers, plus dark mode.
+- Added at the owner's request so the style does not drift during implementation: dark mode, the data table, select/combobox/multi-select and date/time/range pickers (`docs/design/specimen/components.html`, `DESIGN.md` § Dense components and § Dark mode). sloplint: 0 FAIL in both modes.
 - `sổ trường` stays a working wordmark until a product name is chosen.

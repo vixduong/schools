@@ -46,7 +46,44 @@
   --radius-ticket: 2px; --radius-control: 6px; --radius-card: 10px; --radius-pill: 999px;
   --rule-hair: 1px; --rule-pen: 1.5px;
   --shadow-card: none;
-  --hatch: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-ink) 55%, transparent) 0 1px, transparent 1px 4px);
+  --hatch-ink: color-mix(in oklab, var(--color-ink) 55%, transparent);
+  --hatch: repeating-linear-gradient(135deg, var(--hatch-ink) 0 1px, transparent 1px 4px);
+  --color-select: color-mix(in oklab, var(--color-accent) 10%, var(--color-paper));
+  color-scheme: light;
   --tracking-display: -0.01em;
   --control-h: 36px;
+}
+
+/* dark: same hues, re-derived lightness; elevation is lighter, wells darker */
+[data-mode="dark"] {
+  --color-paper: oklch(17% 0.012 85);   --color-paper-2: oklch(21% 0.012 85);   --color-paper-3: oklch(14% 0.012 85);
+  --color-ink: oklch(93% 0.012 85);     --color-ink-2: oklch(81% 0.012 80);     --color-muted: oklch(67% 0.014 75);
+  --color-rule: oklch(33% 0.016 80);
+  --color-accent: oklch(72% 0.1 255);   --color-accent-ink: oklch(17% 0.012 85); --color-focus: oklch(74% 0.14 258);
+  --color-error: oklch(69% 0.16 25);    --color-error-wash: oklch(26% 0.05 22);  --color-success: oklch(72% 0.11 150);
+  --color-pin-open: oklch(68% 0.12 245); --color-pin-waiting: oklch(79% 0.13 80); --color-pin-locked: oklch(88% 0.01 65); --color-pin-alert: oklch(66% 0.18 27);
+  --color-level-pre: oklch(29% 0.045 88);   --color-level-pre-edge: oklch(66% 0.09 80);
+  --color-level-pri: oklch(28% 0.04 145);   --color-level-pri-edge: oklch(64% 0.08 145);
+  --color-level-lower: oklch(28% 0.04 245); --color-level-lower-edge: oklch(64% 0.08 245);
+  --color-level-upper: oklch(29% 0.045 12); --color-level-upper-edge: oklch(66% 0.09 15);
+  --hatch-ink: color-mix(in oklab, var(--color-ink) 30%, transparent);
+  --color-select: color-mix(in oklab, var(--color-accent) 16%, var(--color-paper));
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+  --color-paper: oklch(17% 0.012 85);   --color-paper-2: oklch(21% 0.012 85);   --color-paper-3: oklch(14% 0.012 85);
+  --color-ink: oklch(93% 0.012 85);     --color-ink-2: oklch(81% 0.012 80);     --color-muted: oklch(67% 0.014 75);
+  --color-rule: oklch(33% 0.016 80);
+  --color-accent: oklch(72% 0.1 255);   --color-accent-ink: oklch(17% 0.012 85); --color-focus: oklch(74% 0.14 258);
+  --color-error: oklch(69% 0.16 25);    --color-error-wash: oklch(26% 0.05 22);  --color-success: oklch(72% 0.11 150);
+  --color-pin-open: oklch(68% 0.12 245); --color-pin-waiting: oklch(79% 0.13 80); --color-pin-locked: oklch(88% 0.01 65); --color-pin-alert: oklch(66% 0.18 27);
+  --color-level-pre: oklch(29% 0.045 88);   --color-level-pre-edge: oklch(66% 0.09 80);
+  --color-level-pri: oklch(28% 0.04 145);   --color-level-pri-edge: oklch(64% 0.08 145);
+  --color-level-lower: oklch(28% 0.04 245); --color-level-lower-edge: oklch(64% 0.08 245);
+  --color-level-upper: oklch(29% 0.045 12); --color-level-upper-edge: oklch(66% 0.09 15);
+  --hatch-ink: color-mix(in oklab, var(--color-ink) 30%, transparent);
+  --color-select: color-mix(in oklab, var(--color-accent) 16%, var(--color-paper));
+  color-scheme: dark;
+  }
 }
