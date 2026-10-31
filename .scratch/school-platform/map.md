@@ -26,6 +26,7 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 
 ## Not yet specified
 
+- Lesson authoring: the editor, how subject blocks (formulas, geometry, simulations, molecules) are stored and shared between lessons and the exam bank, and in which phase it lands.
 - Exam bank and test generation: question metadata, exam matrix, shuffling, how marks flow into the gradebook. Depends on the roadmap phase it lands in.
 - Extracurricular activities: registration, capacity, conduct points, parent consent.
 - Preschool module: daily log, meals, health, pick-up; how much it shares with the core.
