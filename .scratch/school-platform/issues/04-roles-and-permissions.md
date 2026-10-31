@@ -1,7 +1,7 @@
 # Who are the users, and what may each role see and change?
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by:
 
 ## Question
