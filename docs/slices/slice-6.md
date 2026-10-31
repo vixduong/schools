@@ -23,11 +23,14 @@ These refine the bullets above where they differ.
 - **Codes**: 10 characters from an alphabet without 0/O/1/I/L, shown as `XXXXX-XXXXX`; case, spaces and dashes are ignored when typed. Stored as an HMAC keyed by `SECRET_KEY` (`code_digest`, unique per School), so rotating `SECRET_KEY` voids pending codes.
 - **Printing issues fresh codes.** A digest cannot be shown again, so `POST /api/setup/invitations/print/` (`school_class`) gives every pending guardian and student invitation of the class's students today a new code and a new 30-day expiry; the previous print's codes stop working.
 - **Errors at activation**: the generic `invalid_invitation` for a bad code or credentials; after both check out, `{"invitation": ["cannot_apply"]}` (inactive subject, the student already has a sign-in) or `{"constraint": [name]}` (an overlapping period, the membership-kind triggers, the secondary-level trigger), and nothing is written, the Account included. A weak password for a new Account answers `{"password": [...]}` (Django's minimum length and common-password validators).
-- **An inactive Membership is reactivated** by accepting a new invitation: the School issued it, so it means to take the person back.
+- **An inactive Membership is reactivated only by a staff invitation** (issued under `accounts.manage`); a guardian or student code, which a homeroom teacher may print, answers `cannot_apply` for a deactivated person.
+- **Self-grant through an invitation**: an admin redeeming their own `principal_board` invitation gets a `pending_confirmation` row, as in the setup API.
+- **No identifier probing**: the password rules apply to every activation, before the Account lookup, and both branches spend one hash; authorisation runs before any check that describes the student.
 - **Staff invitations carry no named duties** (`title`, `can_reopen_gradebooks`, `signs_for_principal`): another admin or board member sets them after acceptance, as for any row.
 - **Listing**: each member lists the invitations they may issue; the principal board reads staff invitations (`accounts.manage` 👁) and revokes none.
 - **Memberships**: `GET /api/setup/memberships/` (School admin, principal board read) shows id, the Account's display name, status and Ministry staff ID, no identifiers. Deactivating ends the rows still running after today on today, or on their first day for a future row.
-- **Deferred**: rate limiting of activation (with login), an `accepted_at` timestamp (the audit log, slice 7).
+- **Known limit**: deactivating ends a role or link that has not started on its first day (a period cannot end before it starts), so reactivating before that day brings it back for that one day.
+- **Deferred**: rate limiting of activation (with login); an `accepted_at` timestamp (the audit log, slice 7); proof of owning the identifier (no SMS or email check in the MVP), so whoever holds a printed code can create an Account for a phone or email that has none, and its real owner then has no recovery path.
 
 ## 6b: Excel import
 

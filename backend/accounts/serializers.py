@@ -78,7 +78,7 @@ class ActivateSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=40)
     identifier = IdentifierField(max_length=254)
     password = serializers.CharField(max_length=128, trim_whitespace=False, write_only=True)
-    display_name = serializers.CharField(max_length=200, required=False)
+    display_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
 
     def validate(self, attrs):
         invalid = serializers.ValidationError(
@@ -98,13 +98,16 @@ class ActivateSerializer(serializers.Serializer):
         ):
             check_password(attrs["password"], _DUMMY_HASH)
             raise invalid
+        # The password rules apply whether or not an Account exists, and both branches spend one
+        # hash, so a code holder cannot tell which identifiers have an Account.
+        try:
+            validate_password(attrs["password"])
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"password": error.messages}) from None
         key = "email" if "@" in identifier else "phone"
         account = Account.objects.filter(**{key: identifier}).first()
         if account is None:
-            try:
-                validate_password(attrs["password"])
-            except DjangoValidationError as error:
-                raise serializers.ValidationError({"password": error.messages}) from None
+            check_password(attrs["password"], _DUMMY_HASH)
         elif not (account.check_password(attrs["password"]) and account.is_active):
             raise invalid
         return attrs | {"invitation": invitation, "account": account, "identifier_key": key}

@@ -36,15 +36,20 @@ def issue_code(invitation: Invitation) -> str:
 
 
 def accept(invitation: Invitation, account) -> Membership:
-    """Apply a pending invitation, locked by the caller, for `account`: the Membership (reused,
-    and reactivated, when the Account already has one here), then what the kind grants, then the
-    invitation `accepted`. Runs in the caller's savepoint: a database rule (overlapping period,
-    membership kinds, secondary level) raises IntegrityError and undoes it all."""
+    """Apply a pending invitation, locked by the caller, for `account`: the Membership (reused
+    when the Account already has one here; reactivated only by a staff invitation), then what
+    the kind grants, then the invitation `accepted`. Runs in the caller's savepoint: a database
+    rule (overlapping period, membership kinds, secondary level) raises IntegrityError and undoes
+    it all."""
     cannot_apply = ValidationError({"invitation": ["cannot_apply"]})
     membership, _ = Membership.objects.select_for_update().get_or_create(
         school_id=invitation.school_id, account=account
     )
     if membership.status != Membership.Status.ACTIVE:
+        # Taking a person back is `accounts.manage`: only a staff invitation (issued by the
+        # School admin) may do it, never a guardian or student code a homeroom teacher printed.
+        if invitation.kind != Invitation.Kind.STAFF:
+            raise cannot_apply
         membership.status = Membership.Status.ACTIVE
         membership.save(update_fields=["status"])
     today = timezone.localdate()
@@ -53,8 +58,18 @@ def accept(invitation: Invitation, account) -> Membership:
             for role in invitation.roles.select_related("subject"):
                 if role.subject is not None and not role.subject.is_active:
                     raise cannot_apply
+                # An admin redeeming their own principal_board invitation is a self-grant: it
+                # waits for a second person, as in the setup API.
+                self_grant = (
+                    role.role == RoleAssignment.Role.PRINCIPAL_BOARD
+                    and invitation.created_by_id == membership.pk
+                )
                 RoleAssignment.objects.create(
                     school_id=invitation.school_id,
+                    status=RoleAssignment.Status.PENDING_CONFIRMATION
+                    if self_grant
+                    else RoleAssignment.Status.ACTIVE,
+                    requested_by_id=invitation.created_by_id if self_grant else None,
                     membership=membership,
                     role=role.role,
                     school_year_id=role.school_year_id,

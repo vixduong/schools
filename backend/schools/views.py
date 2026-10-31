@@ -474,7 +474,8 @@ class InvitationViewSet(
     @action(detail=True, methods=["post"])
     def revoke(self, request, pk=None):
         """A pending invitation (expired or not) stops working."""
-        invitation = self.get_object()
+        # Locked, so a revoke racing an activation sees `accepted` and answers not_pending.
+        invitation = Invitation.objects.select_for_update().get(pk=self.get_object().pk)
         actor = Actor.of(request)
         if not serializers.may_issue(actor, invitation.kind, invitation.student, request.school):
             raise PermissionDenied()

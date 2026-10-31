@@ -559,18 +559,25 @@ class InvitationSerializer(SetupSerializer):
         ]
         read_only_fields = ["expires_at", "created_by", "accepted_membership"]
 
+    def validate_identifier(self, identifier):
+        return identifier or None  # "" never reaches IdentifierField.to_internal_value
+
     @extend_schema_field(serializers.ChoiceField(choices=[*Invitation.Status.values, "expired"]))
     def get_status(self, invitation):
         return "expired" if invitation.is_expired else invitation.status
 
     def validate(self, attrs):
         kind, student = attrs["kind"], attrs.get("student")
+        if kind != Invitation.Kind.STAFF and student is None:
+            raise serializers.ValidationError({"student": ["required"]})
+        # Authorise before any check that would tell an outsider about the student.
+        request = self.context["request"]
+        if not may_issue(Actor.of(request), kind, student, request.school):
+            raise PermissionDenied()
         errors = {}
         if kind == Invitation.Kind.STAFF:
             errors |= {n: ["not_for_kind"] for n in ("student", "relation") if attrs.get(n)}
         else:
-            if student is None:
-                errors["student"] = ["required"]
             if attrs.get("roles"):
                 errors["roles"] = ["not_for_kind"]
         if kind == Invitation.Kind.GUARDIAN and not attrs.get("relation"):
@@ -591,9 +598,6 @@ class InvitationSerializer(SetupSerializer):
                 errors["student"] = ["student_not_secondary"]
         if errors:
             raise serializers.ValidationError(errors)
-        request = self.context["request"]
-        if not may_issue(Actor.of(request), kind, student, request.school):
-            raise PermissionDenied()
         return attrs
 
     def create(self, validated_data):

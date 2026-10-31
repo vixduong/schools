@@ -13,7 +13,7 @@ from accounts.models import Account, Invitation, Membership, RoleAssignment
 from schools.models import Enrollment, GuardianLink, Student, Subject
 from tenancy.rls import school_scope
 
-from .conftest import PASSWORD, make_account, member
+from .conftest import PASSWORD, make_account, member, owner_role
 from .factories import make_class, make_primary_class, make_student, make_subject, make_year
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
@@ -137,7 +137,7 @@ def test_every_bad_code_gives_the_same_error(admin, setup, schools):
         Invitation.objects.filter(pk=expired["id"]).update(
             expires_at=timezone.now() - timedelta(seconds=1)
         )
-        Invitation.objects.filter(pk=used["id"]).update(status="revoked")
+    assert activate(A, used["code"], "x@example.com")[1].status_code == 200
     for code, identifier in (
         ("AAAAA-AAAAA", "x@example.com"),
         (revoked["code"], "x@example.com"),
@@ -388,3 +388,101 @@ def test_only_activation_and_the_dev_command_create_accounts():
             ):
                 found.add(rel)
     assert found == ACCOUNT_CREATORS
+
+
+def test_an_admin_redeeming_their_own_principal_board_invitation_waits_for_confirmation(
+    admin, admin_a, setup, schools
+):
+    code = staff_invitation(
+        admin, setup, identifier="", role="principal_board", valid_from="2026-01-01"
+    ).json()["code"]
+    _, response = activate(A, code, "admin-a@example.com", PASSWORD)
+    assert response.status_code == 200, response.json()
+    assert "principal_board" not in [r["role"] for r in response.json()["role_assignments"]]
+    with school_scope(schools[0].pk):
+        row = RoleAssignment.objects.get(role="principal_board")
+        assert (row.status, row.requested_by.account) == ("pending_confirmation", admin_a)
+
+
+def test_a_blank_identifier_is_a_printed_code(admin, setup):
+    issued = staff_invitation(admin, setup, identifier="").json()
+    assert issued["identifier"] is None
+    _, response = activate(A, issued["code"], "0987654321", display_name="")
+    assert response.status_code == 200, response.json()
+    assert response.json()["account"]["display_name"] == "Co Lan"
+
+
+def test_an_existing_account_and_a_new_identifier_answer_alike(admin, alice, setup):
+    code = staff_invitation(admin, setup, identifier="").json()["code"]
+    weak = [
+        activate(A, code, who, password="1")[1].json() for who in ("alice@example.com", "n@x.vn")
+    ]
+    assert list(weak[0]) == list(weak[1]) == ["password"]
+
+
+def test_an_inactive_account_cannot_activate(admin, alice, setup):
+    code = staff_invitation(admin, setup, identifier="alice@example.com").json()["code"]
+    with owner_role():
+        Account.objects.filter(pk=alice.pk).update(is_active=False)
+    assert activate(A, code, "alice@example.com", PASSWORD)[1].json() == INVALID
+
+
+def test_only_a_staff_invitation_takes_an_inactive_member_back(admin, alice, setup, schools):
+    with school_scope(schools[0].pk):
+        membership = Membership.objects.get(account=alice)
+    post(admin, A, f"setup/memberships/{membership.pk}/deactivate/")
+    guardian = post(
+        admin,
+        A,
+        "setup/invitations/",
+        {
+            "kind": "guardian",
+            "display_name": "Alice",
+            "student": setup["binh"].pk,
+            "relation": "mother",
+        },
+    ).json()["code"]
+    assert activate(A, guardian, "alice@example.com", PASSWORD)[1].json() == {
+        "invitation": ["cannot_apply"]
+    }
+    staff = staff_invitation(admin, setup, identifier="alice@example.com").json()["code"]
+    _, response = activate(A, staff, "alice@example.com", PASSWORD)
+    assert response.status_code == 200, response.json()
+    with school_scope(schools[0].pk):
+        membership.refresh_from_db()
+        assert membership.status == "active"
+
+
+def test_a_second_student_invitation_cannot_replace_the_sign_in(admin, setup):
+    def invite():
+        body = {"kind": "student", "display_name": "An", "student": setup["an"].pk}
+        return post(admin, A, "setup/invitations/", body).json()["code"]
+
+    first, second = invite(), invite()
+    assert activate(A, first, "an@example.com")[1].status_code == 200
+    assert activate(A, second, "an2@example.com")[1].json() == {"invitation": ["cannot_apply"]}
+
+
+def test_deactivating_ends_a_future_role_on_its_first_day(admin, alice, setup, schools):
+    start = timezone.localdate() + timedelta(days=10)
+    with school_scope(schools[0].pk):
+        membership = Membership.objects.get(account=alice)
+        future = RoleAssignment.objects.create(
+            school=schools[0],
+            membership=membership,
+            role="subject_teacher",
+            school_year=setup["year"],
+            school_class=setup["7B"],
+            subject=make_subject(schools[0], "LIT"),
+            valid_from=start,
+        )
+    post(admin, A, f"setup/memberships/{membership.pk}/deactivate/")
+    with school_scope(schools[0].pk):
+        future.refresh_from_db()
+        assert future.valid_to == start
+
+
+def test_an_outsider_learns_nothing_about_a_student_before_the_refusal(alice, setup):
+    teacher = sign_in(A, "alice@example.com")
+    body = {"kind": "student", "display_name": "Chi", "student": setup["chi"].pk}
+    assert post(teacher, A, "setup/invitations/", body).status_code == 403
