@@ -11,7 +11,8 @@ from rest_framework.fields import ChoiceField, DateField, IntegerField
 from rest_framework.response import Response
 
 from accounts.models import RoleAssignment
-from accounts.permissions import CanConfirmRoleAssignment, HasMembership, IsSchoolAdmin
+from accounts.permissions import HasMembership, NotRequesterOrAssignee
+from permissions.drf import Can
 
 from . import serializers
 from .models import (
@@ -46,11 +47,11 @@ class SetupViewSet(
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
-    """School admin only. No DELETE: years, classes and role assignments are ended or kept,
-    rooms and subjects are deactivated (history instead of deletes). Querysets need no School
-    filter: RLS shows only the request's School."""
+    """School admin only (`school.configure`). No DELETE: years, classes and role assignments are
+    ended or kept, rooms and subjects are deactivated (history instead of deletes). Querysets
+    need no School filter: RLS shows only the request's School."""
 
-    permission_classes = [HasMembership, IsSchoolAdmin]
+    permission_classes = [HasMembership, Can("school.configure")]
 
     def perform_create(self, serializer):
         self._save(serializer)
@@ -130,6 +131,7 @@ class SchoolClassViewSet(SetupViewSet):
 
 
 class RoleAssignmentViewSet(SetupViewSet):
+    permission_classes = [HasMembership, Can("accounts.manage")]
     queryset = RoleAssignment.objects.order_by("id")
     serializer_class = serializers.RoleAssignmentSetupSerializer
 
@@ -137,11 +139,16 @@ class RoleAssignmentViewSet(SetupViewSet):
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[HasMembership, CanConfirmRoleAssignment],
+        # The School admin (✔) and the principal board (👁) may confirm, as in slice 4.
+        permission_classes=[
+            HasMembership,
+            Can("accounts.manage", read=True),
+            NotRequesterOrAssignee,
+        ],
     )
     def confirm(self, request, pk=None):
         """A second person confirms a self-granted principal_board (never its requester or the
-        assignee: CanConfirmRoleAssignment)."""
+        assignee: NotRequesterOrAssignee)."""
         assignment = self.get_object()
         if assignment.status != RoleAssignment.Status.PENDING_CONFIRMATION:
             raise ValidationError({"status": ["not_pending_confirmation"]})

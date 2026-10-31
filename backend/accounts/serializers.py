@@ -1,6 +1,7 @@
 from django.contrib.auth.hashers import check_password, make_password
 from rest_framework import serializers
 
+from permissions.engine import capabilities
 from tenancy.models import School
 
 from .models import Account, Membership, RoleAssignment
@@ -60,13 +61,38 @@ class RoleAssignmentSerializer(serializers.ModelSerializer):
         ]
 
 
+class TeachingPairSerializer(serializers.Serializer):
+    subject = serializers.IntegerField()
+    school_class = serializers.IntegerField()
+
+
+class CapabilityScopeSerializer(serializers.Serializer):
+    """Where an action applies: `kind` is a permissions `Scope` (or `enrolled_class`), and the ids
+    say which groups, classes, subjects, pairs or students; school-wide scopes carry none."""
+
+    kind = serializers.CharField()
+    access = serializers.ChoiceField(["write", "read"])
+    once_released = serializers.BooleanField()
+    subject_groups = serializers.ListField(child=serializers.IntegerField(), required=False)
+    school_classes = serializers.ListField(child=serializers.IntegerField(), required=False)
+    subjects = serializers.ListField(child=serializers.IntegerField(), required=False)
+    students = serializers.ListField(child=serializers.IntegerField(), required=False)
+    pairs = TeachingPairSerializer(many=True, required=False)
+
+
+class CapabilitySerializer(serializers.Serializer):
+    action = serializers.CharField()
+    scopes = CapabilityScopeSerializer(many=True)
+
+
 class MeSerializer(serializers.Serializer):
     account = AccountSerializer()
     school = SchoolSerializer()
     role_assignments = RoleAssignmentSerializer(many=True)
+    capabilities = CapabilitySerializer(many=True)
 
 
-def me_data(account, school, membership) -> dict:
+def me_data(account, school, membership, actor) -> dict:
     return MeSerializer(
         {
             "account": account,
@@ -74,5 +100,6 @@ def me_data(account, school, membership) -> dict:
             "role_assignments": RoleAssignment.objects.in_force()
             .filter(membership=membership)
             .order_by("id"),
+            "capabilities": capabilities(actor),
         }
     ).data

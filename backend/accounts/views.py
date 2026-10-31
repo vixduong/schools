@@ -5,6 +5,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from permissions.actor import Actor
+
 from .authentication import CsrfOnlyAuthentication
 from .serializers import LoginSerializer, MeSerializer, me_data
 
@@ -22,7 +24,7 @@ class LoginView(APIView):
         login(request._request, account)
         # After login(): it flushes a session that belongs to someone else.
         request.session["school_id"] = request.school.pk
-        return Response(me_data(account, request.school, membership))
+        return Response(me_data(account, request.school, membership, Actor(membership)))
 
 
 class LogoutView(APIView):
@@ -38,7 +40,9 @@ class LogoutView(APIView):
 class MeView(APIView):
     @extend_schema(responses=MeSerializer)
     def get(self, request):
-        return Response(me_data(request.user, request.school, request.membership))
+        return Response(
+            me_data(request.user, request.school, request.membership, Actor.of(request))
+        )
 
 
 class CsrfView(APIView):

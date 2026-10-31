@@ -156,6 +156,10 @@ class RoleAssignment(models.Model):
         HOMEROOM_TEACHER = "homeroom_teacher"
         SUBJECT_TEACHER = "subject_teacher"
 
+    class Title(models.TextChoices):
+        PRINCIPAL = "principal"
+        VICE_PRINCIPAL = "vice_principal"
+
     class Status(models.TextChoices):
         ACTIVE = "active"
         # A School admin granting themselves principal_board waits for a second person.
@@ -200,6 +204,10 @@ class RoleAssignment(models.Model):
         related_name="+",
     )
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    # Named duties of a principal-board member (docs/roles.md); NULL/false on every other role.
+    title = models.CharField(max_length=20, choices=Title, null=True, blank=True)  # noqa: DJ001
+    can_reopen_gradebooks = models.BooleanField(default=False)
+    signs_for_principal = models.BooleanField(default=False)
 
     objects = RoleAssignmentQuerySet.as_manager()
 
@@ -236,6 +244,19 @@ class RoleAssignment(models.Model):
             models.CheckConstraint(
                 condition=Q(status="active") | Q(requested_by__isnull=False),
                 name="roleassignment_pending_has_requester",
+            ),
+            models.CheckConstraint(
+                condition=Q(role="principal_board")
+                | (
+                    Q(title__isnull=True)
+                    & Q(can_reopen_gradebooks=False)
+                    & Q(signs_for_principal=False)
+                ),
+                name="roleassignment_duties_only_on_principal_board",
+            ),
+            models.CheckConstraint(
+                condition=Q(title__isnull=True) | Q(title__in=["principal", "vice_principal"]),
+                name="roleassignment_title_is_known",
             ),
             ExclusionConstraint(
                 name="roleassignment_no_overlapping_periods",

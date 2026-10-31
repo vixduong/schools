@@ -108,3 +108,23 @@ def test_login_and_logout_enforce_csrf(alice):
     assert client.post(LOGOUT, HTTP_HOST=A).status_code == 403
     token = client.cookies[settings.CSRF_COOKIE_NAME].value
     assert client.post(LOGOUT, HTTP_HOST=A, HTTP_X_CSRFTOKEN=token).status_code == 204
+
+
+def test_me_lists_the_capabilities_of_the_member(client, alice, schools):
+    """Alice is homeroom teacher of 7A: she signs for the class and sees its profiles, and
+    nothing else reaches the School."""
+    sign_in(client)
+    body = client.get(ME, HTTP_HOST=A).json()
+    klass = body["role_assignments"][0]["school_class"]
+    caps = {c["action"]: c["scopes"] for c in body["capabilities"]}
+    assert caps["report_card.sign_class"] == [
+        {
+            "kind": "homeroom_class",
+            "access": "write",
+            "once_released": False,
+            "school_classes": [klass],
+        }
+    ]
+    assert caps["student_profile.view"][0]["access"] == "read"
+    assert "school.configure" not in caps and "accounts.manage" not in caps
+    assert sign_in(client).json()["capabilities"] == body["capabilities"]

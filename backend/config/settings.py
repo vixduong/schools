@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "tenancy",
     "accounts",
     "schools",
+    "permissions",
 ]
 
 MIDDLEWARE = [

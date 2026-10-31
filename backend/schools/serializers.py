@@ -132,8 +132,11 @@ class PeriodSerializer(SetupSerializer):
 
 
 class RoleAssignmentSetupSerializer(PeriodSerializer):
-    """Who holds which duty, where and when. Only `valid_to` can change afterwards: to end a role
-    set it; to resume the role later, create a new assignment. A School admin granting themselves
+    """Who holds which duty, where and when. Only `valid_to` can change afterwards, and the two
+    principal-board flags `can_reopen_gradebooks` and `signs_for_principal` (the School names who
+    reopens gradebooks and who signs for the principal; `title` is fixed at creation and all three
+    stay empty on every other role): to end a role set `valid_to`; to resume the role later,
+    create a new assignment. A School admin granting themselves
     principal_board creates a `pending_confirmation` row that grants nothing until a second
     person confirms it (`confirm` action)."""
 
@@ -145,6 +148,7 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
         "school_class",
         "subject",
         "valid_from",
+        "title",
     )
 
     class Meta:
@@ -160,6 +164,9 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
             "subject",
             "valid_from",
             "valid_to",
+            "title",
+            "can_reopen_gradebooks",
+            "signs_for_principal",
             "status",
             "requested_by",
             "confirmed_by",

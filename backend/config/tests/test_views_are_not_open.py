@@ -9,7 +9,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
 from accounts.authentication import CsrfOnlyAuthentication, SchoolSessionAuthentication
+from accounts.permissions import HasMembership
 from accounts.views import CsrfView, LoginView, LogoutView, MeView
+from permissions.drf import Can, CanPermission
 
 ALLOWED_AUTHENTICATION = {SchoolSessionAuthentication, CsrfOnlyAuthentication}
 # Open on purpose: sign-in has no session yet, and the schema describes the public API.
@@ -36,6 +38,13 @@ def problems(view):
         found.append("permission_classes is empty")
     if AllowAny in permissions and view not in MAY_ALLOW_ANY:
         found.append("AllowAny is not allowed here")
+    real = (HasMembership, CanPermission)  # `Can(...)` builds a CanPermission subclass
+    if (
+        permissions
+        and AllowAny not in permissions
+        and not any(issubclass(p, real) for p in permissions)
+    ):
+        found.append("no HasMembership or Can(...) permission")
     return found
 
 
@@ -51,7 +60,7 @@ def test_view_is_not_open(view):
 def test_the_guard_catches_open_views():
     class PlainSession(APIView):
         authentication_classes = [SessionAuthentication]
-        permission_classes = [IsAuthenticated]
+        permission_classes = [HasMembership]
 
     class NoPermission(APIView):
         permission_classes = []
@@ -59,6 +68,14 @@ def test_the_guard_catches_open_views():
     class Anyone(APIView):
         permission_classes = [AllowAny]
 
+    class Authenticated(APIView):
+        permission_classes = [IsAuthenticated]
+
+    class Checked(APIView):
+        permission_classes = [HasMembership, Can("school.configure")]
+
     assert len(problems(PlainSession)) == 1
     assert problems(NoPermission) == ["permission_classes is empty"]
     assert problems(Anyone) == ["AllowAny is not allowed here"]
+    assert problems(Authenticated) == ["no HasMembership or Can(...) permission"]
+    assert problems(Checked) == []

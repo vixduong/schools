@@ -1290,3 +1290,94 @@ def test_every_member_reads_the_assessment_profiles_and_nobody_writes_them(alice
     assert client.delete(url("assessment-profiles", profile["id"]), HTTP_HOST=A).status_code == 405
     client.logout()
     assert get(client, A, "assessment-profiles").status_code == 403
+
+
+def board_member(school, email="board@example.com"):
+    """A principal-board member; returns the Membership."""
+    membership = member(school, make_account(email), RoleAssignment.Role.PRINCIPAL_BOARD)
+    return membership
+
+
+def test_a_principal_board_member_reads_but_cannot_use_setup_endpoints(client, admin_a, schools):
+    """The matrix gives the principal board 👁 on configuring the School; slice 4's endpoints stay
+    School admin only (`school.configure` needs a ✔), so the board gets 403 on all of them."""
+    board_member(schools[0])
+    sign_in(client, A, "board@example.com")
+    for name in ENDPOINTS:
+        assert client.get(url(name), HTTP_HOST=A).status_code == 403, name
+
+
+def test_principal_duties_are_set_up_through_the_role_assignment_api(admin, schools):
+    a, _ = schools
+    account = make_account("p@example.com")  # swaps DB roles: outside any School scope
+    with school_scope(a.pk):
+        teacher = Membership.objects.create(school=a, account=account)
+    base = {
+        "membership": teacher.pk,
+        "role": "principal_board",
+        "valid_from": str(timezone.localdate()),
+        "title": "vice_principal",
+        "can_reopen_gradebooks": True,
+    }
+    created = post(admin, A, "role-assignments", base)
+    assert created.status_code == 201, created.json()
+    body = created.json()
+    assert (body["title"], body["can_reopen_gradebooks"], body["signs_for_principal"]) == (
+        "vice_principal",
+        True,
+        False,
+    )
+    # A School admin may change the two flags with a normal PATCH ...
+    patched = patch(
+        admin,
+        A,
+        "role-assignments",
+        body["id"],
+        {"can_reopen_gradebooks": False, "signs_for_principal": True},
+    )
+    assert patched.status_code == 200
+    assert (patched.json()["can_reopen_gradebooks"], patched.json()["signs_for_principal"]) == (
+        False,
+        True,
+    )
+    # ... but the title is fixed like the other scope fields.
+    retitled = patch(admin, A, "role-assignments", body["id"], {"title": "principal"})
+    assert retitled.status_code == 400 and retitled.json() == {"title": ["immutable"]}
+
+
+def test_principal_duties_are_refused_on_other_roles_and_unknown_titles(admin, alice, schools):
+    a, _ = schools
+    with school_scope(a.pk):
+        membership = Membership.objects.get(account=alice)
+        klass = make_class(a, name="7C")
+    today = str(timezone.localdate() + timedelta(days=1))
+    homeroom = {
+        "membership": membership.pk,
+        "role": "homeroom_teacher",
+        "school_year": klass.school_year_id,
+        "school_class": klass.pk,
+        "valid_from": today,
+    }
+    for duty in (
+        {"title": "principal"},
+        {"can_reopen_gradebooks": True},
+        {"signs_for_principal": True},
+    ):
+        refused = post(admin, A, "role-assignments", {**homeroom, **duty})
+        assert refused.json() == {"constraint": ["roleassignment_duties_only_on_principal_board"]}
+    board = {"membership": membership.pk, "role": "principal_board", "valid_from": today}
+    assert post(admin, A, "role-assignments", {**board, "title": "caretaker"}).status_code == 400
+
+
+def test_the_second_person_who_confirms_may_be_the_principal_board_but_no_one_else(
+    admin, alice, schools
+):
+    """Alice (homeroom) cannot confirm; the board member can (accounts.manage 👁)."""
+    a, _ = schools
+    with school_scope(a.pk):
+        mine = Membership.objects.get(account__email="admin-a@example.com").pk
+    board_member(a, "board2@example.com")
+    pending = grant_principal_board(admin, A, mine).json()
+    confirm = f"{url('role-assignments', pending['id'])}confirm/"
+    assert sign_in(Client(), A, "alice@example.com").post(confirm, HTTP_HOST=A).status_code == 403
+    assert sign_in(Client(), A, "board2@example.com").post(confirm, HTTP_HOST=A).status_code == 200

@@ -316,3 +316,22 @@ def test_a_self_granted_role_needs_a_third_person_to_confirm(setup):
         row.status = RoleAssignment.Status.ACTIVE
         row.confirmed_by = confirmer
         row.save()
+
+
+def test_principal_duties_are_allowed_on_principal_board_only(setup):
+    duties = {"title": "vice_principal", "can_reopen_gradebooks": True, "signs_for_principal": True}
+    with school_scope(setup["school"].pk):
+        row = assign(setup, Role.PRINCIPAL_BOARD)
+        RoleAssignment.objects.filter(pk=row.pk).update(**duties)
+    for field, value in duties.items():
+        with pytest.raises(IntegrityError, match="roleassignment_duties_only_on_principal_board"):
+            with school_scope(setup["school"].pk):
+                row = assign(setup, Role.SCHOOL_ADMIN)
+                RoleAssignment.objects.filter(pk=row.pk).update(**{field: value})
+
+
+def test_a_principal_board_title_is_principal_or_vice_principal(setup):
+    with pytest.raises(IntegrityError, match="roleassignment_title_is_known"):
+        with school_scope(setup["school"].pk):
+            row = assign(setup, Role.PRINCIPAL_BOARD)
+            RoleAssignment.objects.filter(pk=row.pk).update(title="caretaker")
