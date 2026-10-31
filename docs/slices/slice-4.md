@@ -52,3 +52,8 @@ Done when the School admin can set up a school year end to end through the API (
 - **Grade scope stays** for grade-wide activities: RoleAssignment carries a nullable `grade` scope; the role that uses it is defined with the activities phase.
 - **Schools never act on each other.** Role assignments are managed by the School's own admins; the cross-School case does not exist. Whether an admin may change their own assignments is pending (see below).
 - **A School admin may create, change and end their own role assignments**, all audited (slice 7), with one exception: **granting principal_board to themselves is two-step**. The row starts `pending_confirmation` and grants nothing until a different School admin or principal board member (not the requester, not the assignee) confirms it. Ending the last in-force School admin is refused: an admin's role can end only while another membership already holds a School admin role in force right now (a pending or future-dated replacement does not count), so the handover is to appoint the replacement first, then end the old role. The same rule will apply to deactivating a Membership.
+
+## Decisions after the 4b review (owner, 2026-10-31)
+
+- **Leaving can be scheduled in advance.** A transfer, drop-out or graduation may be recorded with a future date: the enrollment stays in force until that day, a student's status is computed as of a date from the status events (a future event does not change today's status), and a scheduled leave can be cancelled before it takes effect, which is the only case where an end date may be cleared.
+- **School admins see a student's national ID masked in lists** (last 3 digits) and in full only on the single student's record; from slice 7 every full view is audited.
