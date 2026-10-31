@@ -6,6 +6,8 @@ from .serializers import ProbeSerializer
 
 class ProbeList(generics.ListCreateAPIView):
     # No school filter on purpose: isolation is enforced by RLS, not by this queryset.
+    # Slice 2 scaffold, deliberately open; goes away with the real models.
+    permission_classes = []
     queryset = Probe.objects.order_by("id")
     serializer_class = ProbeSerializer
 

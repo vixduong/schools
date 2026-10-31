@@ -8,6 +8,8 @@ from tenancy.models import Probe
 class WriteThenFail(APIView):
     """Writes a row, then fails: the write must not survive."""
 
+    permission_classes = []
+
     def post(self, request):
         Probe.objects.create(school=request.school, name="half-written")
         if request.query_params.get("crash"):

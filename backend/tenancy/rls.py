@@ -54,11 +54,25 @@ def enable_tenant_rls(table: str) -> migrations.RunSQL:
     )
 
 
-def grant_app_role(table: str) -> migrations.RunSQL:
-    """Migration operation: app-role grants for a global (non-RLS) table."""
+_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
+
+
+def grant_app_role(
+    table: str, privileges: tuple[str, ...] = ("SELECT",), sequence: bool = False
+) -> migrations.RunSQL:
+    """Migration operation: app-role grants for a global (non-RLS) table. `sequence=True` also
+    grants the app role the table's `id` sequence (needed to INSERT into a table with an `id`)."""
     role = settings.APP_DB_USER
     assert _IDENT.match(table) and _IDENT.match(role), "unsafe identifier"
+    assert privileges and set(privileges) <= _PRIVILEGES, "unsafe privileges"
+    grants = ", ".join(privileges)
+    seq = f"pg_get_serial_sequence('{table}', 'id')"
+    grant_seq = revoke_seq = ""
+    if sequence:
+        run = f"DO $$ BEGIN EXECUTE format('%s ON SEQUENCE %%s %s {role}', {seq}); END $$;"
+        grant_seq = run % ("GRANT USAGE", "TO")
+        revoke_seq = run % ("REVOKE ALL", "FROM")
     return migrations.RunSQL(
-        sql=f"GRANT SELECT ON {table} TO {role}",
-        reverse_sql=f"REVOKE SELECT ON {table} FROM {role}",
+        sql=f"GRANT {grants} ON {table} TO {role}; {grant_seq}",
+        reverse_sql=f"{revoke_seq} REVOKE {grants} ON {table} FROM {role};",
     )

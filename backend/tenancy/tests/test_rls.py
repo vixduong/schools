@@ -100,7 +100,12 @@ def test_delete_across_schools_touches_no_rows(app_conn, schools):
 
 # Global tables the app role may touch without RLS. Anything else it can read or write must
 # be a tenant table with forced RLS and exactly the one fail-closed policy.
-GLOBAL_TABLES = {"tenancy_school", "django_migrations"}
+GLOBAL_TABLES = {
+    "tenancy_school",
+    "django_migrations",
+    "accounts_account",
+    "django_session",
+}
 
 
 def test_app_role_reaches_only_global_or_rls_tables(db):

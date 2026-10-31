@@ -12,16 +12,37 @@ BASE_DOMAIN = os.environ["BASE_DOMAIN"].lower()
 ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
+    "django.contrib.contenttypes",
+    # Required by sessions/DRF. Its group and permission tables stay unused and ungranted.
+    "django.contrib.auth",
+    "django.contrib.sessions",
     "rest_framework",
     "drf_spectacular",
     "tenancy",
+    "accounts",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Tenant first: sessions are read and saved inside the School's transaction.
     "tenancy.middleware.TenantMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
 ]
+
+AUTH_USER_MODEL = "accounts.Account"
+
+# Cookies (ADR 0003). Host-only: no Domain, and the __Host- prefix makes browsers enforce it.
+# The prefix needs Secure, so plain-http local dev sets SECURE_COOKIES=false (see .env.example).
+SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "1") == "1"
+_cookie_prefix = "__Host-" if SECURE_COOKIES else ""
+SESSION_COOKIE_NAME = f"{_cookie_prefix}sessionid"
+CSRF_COOKIE_NAME = f"{_cookie_prefix}csrftoken"
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = SECURE_COOKIES
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -53,11 +74,9 @@ DATABASES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# No Account/session yet (slice 3), so the API is open; tenancy is enforced by RLS regardless.
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
-    "DEFAULT_PERMISSION_CLASSES": [],
-    "UNAUTHENTICATED_USER": None,
+    "DEFAULT_AUTHENTICATION_CLASSES": ["accounts.authentication.SchoolSessionAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["accounts.permissions.HasMembership"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
