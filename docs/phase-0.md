@@ -12,7 +12,7 @@ Phase 0 of `docs/roadmap.md`, cut into slices that each end green (tests pass, `
 | 6 | **Import**: Excel import of staff, students and Guardians with a row-error preview and one-transaction commit; Guardian invite codes | a sample roster imports; a bad row is reported, nothing half-written |
 | 7 | **Audit and support access**: append-only audit log; time-limited operator support grants, logged | score-like edits and grants appear in the School's log |
 | 8 | **Frontend shell**: tokens and components from `DESIGN.md` (both modes), login per School, top bar, routes for later screens, generated OpenAPI client | the login screen of the prototype works against the API |
-| 9 | **Operations**: OpenTelemetry + Alloy config, backups and restore drill script, operator command to create a School, its subdomain and first admin | a new School can be created end to end on a fresh environment |
+| 9 | **Operations**: OpenTelemetry + Alloy config, backups and restore drill script, operator command to create a School, its subdomain and first admin; login rate limiting and `SECURE_PROXY_SSL_HEADER` for the Cloudflare topology (both required before production) | a new School can be created end to end on a fresh environment |
 
 Slices 1 and 2 carry the most risk (tenancy is ADR 0001's promise), so they go first and get an independent review before slice 3.
 
@@ -25,3 +25,8 @@ Slices 1 and 2 carry the most risk (tenancy is ADR 0001's promise), so they go f
 - **Tenant foreign keys and uniques** include `school_id` (composite FKs, `(school_id, …)` unique constraints), so a row cannot point at another School's row and uniqueness never reveals another School's data (national ID).
 - **Data migrations** run per School inside `school_scope` (the owner is bound by FORCE RLS and otherwise sees nothing); tasks carry `school_id` and enter `school_scope` themselves; responses never stream DB data.
 - **Before production**: refuse to start if the DB role is superuser or `BYPASSRLS`; `idle_in_transaction_session_timeout` on the app role; RLS is a guard against a missed filter, not against SQL injection, so no raw SQL from user input.
+
+## Decisions during slice 3 (owner, 2026-10-31)
+
+- Phone logins accept Vietnamese 10-digit mobile numbers only (`0XXXXXXXXX`, `+84`/`84` normalised); landlines and foreign numbers are refused, and those Guardians sign in by email.
+- Login rate limiting and `SECURE_PROXY_SSL_HEADER` are built in slice 9, with the deploy topology, and must exist before production.
