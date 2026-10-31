@@ -30,17 +30,16 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 - [What does the final tech-stack analysis record, and which choices become ADRs?](issues/06-tech-stack-analysis.md): Django 5.2 LTS + DRF, RLS fail-closed (verified on PG16), Postgres-backed tasks; React + TanStack (incl. Form) + shadcn; same-origin session auth; Singapore + R2; OpenTelemetry → Grafana Cloud Singapore; `docs/tech-stack.md`, ADRs 0003–0006.
 - [What does the digital report card (học bạ số) require of a school system from 2027?](issues/10-digital-report-card.md): mandatory from 8 Oct 2026 under Circular 70/2026; personal signatures (subject teacher, homeroom, principal) plus the School's; sync to the national database; MVP takes a scoped slice, while live submission waits for the official spec.
 - [Must the platform sync with the national education database, and how?](issues/11-national-education-database.md): reporting is mandatory (Circular 42/2021, contents from Circular 25/2024); the MVP exports Ministry-shaped Excel and carries national IDs and status history; API sync needs the Ministry spec (Decision 4998) and a connection, which digital report cards will also need.
+- [Which features belong to each phase of the roadmap?](issues/05-phased-roadmap.md): Phase 0 Foundation, 1 MVP secondary (1a start of term, 1b end of term incl. digital report card slice and Ministry Excel), 2 Primary, 3 online tests, 4 lessons, 5 extracurricular + Zalo/SMS, 6 Preschool; done = a pilot School runs it a full term; `docs/roadmap.md`.
 
 ## Not yet specified
 
 - Lesson authoring: which phase it lands in, and whether the JSXGraph board spec and the shared lesson/exam node schema need their own ticket before then.
-- Exam bank and test generation: question metadata, exam matrix, shuffling, how marks flow into the gradebook. Depends on the roadmap phase it lands in.
 - Extracurricular activities: registration, capacity, conduct points, parent consent.
 - Preschool module: daily log, meals, health, pick-up; how much it shares with the core.
 - Notifications channel to parents (Zalo ZNS, SMS, email, PWA push) and its cost model.
 - School onboarding: data import from Excel / VNEdu / SMAS, School setup wizard, subscription billing.
 - Reporting obligations to education authorities (Sở/Phòng GD, national education database sync).
-- Timetable: manual entry with conflict checks; auto-scheduling stays out unless a phase needs it.
 
 ## Out of scope
 

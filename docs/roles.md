@@ -48,6 +48,10 @@ Deferred past the MVP: clerical staff (văn thư), accountant (kế toán), scho
 | Take a published test | ✘ | ✘ | ✘ | ✘ | ✘ | ✘ | ✔ own class, in its window | ✘ |
 | Grade, release results, push to a gradebook column | ✘ | ✘ | ✘ | ✘ | ✘ | ✔ own tests | ✘ | ✘ |
 | Send notices | ✘ | ✔ whole School | ✔ whole School | ✔ own group | ✔ own class's Guardians | ✔ own classes | ✘ | ✘ |
+| Sign the digital report card: own subject's results | ✘ | ✘ | ✘ | ✘ | ✘ | ✔ own subject × class | ✘ | ✘ |
+| Sign the digital report card: the class | ✘ | ✘ | ✘ | ✘ | ✔ own class | ✘ | ✘ | ✘ |
+| Sign as principal and apply the School's organisational signature | ✘ | ✘ | ✔ principal or delegate | ✘ | ✘ | ✘ | ✘ | ✘ |
+| Export Ministry reports (Excel) | ✘ | ✔ | ✔ | ✘ | ✘ | ✘ | ✘ | ✘ |
 | Grant time-limited support access to the operator | ✘ | ✔ | ✔ | ✘ | ✘ | ✘ | ✘ | ✘ |
 | Read the audit log | ✘ | 👁 | 👁 | ✘ | ✘ | ✘ | ✘ | ✘ |
 
@@ -57,4 +61,5 @@ Deferred past the MVP: clerical staff (văn thư), accountant (kế toán), scho
 - **Online tests**: regular tests, including 15 and 30-minute quizzes, are published by the subject teacher alone; periodic tests need the group leader's approval first. Every test has a time window and a duration, a limit on attempts, and shuffled questions and answers; no proctoring or browser lock in the MVP. Results reach students and Guardians only when the teacher releases them; answers and worked solutions only if the teacher chooses. A result enters the gradebook only when the teacher pushes it into a chosen column; from there the gradebook workflow applies.
 - **Leave request**: a Guardian sends it; the homeroom teacher approves or declines; it is a ticket with a lifecycle (waiting, approved, declined).
 - **Least data**: the School admin configures but sees no scores or student records unless another assignment grants it. Operator staff see no School data; a School admin or the principal board grants support access for a fixed window, and every action in it is logged and visible to the School.
+- **Digital report card** (Circular 70/2026): signatures in order (subject teachers, homeroom teacher, principal or delegate), then the School's organisational signature, applied by the principal board while the clerical role is deferred. An issued record is locked; a correction is revoke and re-issue.
 - **Sign-in**: staff by email or phone number; Guardians by phone number and password, activated once with an invite code from the homeroom teacher (no SMS cost in the MVP); students by an account the School creates.
