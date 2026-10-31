@@ -2,6 +2,7 @@ from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.db import models
 from django.db.models import Func, Q, Value
+from django.utils import timezone
 
 
 class TenantModel(models.Model):
@@ -177,3 +178,254 @@ class SchoolClass(TenantModel):
 
     def __str__(self):
         return self.name
+
+
+def _daterange(start: str, end: str) -> Func:
+    return Func(start, end, Value("[]"), function="daterange", output_field=DateRangeField())
+
+
+class Student(TenantModel):
+    """A student of this School. `membership` (the student's sign-in) exists only for Lower and
+    Upper Secondary students, so a trigger (student_membership_needs_secondary_level) requires an
+    Enrollment in such a class first, and Enrollment refuses a lower-level class afterwards.
+    `status` is never written directly: it always equals the latest StudentStatusEvent (by `on`,
+    then id), or 'studying' while there is none; the database refuses any other value."""
+
+    class Gender(models.TextChoices):
+        MALE = "male"
+        FEMALE = "female"
+
+    class Status(models.TextChoices):
+        STUDYING = "studying"
+        TRANSFERRED_OUT = "transferred_out"
+        DROPPED_OUT = "dropped_out"
+        GRADUATED = "graduated"
+
+    full_name = models.CharField(max_length=200)
+    date_of_birth = models.DateField()
+    gender = models.CharField(max_length=10, choices=Gender)
+    # NULL, not "", when unknown, so the per-School uniques never collide on blanks.
+    ministry_student_id = models.CharField(max_length=30, null=True, blank=True)  # noqa: DJ001
+    national_id = models.CharField(max_length=20, null=True, blank=True)  # noqa: DJ001
+    membership = models.ForeignKey(
+        "accounts.Membership", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    status = models.CharField(max_length=20, choices=Status, default=Status.STUDYING)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="student_school_id_key"),
+            models.UniqueConstraint(
+                fields=["school", "ministry_student_id"], name="student_ministry_student_id_key"
+            ),
+            models.UniqueConstraint(
+                fields=["school", "national_id"], name="student_national_id_key"
+            ),
+            models.UniqueConstraint(fields=["school", "membership"], name="student_membership_key"),
+            models.CheckConstraint(
+                condition=~Q(ministry_student_id="") & ~Q(national_id=""),
+                name="student_ids_are_null_not_blank",
+            ),
+            # The secondary-level rule and "status follows the events" are triggers, in the
+            # migration.
+        ]
+
+    def __str__(self):
+        return self.full_name
+
+    def save(self, *args, **kwargs):
+        self.ministry_student_id = (self.ministry_student_id or "").strip() or None
+        self.national_id = (self.national_id or "").strip() or None
+        super().save(*args, **kwargs)
+
+
+class StudentStatusEvent(TenantModel):
+    """Append-only history of a student's status: the app role has SELECT and INSERT only. An
+    insert sets `Student.status` through a trigger."""
+
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, db_constraint=False)
+    status = models.CharField(max_length=20, choices=Student.Status)
+    on = models.DateField()
+    reason = models.CharField(max_length=500, blank=True)
+    recorded_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "id"], name="studentstatusevent_school_id_key"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student_id} {self.status} on {self.on}"
+
+
+class EnrollmentQuerySet(models.QuerySet):
+    def in_force(self, on=None):
+        """Periods containing `on` (default: today); an open period (no `valid_to`) is ongoing."""
+        on = on or timezone.localdate()
+        return self.filter(Q(valid_from__lte=on), Q(valid_to__isnull=True) | Q(valid_to__gte=on))
+
+
+class Enrollment(TenantModel):
+    """A student's place in one School and class for a period of one school year (GLOSSARY). A
+    student moves class mid-year, or arrives or leaves, by ending one row and starting another, so
+    the history stays. A period is [valid_from, valid_to] inside the school year (open-ended while
+    ongoing; close it with `year_end` when the year is over); periods of one student never overlap.
+    The class must belong to the year: (school_id, school_year_id, school_class_id) references the
+    class's (school_id, school_year_id, id). `valid_to` and `reason_ended` are set together."""
+
+    class ReasonStarted(models.TextChoices):
+        NEW_YEAR = "new_year"
+        TRANSFER_IN = "transfer_in"
+        CLASS_CHANGE = "class_change"
+        RETURN = "return"
+
+    class ReasonEnded(models.TextChoices):
+        TRANSFER_OUT = "transfer_out"
+        CLASS_CHANGE = "class_change"
+        DROPPED_OUT = "dropped_out"
+        GRADUATED = "graduated"
+        YEAR_END = "year_end"
+
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, db_constraint=False)
+    school_year = models.ForeignKey(SchoolYear, on_delete=models.PROTECT, db_constraint=False)
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.PROTECT, db_constraint=False)
+    valid_from = models.DateField()
+    valid_to = models.DateField(null=True, blank=True)
+    reason_started = models.CharField(max_length=20, choices=ReasonStarted)
+    reason_ended = models.CharField(max_length=20, choices=ReasonEnded, null=True, blank=True)  # noqa: DJ001
+
+    objects = EnrollmentQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="enrollment_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(valid_to__isnull=True) | Q(valid_to__gte=models.F("valid_from")),
+                name="enrollment_valid_to_after_valid_from",
+            ),
+            models.CheckConstraint(
+                condition=Q(valid_to__isnull=True, reason_ended__isnull=True)
+                | Q(valid_to__isnull=False, reason_ended__isnull=False),
+                name="enrollment_end_has_a_reason",
+            ),
+            ExclusionConstraint(
+                name="enrollment_no_overlapping_periods",
+                expressions=[
+                    ("school", RangeOperators.EQUAL),
+                    ("student", RangeOperators.EQUAL),
+                    (_daterange("valid_from", "valid_to"), RangeOperators.OVERLAPS),
+                ],
+            ),
+            # "Period inside its school year" is a trigger (enrollment_inside_school_year).
+        ]
+
+    def __str__(self):
+        return f"{self.student_id} in {self.school_class_id} from {self.valid_from}"
+
+
+class GuardianLink(TenantModel):
+    """A Guardian's (Membership's) link to a student; the source of the Guardian's rights over
+    that student. A period [valid_from, valid_to] (open-ended when valid_to is null); two periods
+    of the same Membership and student never overlap. Ended with valid_to, never deleted."""
+
+    class Relation(models.TextChoices):
+        MOTHER = "mother"
+        FATHER = "father"
+        GRANDPARENT = "grandparent"
+        OTHER = "other"
+
+    membership = models.ForeignKey(
+        "accounts.Membership",
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="guardian_links",
+    )
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, db_constraint=False)
+    relation = models.CharField(max_length=20, choices=Relation)
+    valid_from = models.DateField()
+    valid_to = models.DateField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="guardianlink_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(valid_to__isnull=True) | Q(valid_to__gte=models.F("valid_from")),
+                name="guardianlink_valid_to_after_valid_from",
+            ),
+            ExclusionConstraint(
+                name="guardianlink_no_overlapping_periods",
+                expressions=[
+                    ("school", RangeOperators.EQUAL),
+                    ("membership", RangeOperators.EQUAL),
+                    ("student", RangeOperators.EQUAL),
+                    (_daterange("valid_from", "valid_to"), RangeOperators.OVERLAPS),
+                ],
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.membership_id} -> {self.student_id}"
+
+
+class AssessmentProfileVersion(models.Model):
+    """One dated edition of the assessment rules of a Level kind (ADR 0006). Global table: no
+    `school_id`, no RLS, SELECT only for the app role (rows arrive by migration). A school year is
+    assessed under the version in force for it. Periods of one `level_kind` never overlap;
+    `effective_to` is inclusive, null while no later version exists.
+
+    `rules` shape for Lower/Upper Secondary (Circular 22/2021), all keys required:
+
+        {"schema": 1,
+         "verified": "ocr",                  # how the values were read: re-check against the PDF
+         "effective_from_assumed": true,     # the circular's own date was not in the research
+         "scale": {"max": 10, "decimals": 1, "rounding": "half_up", "rounding_assumed": true},
+         "subject_forms": ["scored", "comment_only"],
+         "comment_results": ["Đạt", "Chưa đạt"],
+         "regular_assessments": {            # per semester
+             "comment_only": 2,
+             "scored_by_periods_per_year": [{"up_to": 35, "count": 2},
+                                            {"up_to": 70, "count": 3},
+                                            {"up_to": null, "count": 4}]},   # null = no limit
+         "periodic": {"mid_term": 1, "end_term": 1},
+         "weights": {"regular": 1, "mid_term": 2, "end_term": 3},
+         "semester_average": "<formula text>",
+         "year_average": {"weights": {"semester_1": 1, "semester_2": 2}, "formula": "<text>"},
+         "learning_ratings": [               # best first; the last one has "otherwise": true
+             {"name": "Tốt",
+              "comment_subjects_not_passed_max": 0,
+              "every_scored_at_least": 6.5,  # null = no such condition
+              "scored_at_least": {"subjects": 6, "score": 8.0},
+              "no_scored_below": null},
+             ...],
+         "rating_adjustment": "<text>"}
+
+    Other Level kinds define their own shape under their own `schema` number."""
+
+    level_kind = models.CharField(max_length=20, choices=Level.Kind)
+    effective_from = models.DateField()
+    effective_to = models.DateField(null=True, blank=True)
+    source = models.CharField(max_length=200)  # "Circular 22/2021/TT-BGDĐT"
+    rules = models.JSONField()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="assessmentprofileversion_ends_after_start",
+            ),
+            ExclusionConstraint(
+                name="assessmentprofileversion_no_overlap",
+                expressions=[
+                    ("level_kind", RangeOperators.EQUAL),
+                    (_daterange("effective_from", "effective_to"), RangeOperators.OVERLAPS),
+                ],
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.level_kind} from {self.effective_from}"

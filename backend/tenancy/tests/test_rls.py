@@ -106,6 +106,7 @@ GLOBAL_TABLES = {
     "django_migrations",
     "accounts_account",
     "django_session",
+    "schools_assessmentprofileversion",  # SELECT only; no school_id
 }
 
 

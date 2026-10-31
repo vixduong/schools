@@ -86,9 +86,9 @@ def test_each_role_accepts_only_its_scope(setup, role):
         assign(setup, role, **good)
 
 
-@pytest.mark.parametrize("role", [Role.STUDENT, Role.GUARDIAN])
+@pytest.mark.parametrize("role", ["student", "guardian"])
 @pytest.mark.parametrize("scope", [{}, {"school_class": "klass"}])
-def test_student_and_guardian_cannot_be_created_before_the_student_scope_exists(setup, role, scope):
+def test_student_and_guardian_are_never_role_assignments(setup, role, scope):
     with pytest.raises(IntegrityError, match="roleassignment_scope_matches_role"):
         with school_scope(setup["school"].pk):
             assign(setup, role, **scope)

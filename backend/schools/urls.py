@@ -13,6 +13,10 @@ for prefix, viewset in {
     "rooms": views.RoomViewSet,
     "classes": views.SchoolClassViewSet,
     "role-assignments": views.RoleAssignmentViewSet,
+    "students": views.StudentViewSet,
+    "enrollments": views.EnrollmentViewSet,
+    "guardian-links": views.GuardianLinkViewSet,
+    "assessment-profiles": views.AssessmentProfileViewSet,
 }.items():
     router.register(prefix, viewset, basename=prefix)
 

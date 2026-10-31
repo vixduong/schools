@@ -139,7 +139,9 @@ class RoleAssignment(models.Model):
     """A Membership's duty in one scope (docs/roles.md). Tenant table (RLS).
 
     The scope is the typed nullable FKs `school_year`, `grade`, `subject_group`, `school_class`
-    and `subject` (`student` arrives in slice 4b); the check constraint says which a role needs.
+    and `subject`; the check constraint says which a role needs. A student and a Guardian get no
+    RoleAssignment row: their rights come from `Student.membership` + Enrollment and from
+    GuardianLink (schools app), so each link has one source of truth.
     Every FK to another tenant table has no single-column database FK: the migrations add
     composite FKs (school_id, x_id) -> x (school_id, id), so the target must belong to the same
     School; a class-scoped role also has (school_id, school_year_id, school_class_id) ->
@@ -153,8 +155,6 @@ class RoleAssignment(models.Model):
         GROUP_LEADER = "group_leader"
         HOMEROOM_TEACHER = "homeroom_teacher"
         SUBJECT_TEACHER = "subject_teacher"
-        STUDENT = "student"
-        GUARDIAN = "guardian"
 
     class Status(models.TextChoices):
         ACTIVE = "active"
@@ -205,8 +205,7 @@ class RoleAssignment(models.Model):
 
     class Meta:
         constraints = [
-            # student and guardian are absent on purpose: they need the `student` scope (4b), so
-            # until then neither can be created.
+            # student and guardian are absent on purpose: they are never RoleAssignment rows.
             models.CheckConstraint(
                 condition=_role_scope("school_admin")
                 | _role_scope("principal_board")

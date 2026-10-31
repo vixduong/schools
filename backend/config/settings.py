@@ -90,6 +90,12 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "School Platform API",
     "VERSION": "0.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Several models share the field names `status` and `kind`; give each choice set one name.
+    "ENUM_NAME_OVERRIDES": {
+        "LevelKindEnum": "schools.models.Level.Kind",
+        "StudentStatusEnum": "schools.models.Student.Status",
+        "RoleAssignmentStatusEnum": "accounts.models.RoleAssignment.Status",
+    },
 }
 
 USE_TZ = True

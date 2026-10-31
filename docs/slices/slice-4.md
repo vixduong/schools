@@ -35,7 +35,7 @@ API (School admin only for now: a temporary `IsSchoolAdmin` permission = a `scho
 
 ## 4b: people and assessment rules
 
-- `Student`: `full_name`, `date_of_birth`, `gender`, `ministry_student_id` (nullable), `national_id` (nullable), `account` (nullable, global; only Lower/Upper Secondary get one), `status` (studying, transferred_out, dropped_out, graduated). Unique `(school, ministry_student_id)` and `(school, national_id)` when set.
+- `Student`: `full_name`, `date_of_birth`, `gender`, `ministry_student_id` (nullable), `national_id` (nullable), `membership` (nullable, unique; only Lower/Upper Secondary students get one), `status` (studying, transferred_out, dropped_out, graduated). Unique `(school, ministry_student_id)` and `(school, national_id)` when set.
 - `StudentStatusEvent`: append-only history (status, on, reason, by whom).
 - `Enrollment` as **periods**, so a student can move during the year: `student`, `school_year`, `school_class`, `valid_from`, `valid_to`, `reason_started` (new_year, transfer_in, class_change, return), `reason_ended` (transfer_out, class_change, dropped_out, graduated, year_end). No overlapping periods per student; the period lies inside its school year. Actions: move class mid-year (end + new row in one request), transfer out (end the enrollment + a `transferred_out` status event in one transaction; records stay with the School), transfer in or return (new enrollment starting mid-year). Carried-over results from the previous School come with the gradebook in phase 1.
 - `GuardianLink`: guardian `membership`, `student`, `relation` (mother, father, grandparent, other), `valid_from`, `valid_to`; no overlapping links for the same pair.
