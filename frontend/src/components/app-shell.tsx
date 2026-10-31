@@ -16,7 +16,7 @@ export function AppShell() {
             <Link to="/" className={navLink}>
               Hôm nay
             </Link>
-            <Link to="/dang-nhap" className={navLink}>
+            <Link to="/login" className={navLink}>
               Đăng nhập
             </Link>
           </nav>
