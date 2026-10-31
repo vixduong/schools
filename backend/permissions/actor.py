@@ -2,17 +2,30 @@
 cached on the request), so `can()` in a loop costs a bounded number of queries."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import cached_property
 
 from django.db.models import Q
 from django.utils import timezone
 
 from accounts.models import Membership, RoleAssignment
-from schools.models import Enrollment, GuardianLink, SchoolClass, Student, Subject
+from schools.models import (
+    Enrollment,
+    GuardianLink,
+    SchoolClass,
+    SchoolYear,
+    Student,
+    StudentStatusEvent,
+    Subject,
+)
 
 from .matrix import Duty, Role
 
 Assignment = RoleAssignment.Role
+# The break between school years: a continuing student keeps access until this many days after the
+# next year starts, or (no next year yet) this many days after the last year ended.
+BREAK_DAYS_AFTER_NEXT_YEAR_STARTS = 30
+BREAK_DAYS_WITHOUT_NEXT_YEAR = 120
 LEAVE_REASONS = (
     Enrollment.ReasonEnded.TRANSFER_OUT,
     Enrollment.ReasonEnded.DROPPED_OUT,
@@ -157,7 +170,7 @@ class Actor:
     @cached_property
     def student_access(self) -> dict[int, "StudentAccess"]:
         """Own and linked students -> where they stand at the School on the date. Two queries for
-        every student of this actor."""
+        every student of this actor, plus two more when one is between school years."""
         ids = self.own_student_ids | self.linked_student_ids
         if not ids:
             return {}
@@ -177,18 +190,61 @@ class Actor:
         )
         for student, klass, reason, year_ends_on in rows:
             started[student].append((klass, reason, year_ends_on))
-        return {student: self._access(in_force.get(student), started[student]) for student in ids}
+        between = [
+            student
+            for student in ids
+            if student not in in_force
+            and started[student]
+            and started[student][-1][1] in (None, Enrollment.ReasonEnded.YEAR_END)
+        ]
+        year_starts, left_on = [], {}
+        if between:
+            year_starts = list(
+                SchoolYear.objects.filter(school_id=self.school_id).values_list(
+                    "starts_on", flat=True
+                )
+            )
+            # A leave recorded in the break is a status event with no enrollment behind it: the
+            # latest event before the date, when it is not `studying`, says the student left then.
+            events = StudentStatusEvent.objects.filter(
+                school_id=self.school_id, student_id__in=between, on__lt=self.on
+            ).order_by("on", "id")
+            latest = {e.student_id: e for e in events}
+            left_on = {
+                student: e.on
+                for student, e in latest.items()
+                if e.status != Student.Status.STUDYING
+            }
+        return {
+            student: self._access(
+                in_force.get(student), started[student], year_starts, left_on.get(student)
+            )
+            for student in ids
+        }
 
-    def _access(self, in_force_class, started) -> "StudentAccess":
+    def _access(self, in_force_class, started, year_starts, left_on) -> "StudentAccess":
         ever = frozenset(klass for klass, _, _ in started)
         if in_force_class is not None:
             return StudentAccess(in_force_class, True, ever, frozenset())
         # Nothing in force: a continuing student between years (the last period ended with the
-        # year, or is still open after its year) stays; one who left keeps the post-leave reads
-        # until the school year of the leaving period ends; anything else (a class change with no
-        # next class) has no access.
+        # year, or is still open after its year) stays through the break; one who left keeps the
+        # post-leave reads until the school year of the leaving period ends; anything else (a
+        # class change with no next class) has no access.
         if started and started[-1][1] in (None, Enrollment.ReasonEnded.YEAR_END):
-            return StudentAccess(None, True, ever, frozenset())
+            klass, _, year_ends_on = started[-1]
+            if left_on is not None:  # left during the break: the last class, until its year ends
+                return StudentAccess(
+                    None,
+                    False,
+                    ever,
+                    frozenset({klass}) if self.on <= year_ends_on else frozenset(),
+                )
+            next_start = min((d for d in year_starts if d > year_ends_on), default=None)
+            if next_start is not None:
+                over = self.on > next_start + timedelta(days=BREAK_DAYS_AFTER_NEXT_YEAR_STARTS)
+            else:
+                over = self.on > year_ends_on + timedelta(days=BREAK_DAYS_WITHOUT_NEXT_YEAR)
+            return StudentAccess(None, not over, ever, frozenset())
         left = frozenset(
             klass
             for klass, reason, year_ends_on in started

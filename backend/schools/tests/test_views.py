@@ -1064,6 +1064,52 @@ def test_a_scheduled_leave_can_be_cancelled_until_its_day(admin, schools, monkey
     assert (reopened["valid_to"], reopened["reason_ended"]) == (str(friday), "dropped_out")
 
 
+def test_a_continuing_student_can_leave_and_cancel_during_the_break(admin, schools, monkeypatch):
+    a, _ = schools
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student = make_student(a)
+    row = enroll_via_api(admin, student.pk, klass).json()
+    year_end = klass.school_year.ends_on
+    assert (
+        admin.post(f"{url('school-years', klass.school_year_id)}close/", HTTP_HOST=A).status_code
+        == 200
+    )
+    closed = get(admin, A, "enrollments", row["id"]).json()
+    assert (closed["valid_to"], closed["reason_ended"]) == (str(year_end), "year_end")
+
+    leave, cancel = leave_url(student), leave_url(student, "leave/cancel/")
+    assert post_to(admin, cancel).json() == {"leave": ["no_leave"]}
+    early = post_to(admin, leave, reason="graduated", on=str(year_end - timedelta(days=1)))
+    assert early.json() == {"on": ["before_enrollment_end"]}
+
+    left_on = year_end + timedelta(days=10)
+    done = post_to(admin, leave, reason="dropped_out", on=str(left_on))
+    assert done.status_code == 200, done.json()
+    assert done.json()["scheduled_change"] == {"status": "dropped_out", "on": str(left_on)}
+    # No enrollment is touched, and a second leave is refused.
+    same = get(admin, A, "enrollments", row["id"]).json()
+    assert (same["valid_to"], same["reason_ended"]) == (str(year_end), "year_end")
+    again = post_to(admin, leave, reason="graduated", on=str(left_on + timedelta(days=1)))
+    assert again.json() == {"status": ["not_studying"]}
+
+    # Cancelling appends the `studying` event and nothing else.
+    cancelled = post_to(admin, cancel)
+    assert cancelled.status_code == 200, cancelled.json()
+    assert cancelled.json()["scheduled_change"] is None
+    assert history_of(admin, student) == [
+        ("dropped_out", str(left_on)),
+        ("studying", str(left_on)),
+    ]
+    assert get(admin, A, "enrollments", row["id"]).json() == same
+    assert post_to(admin, cancel).json() == {"leave": ["no_leave"]}
+
+    # Leave again; once its day has come it is a fact.
+    assert post_to(admin, leave, reason="dropped_out", on=str(left_on)).status_code == 200
+    monkeypatch.setattr(timezone, "localdate", lambda: left_on)
+    assert post_to(admin, cancel).json() == {"leave": ["leave_already_effective"]}
+
+
 def test_a_backdated_leave_cannot_be_cancelled(admin, schools):
     a, _ = schools
     with school_scope(a.pk):

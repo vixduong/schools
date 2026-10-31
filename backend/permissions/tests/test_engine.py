@@ -17,7 +17,7 @@ from permissions.engine import (
     visible_students,
 )
 from permissions.matrix import ACTIONS
-from schools.models import Enrollment, GuardianLink, SchoolYear, Student
+from schools.models import Enrollment, GuardianLink, SchoolYear, Student, StudentStatusEvent
 from schools.tests.factories import make_class, make_student
 
 from .conftest import Assignment, assign, enroll, link, make_member
@@ -377,6 +377,110 @@ class TestBetweenSchoolYears:
         assert can(actor, "class_records.view", c8a)
         assert can(actor, "class_records.view", world.targets["class_7a"])
         assert actor.student_access[world.targets["student_s1"].pk].enrolled_class == c8a.pk
+
+    def test_with_no_next_year_the_break_ends_120_days_after_the_year_end(self, world):
+        end_year_for_s1(world)
+        s1 = world.targets["student_s1"]
+        for member in ("student_s1", "guardian_s1"):
+            last_day = at(world, member, world.year.ends_on + 120 * DAY)
+            assert can(last_day, "student_profile.view", s1), member
+            assert can(last_day, "class_records.view", world.targets["class_7a"]), member
+            too_late = at(world, member, world.year.ends_on + 121 * DAY)
+            assert not can(too_late, "student_profile.view", s1), member
+            assert not can(too_late, "class_activities.view", world.targets["class_7a"]), member
+
+    def test_with_a_next_year_the_break_ends_30_days_after_it_starts(self, world):
+        end_year_for_s1(world)
+        s1 = world.targets["student_s1"]
+        for starts_after in (20, 200):  # the next year's start replaces the 120 days either way
+            next_year = SchoolYear.objects.create(
+                school=world.school,
+                name=f"next {starts_after}",
+                starts_on=world.year.ends_on + starts_after * DAY,
+                ends_on=world.year.ends_on + (starts_after + 300) * DAY,
+            )
+            for member in ("student_s1", "guardian_s1"):
+                last_day = at(world, member, next_year.starts_on + 30 * DAY)
+                assert can(last_day, "student_profile.view", s1), (member, starts_after)
+                too_late = at(world, member, next_year.starts_on + 31 * DAY)
+                assert not can(too_late, "student_profile.view", s1), (member, starts_after)
+            next_year.delete()
+
+    def test_the_next_enrollment_restores_access_after_the_break_was_over(self, world):
+        end_year_for_s1(world)
+        s1, student = world.targets["student_s1"], world.members["student_s1"]
+        next_year = SchoolYear.objects.create(
+            school=world.school,
+            name="next",
+            starts_on=world.year.ends_on + 20 * DAY,
+            ends_on=world.year.ends_on + 300 * DAY,
+        )
+        late = next_year.starts_on + 40 * DAY
+        assert not can(Actor(student, late), "student_profile.view", s1)
+        c8a = make_class(world.school, next_year, "8A")
+        enroll(world.school, s1, c8a, valid_from=late)
+        for member in ("student_s1", "guardian_s1"):
+            actor = at(world, member, late)
+            assert can(actor, "student_profile.view", s1), member
+            assert can(actor, "class_records.view", c8a), member
+        assert not can(Actor(student, late - DAY), "student_profile.view", s1)
+
+    def test_a_leave_in_the_break_keeps_the_last_class_reads_until_its_year_ends(self, world):
+        s1, c7a = world.targets["student_s1"], world.targets["class_7a"]
+        Enrollment.objects.filter(student=s1).update(
+            valid_to=world.year.ends_on - 10 * DAY, reason_ended="year_end"
+        )
+        StudentStatusEvent.objects.create(
+            school=world.school,
+            student=s1,
+            status="dropped_out",
+            on=world.year.ends_on - 5 * DAY,
+            recorded_by=world.members["admin"],
+        )
+        for member in ("student_s1", "guardian_s1"):
+            before = at(world, member, world.year.ends_on - 5 * DAY)  # the last day: still here
+            assert can(before, "class_records.view", c7a), member
+            during = at(world, member, world.year.ends_on - 4 * DAY)
+            assert can(during, "student_profile.view", s1), member
+            assert can(during, "scores.view", s1, released=True), member
+            assert all(can(during, a, c7a) for a in LEFT_CLASS_READS), member
+            assert not can(during, "class_records.view", c7a), member
+            assert not can(during, "attendance.view", s1), member
+            after = at(world, member, world.year.ends_on + DAY)
+            assert not can(after, "student_profile.view", s1), member
+
+    def test_a_leave_dated_after_the_year_end_ends_access_at_the_leave_date(self, world):
+        end_year_for_s1(world)
+        s1 = world.targets["student_s1"]
+        leave_on = world.year.ends_on + 10 * DAY
+        StudentStatusEvent.objects.create(
+            school=world.school,
+            student=s1,
+            status="transferred_out",
+            on=leave_on,
+            recorded_by=world.members["admin"],
+        )
+        for member in ("student_s1", "guardian_s1"):
+            assert can(at(world, member, leave_on), "class_records.view", world.targets["class_7a"])
+            assert not can(at(world, member, leave_on + DAY), "student_profile.view", s1), member
+
+    def test_the_break_costs_a_bounded_number_of_queries_however_many_students(self, world):
+        students = make_students(world, 50)
+        Enrollment.objects.filter(student__in=students).update(
+            valid_to=world.year.ends_on, reason_ended="year_end"
+        )
+
+        def queries_for(count):
+            guardian = make_member(world.school, f"guardian{count}@example.com")
+            for student in students[:count]:
+                link(world.school, guardian, student)
+            actor = Actor(guardian, world.year.ends_on + 10 * DAY)
+            with CaptureQueriesContext(connection) as queries:
+                access = actor.student_access
+            assert len(access) == count and all(a.at_school for a in access.values())
+            return len(queries)
+
+        assert queries_for(2) == queries_for(50) <= 6
 
     def test_a_class_change_with_no_next_class_grants_nothing(self, world):
         Enrollment.objects.filter(student=world.targets["student_s1"]).update(

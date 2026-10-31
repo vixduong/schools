@@ -212,13 +212,35 @@ class StudentViewSet(SetupViewSet):
         self._save(serializer, student=student, recorded_by=request.membership)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @staticmethod
+    def _last_enrollment(student):
+        """The student's latest period, locked; None when there is none."""
+        return (
+            Enrollment.objects.select_for_update()
+            .filter(student=student)
+            .order_by("valid_from", "id")
+            .last()
+        )
+
+    def _record_cancellation(self, request, student, on):
+        StudentStatusEvent.objects.create(
+            school=request.school,
+            student=student,
+            status=Student.Status.STUDYING,
+            on=on,
+            reason="Leave cancelled",
+            recorded_by=request.membership,
+        )
+
     @extend_schema(request=serializers.LeaveSerializer, responses=serializers.StudentSerializer)
     @action(detail=True, methods=["post"])
     def leave(self, request, pk=None):
         """The student leaves (transfer out, drop out, graduation): the open enrollment ends on
         `on` and the matching status event is recorded with that date, in one transaction. A
         future `on` schedules the leave: the student stays in the class and `studying` until
-        then. Nothing is deleted; this School keeps the student's records."""
+        then. A continuing student between school years (no open enrollment, the last one ended
+        `year_end`) leaves with the status event alone, dated on or after that enrollment's end.
+        Nothing is deleted; this School keeps the student's records."""
         self.get_object()  # 404 for another School's row
         leaving = serializers.LeaveSerializer(data=request.data)
         leaving.is_valid(raise_exception=True)
@@ -235,12 +257,18 @@ class StudentViewSet(SetupViewSet):
                 .first()
             )
             if row is None:
-                raise ValidationError({"enrollment": ["no_open_enrollment"]})
-            if on < row.valid_from:
-                raise ValidationError({"on": ["before_enrollment_start"]})
-            row.valid_to = on
-            row.reason_ended = reason
-            row.save(update_fields=["valid_to", "reason_ended"])
+                # Between school years the leave is only the status event: nothing to end.
+                last = self._last_enrollment(student)
+                if last is None or last.reason_ended != Enrollment.ReasonEnded.YEAR_END:
+                    raise ValidationError({"enrollment": ["no_open_enrollment"]})
+                if on < last.valid_to:
+                    raise ValidationError({"on": ["before_enrollment_end"]})
+            else:
+                if on < row.valid_from:
+                    raise ValidationError({"on": ["before_enrollment_start"]})
+                row.valid_to = on
+                row.reason_ended = reason
+                row.save(update_fields=["valid_to", "reason_ended"])
             StudentStatusEvent.objects.create(
                 school=request.school,
                 student=student,
@@ -262,6 +290,19 @@ class StudentViewSet(SetupViewSet):
         self.get_object()  # 404 for another School's row
         with self._database_rules():
             student = Student.objects.select_for_update().get(pk=pk)
+            last = self._last_enrollment(student)
+            if last is not None and last.reason_ended == Enrollment.ReasonEnded.YEAR_END:
+                # A leave recorded between school years has no enrollment to reopen: cancelling
+                # appends the `studying` event (the later event wins) and nothing else.
+                event = (
+                    StudentStatusEvent.objects.filter(student=student).order_by("on", "id").last()
+                )
+                if event is None or event.status == Student.Status.STUDYING:
+                    raise ValidationError({"leave": ["no_leave"]})
+                if event.on <= timezone.localdate():
+                    raise ValidationError({"leave": ["leave_already_effective"]})
+                self._record_cancellation(request, student, event.on)
+                return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
             row = (
                 Enrollment.objects.select_for_update()
                 .filter(student=student, reason_ended__in=list(LEAVE_STATUS))
@@ -272,14 +313,7 @@ class StudentViewSet(SetupViewSet):
                 raise ValidationError({"leave": ["no_leave"]})
             if row.valid_to <= timezone.localdate():
                 raise ValidationError({"leave": ["leave_already_effective"]})
-            StudentStatusEvent.objects.create(
-                school=request.school,
-                student=student,
-                status=Student.Status.STUDYING,
-                on=row.valid_to,
-                reason="Leave cancelled",
-                recorded_by=request.membership,
-            )
+            self._record_cancellation(request, student, row.valid_to)
             row.valid_to = None
             row.reason_ended = None
             row.save(update_fields=["valid_to", "reason_ended"])
