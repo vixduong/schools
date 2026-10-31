@@ -22,6 +22,28 @@ _Avoid_: Grade (that is a year within a Level), cấp (in English text)
 A year of study within a Level, e.g. Grade 7.
 _Avoid_: Khối (in English text), year
 
+### People
+
+**Account**:
+One person's login on the platform, shared across every School they belong to.
+_Avoid_: User (when the School-specific membership is meant), profile
+
+**Membership**:
+An Account's presence in one School; everything a person can do in a School hangs off their Membership there.
+_Avoid_: Tenant user, school account
+
+**Role Assignment**:
+A Membership's duty in one scope for one school year, such as homeroom teacher of 7A or subject teacher of Maths in 7A and 7B. Permissions come from the assignments in force, never from an account type.
+_Avoid_: Account type, user type, role (alone, when the scoped assignment is meant)
+
+**Guardian**:
+An adult who answers for a student to the School: a parent, grandparent or other carer, linked to one or more students.
+_Avoid_: Parent (in English text, as a type), phụ huynh (in English text)
+
+**Enrollment**:
+A student's place in one School for one school year, in one class. A transfer ends one Enrollment and starts another in the new School; records stay with the School that made them.
+_Avoid_: Registration, admission
+
 ### Assessment
 
 **Assessment Profile**:
