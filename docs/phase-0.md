@@ -30,3 +30,12 @@ Slices 1 and 2 carry the most risk (tenancy is ADR 0001's promise), so they go f
 
 - Phone logins accept Vietnamese 10-digit mobile numbers only (`0XXXXXXXXX`, `+84`/`84` normalised); landlines and foreign numbers are refused, and those Guardians sign in by email.
 - Login rate limiting and `SECURE_PROXY_SSL_HEADER` are built in slice 9, with the deploy topology, and must exist before production.
+
+## Constraints from the slice 3 review (apply from slice 4 on)
+
+- **A School never writes an existing Account's credentials or identifiers.** Account is global (ADR 0002): editing a person's email, phone or password from School A would change their sign-in at School B, so School admins only link people through invites, and views reach `Account` only through `Membership`, never `Account.objects.get(pk=…)` from a request.
+- **RoleAssignment scope is redesigned in slice 4, before slice 5 builds on it**: typed nullable composite FKs (grade, class, subject, subject group, student) instead of `(scope_kind, scope_id)`, a per-role check constraint saying which scope each role needs, `school_year` as a composite FK to the school-year table, the subject teacher's subject × classes expressed as teaching rows, and uniqueness only over assignments in force so a role can end and resume in the same year with its history kept.
+- **Every tenant-to-tenant FK includes `school_id`**, via `composite_fk` in `tenancy/rls.py`; a schema test fails on any single-column FK between two tables that both carry `school_id`.
+- **Rotate the session key last.** Any view that calls `login()`, `update_session_auth_hash()` or `cycle_key()` does all validation first; a 4xx after rotation rolls back the new session row and the client gets `SessionInterrupted`.
+- **Only DRF's `request.user` and `request.membership` are trusted** for identity; a middleware also resets Django's `request.user` when the session belongs to another School, so audit and telemetry never record the wrong person.
+- **No view is open by accident**: a test walks the URLconf and fails on any view without School-bound authentication and a real permission, except an explicit allowlist (login, logout, csrf, schema).
