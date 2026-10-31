@@ -29,6 +29,7 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 - [Who are the users, and what may each role see and change?](issues/04-roles-and-permissions.md): one global Account, a Membership per School, permissions from scoped Role Assignments; eight MVP roles; students of Lower/Upper Secondary take teacher-published tests (15/30-minute quizzes need no approval, periodic tests do); matrix in `docs/roles.md`.
 - [What does the final tech-stack analysis record, and which choices become ADRs?](issues/06-tech-stack-analysis.md): Django 5.2 LTS + DRF, RLS fail-closed (verified on PG16), Postgres-backed tasks; React + TanStack (incl. Form) + shadcn; same-origin session auth; Singapore + R2; OpenTelemetry → Grafana Cloud Singapore; `docs/tech-stack.md`, ADRs 0003–0006.
 - [What does the digital report card (học bạ số) require of a school system from 2027?](issues/10-digital-report-card.md): mandatory from 8 Oct 2026 under Circular 70/2026; personal signatures (subject teacher, homeroom, principal) plus the School's; sync to the national database; MVP takes a scoped slice, while live submission waits for the official spec.
+- [Must the platform sync with the national education database, and how?](issues/11-national-education-database.md): reporting is mandatory (Circular 42/2021, contents from Circular 25/2024); the MVP exports Ministry-shaped Excel and carries national IDs and status history; API sync needs the Ministry spec (Decision 4998) and a connection, which digital report cards will also need.
 
 ## Not yet specified
 
