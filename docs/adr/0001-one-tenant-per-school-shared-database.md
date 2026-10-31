@@ -1,0 +1,3 @@
+# One tenant per School, in a shared database isolated by row-level security
+
+Every School is one tenant; all Schools share one Postgres database, every tenant-owned row carries `school_id`, and Postgres row-level security enforces isolation so a missed filter in application code cannot leak one School's data (much of it about children) to another. We rejected database-per-tenant and schema-per-tenant because migrating, backing up and operating hundreds of copies outweighs their stronger isolation for a 1–2 developer team. A multi-level School stays one tenant with one Assessment Profile per Level; School Chains are not modeled — each member School is its own tenant.
