@@ -169,6 +169,10 @@ class SchoolClass(TenantModel):
                 fields=["school", "school_year", "name"], name="schoolclass_name_per_year_key"
             ),
             models.UniqueConstraint(fields=["school", "id"], name="schoolclass_school_id_key"),
+            # Target of RoleAssignment's (school, school_year, school_class) foreign key.
+            models.UniqueConstraint(
+                fields=["school", "school_year", "id"], name="schoolclass_school_year_id_key"
+            ),
         ]
 
     def __str__(self):

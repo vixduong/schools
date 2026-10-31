@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 import pytest
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import Membership, RoleAssignment
@@ -16,6 +16,7 @@ from .conftest import make_account
 pytestmark = pytest.mark.usefixtures("as_app_role")
 
 Role = RoleAssignment.Role
+CLASS_ROLES = (Role.HOMEROOM_TEACHER, Role.SUBJECT_TEACHER)
 D = date
 START = D(2025, 9, 1)
 
@@ -43,7 +44,7 @@ def assign(s, role, valid_from=START, valid_to=None, **scope):
         school=s["school"],
         membership=s["membership"],
         role=role,
-        school_year=s["year"],
+        school_year=s["year"] if "school_class" in scope else None,
         valid_from=valid_from,
         valid_to=valid_to,
         **{k: s[v] for k, v in scope.items()},
@@ -156,19 +157,23 @@ def test_cross_school_scope_references_are_refused(schools, setup):
         subject_b = make_subject(b)
     s = setup
     cases = [
-        ("school_year", klass_b.school_year_id, Role.SCHOOL_ADMIN, {}),
+        ("school_year", klass_b.school_year_id, Role.HOMEROOM_TEACHER, {"school_class": "klass"}),
         ("school_class", klass_b.pk, Role.HOMEROOM_TEACHER, {}),
         ("subject_group", group_b.pk, Role.GROUP_LEADER, {}),
         ("subject", subject_b.pk, Role.SUBJECT_TEACHER, {"school_class": "klass"}),
     ]
     for field, foreign_id, role, scope in cases:
-        with pytest.raises(IntegrityError, match=f"accounts_roleassignment_{field}_id_same_school"):
+        # A foreign year or class also breaks "the class's year": either constraint refuses it.
+        refusal = f"accounts_roleassignment_{field}_id_same_school"
+        if field in ("school_year", "school_class"):
+            refusal += "|school_class_in_school_year"
+        with pytest.raises(IntegrityError, match=refusal):
             with school_scope(s["school"].pk):
                 assignment = RoleAssignment(
                     school=s["school"],
                     membership=s["membership"],
                     role=role,
-                    school_year=s["year"],
+                    school_year=s["year"] if role in CLASS_ROLES else None,
                     valid_from=D(2025, 9, 1),
                 )
                 for name, key in scope.items():
@@ -177,28 +182,137 @@ def test_cross_school_scope_references_are_refused(schools, setup):
                 assignment.save()
 
 
-def test_in_force_needs_the_period_and_the_school_year(setup):
+def test_in_force_needs_the_period_and_an_active_membership_not_the_school_year(setup):
     s = setup
     today = timezone.localdate()
     with school_scope(s["school"].pk):
         year = s["year"]  # today lies inside it
-        later = SchoolYear.objects.create(
-            school=s["school"],
-            name="later",
-            starts_on=year.ends_on + timedelta(days=1),
-            ends_on=year.ends_on + timedelta(days=300),
-        )
-        s["year"] = later
-        outside_year = assign(s, Role.SCHOOL_ADMIN, later.starts_on)
-        s["year"] = year
         ended = assign(
             s, Role.PRINCIPAL_BOARD, today - timedelta(days=5), today - timedelta(days=1)
         )
-        current = assign(s, Role.SCHOOL_ADMIN, today - timedelta(days=5), year.ends_on)
+        current = assign(s, Role.SCHOOL_ADMIN, today - timedelta(days=5))
+        pending = assign(s, Role.HOMEROOM_TEACHER, today, school_class="klass")
+        pending.status = RoleAssignment.Status.PENDING_CONFIRMATION
+        pending.requested_by = s["membership"]
+        pending.save()
         assert set(RoleAssignment.objects.in_force()) == {current}
         assert set(RoleAssignment.objects.in_force(on=today - timedelta(days=2))) == {
             current,
             ended,
         }
-        assert set(RoleAssignment.objects.in_force(on=later.starts_on)) == {outside_year}
-        assert ended not in RoleAssignment.objects.in_force()
+        # Far outside every school year, the open-ended role is still in force.
+        assert current in RoleAssignment.objects.in_force(on=year.ends_on + timedelta(days=900))
+        Membership.objects.update(status=Membership.Status.INACTIVE)
+        assert not RoleAssignment.objects.in_force().exists()
+
+
+def test_a_school_wide_role_stays_in_force_between_two_school_years(setup):
+    s = setup
+    gap = s["year"].starts_on - timedelta(days=30)  # the "summer" before the only year
+    with school_scope(s["school"].pk):
+        admin = assign(s, Role.SCHOOL_ADMIN, gap - timedelta(days=100))
+        assert not SchoolYear.objects.filter(starts_on__lte=gap, ends_on__gte=gap).exists()
+        assert admin in RoleAssignment.objects.in_force(on=gap)
+
+
+def test_an_open_ended_class_role_does_not_block_the_same_role_in_a_later_year(setup):
+    s = setup
+    with school_scope(s["school"].pk):
+        next_year = SchoolYear.objects.create(
+            school=s["school"],
+            name="next",
+            starts_on=s["year"].ends_on + timedelta(days=1),
+            ends_on=s["year"].ends_on + timedelta(days=300),
+        )
+        assign(s, Role.HOMEROOM_TEACHER, D(2025, 9, 1), school_class="klass")  # valid_to NULL
+        next_class = make_class(s["school"], next_year, name="8A")
+        later = RoleAssignment.objects.create(
+            school=s["school"],
+            membership=s["membership"],
+            role=Role.HOMEROOM_TEACHER,
+            school_year=next_year,
+            school_class=next_class,
+            valid_from=next_year.starts_on,
+        )
+        assert later.pk
+
+
+@pytest.mark.parametrize("role", [Role.HOMEROOM_TEACHER, Role.SUBJECT_TEACHER])
+def test_a_class_role_with_a_class_of_another_year_is_refused(setup, role):
+    s = setup
+    scope = {"school_class": "klass"} | (
+        {"subject": "subject"} if role == Role.SUBJECT_TEACHER else {}
+    )
+    with school_scope(s["school"].pk):
+        other_year = SchoolYear.objects.create(
+            school=s["school"],
+            name="other",
+            starts_on=s["year"].ends_on + timedelta(days=1),
+            ends_on=s["year"].ends_on + timedelta(days=300),
+        )
+        s["klass"] = make_class(s["school"], other_year, name="8A")  # a class of the other year
+    with pytest.raises(IntegrityError, match="school_class_in_school_year"):
+        with school_scope(s["school"].pk):
+            assign(s, role, **scope)  # `assign` pairs it with s["year"]
+
+
+def test_school_year_belongs_to_class_roles_only(setup):
+    s = setup
+    for role, scope in [
+        (Role.SCHOOL_ADMIN, {}),
+        (Role.PRINCIPAL_BOARD, {}),
+        (Role.GROUP_LEADER, {"subject_group": s["group"]}),
+    ]:
+        with pytest.raises(IntegrityError, match="roleassignment_scope_matches_role"):
+            with school_scope(s["school"].pk):
+                RoleAssignment.objects.create(
+                    school=s["school"],
+                    membership=s["membership"],
+                    role=role,
+                    school_year=s["year"],
+                    valid_from=START,
+                    **scope,
+                )
+    with pytest.raises(IntegrityError, match="roleassignment_scope_matches_role"):
+        with school_scope(s["school"].pk):
+            RoleAssignment.objects.create(  # a class role without its year
+                school=s["school"],
+                membership=s["membership"],
+                role=Role.HOMEROOM_TEACHER,
+                school_class=s["klass"],
+                valid_from=START,
+            )
+
+
+@pytest.mark.parametrize("role", list(SCOPES))
+def test_no_current_role_may_set_the_grade_scope(setup, role):
+    s = setup
+    good, _ = SCOPES[role]
+    with pytest.raises(IntegrityError, match="roleassignment_scope_matches_role"):
+        with school_scope(s["school"].pk):
+            assignment = assign(s, role, **good)
+            assignment.grade = s["klass"].grade
+            assignment.save()
+
+
+def test_a_self_granted_role_needs_a_third_person_to_confirm(setup):
+    s = setup
+    other = make_account("c@example.com")
+    with school_scope(s["school"].pk):
+        confirmer = Membership.objects.create(school=s["school"], account=other)
+        row = assign(s, Role.PRINCIPAL_BOARD)
+        row.status = RoleAssignment.Status.PENDING_CONFIRMATION
+        row.requested_by = s["membership"]
+        row.save()
+        with pytest.raises(IntegrityError, match="roleassignment_confirmer_is_a_third_person"):
+            with transaction.atomic():
+                row.confirmed_by = s["membership"]  # the requester confirming themselves
+                row.save()
+        row.confirmed_by = None
+        with pytest.raises(IntegrityError, match="roleassignment_self_grant_needs_confirmation"):
+            with transaction.atomic():
+                row.status = RoleAssignment.Status.ACTIVE  # active without a confirmer
+                row.save()
+        row.status = RoleAssignment.Status.ACTIVE
+        row.confirmed_by = confirmer
+        row.save()

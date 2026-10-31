@@ -3,7 +3,7 @@
 from datetime import date
 
 import pytest
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 
 from schools.models import Grade, Level, Room, SchoolClass, SchoolYear, Subject, Term
 from tenancy.rls import school_scope
@@ -212,3 +212,13 @@ def test_every_tenant_to_tenant_reference_must_stay_in_one_school(schools):
                 },
             ),
         )
+
+
+def test_triggers_that_read_a_parent_row_lock_it_so_a_concurrent_change_cannot_slip_past(schools):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT prosrc FROM pg_proc "
+            "WHERE proname IN ('term_inside_school_year', 'grade_number_fits_level')"
+        )
+        sources = [source for (source,) in cursor.fetchall()]
+    assert len(sources) == 2 and all("FOR SHARE" in source for source in sources)

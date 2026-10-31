@@ -3,7 +3,6 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from accounts.models import Account, Membership, RoleAssignment, normalize_phone
-from schools.tests.factories import make_year
 from tenancy.rls import school_scope
 
 from .conftest import member
@@ -62,7 +61,6 @@ def test_role_assignment_cannot_point_at_a_membership_of_another_school(schools)
                 school=a,
                 membership=membership_in_b,
                 role=RoleAssignment.Role.SCHOOL_ADMIN,
-                school_year=make_year(a),
                 valid_from="2025-09-01",
             )
 
@@ -80,3 +78,13 @@ def test_ministry_staff_id_is_unique_per_school_when_set(schools):
     with pytest.raises(IntegrityError, match="membership_ministry_staff_id_key"):
         with school_scope(a.pk):
             Membership.objects.filter(account=y).update(ministry_staff_id="GV-1")
+
+
+def test_blank_ministry_staff_id_is_stored_as_null_so_blanks_never_collide(schools):
+    a, _ = schools
+    for email in ("x@example.com", "y@example.com"):
+        Account(email=email, display_name="X").save()
+    with school_scope(a.pk):
+        for account, blank in zip(Account.objects.order_by("id"), ("", "  "), strict=True):
+            Membership.objects.create(school=a, account=account, ministry_staff_id=blank)
+        assert list(Membership.objects.values_list("ministry_staff_id", flat=True)) == [None, None]

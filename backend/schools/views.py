@@ -1,9 +1,13 @@
 from django.db import IntegrityError, transaction
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 from accounts.models import RoleAssignment
-from accounts.permissions import HasMembership, IsSchoolAdmin
+from accounts.permissions import CanConfirmRoleAssignment, HasMembership, IsSchoolAdmin
 
 from . import serializers
 from .models import Grade, Level, Room, SchoolClass, SchoolYear, Subject, SubjectGroup, Term
@@ -82,3 +86,21 @@ class SchoolClassViewSet(SetupViewSet):
 class RoleAssignmentViewSet(SetupViewSet):
     queryset = RoleAssignment.objects.order_by("id")
     serializer_class = serializers.RoleAssignmentSetupSerializer
+
+    @extend_schema(request=None)
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[HasMembership, CanConfirmRoleAssignment],
+    )
+    def confirm(self, request, pk=None):
+        """A second person confirms a self-granted principal_board (never its requester or the
+        assignee: CanConfirmRoleAssignment)."""
+        assignment = self.get_object()
+        if assignment.status != RoleAssignment.Status.PENDING_CONFIRMATION:
+            raise ValidationError({"status": ["not_pending_confirmation"]})
+        assignment.status = RoleAssignment.Status.ACTIVE
+        assignment.confirmed_by = request.membership
+        assignment.confirmed_at = timezone.now()
+        assignment.save(update_fields=["status", "confirmed_by", "confirmed_at"])
+        return Response(self.get_serializer(assignment).data)

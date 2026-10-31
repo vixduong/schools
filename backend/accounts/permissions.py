@@ -16,15 +16,32 @@ class HasMembership(BasePermission):
         return request.membership is not None
 
 
-class IsSchoolAdmin(BasePermission):
-    """The School admin's `school_admin` Role Assignment is in force. Always listed after
-    HasMembership, which sets `request.membership`. Temporary: slice 5 replaces it with the one
-    permission check fed by Role Assignments in force."""
+class HasRoleInForce(BasePermission):
+    """One of `roles` is in force for `request.membership`. Always listed after HasMembership."""
+
+    roles: tuple[str, ...] = ()
 
     def has_permission(self, request, view):
         membership = getattr(request, "membership", None)
         return membership is not None and (
             RoleAssignment.objects.in_force()
-            .filter(membership=membership, role=RoleAssignment.Role.SCHOOL_ADMIN)
+            .filter(membership=membership, role__in=self.roles)
             .exists()
         )
+
+
+class IsSchoolAdmin(HasRoleInForce):
+    """The School admin's `school_admin` Role Assignment is in force. Temporary: slice 5
+    replaces it with the one permission check fed by Role Assignments in force."""
+
+    roles = (RoleAssignment.Role.SCHOOL_ADMIN,)
+
+
+class CanConfirmRoleAssignment(HasRoleInForce):
+    """Second-person confirmation of a self-granted principal_board: a School admin or
+    principal_board in force who is neither the requester nor the assignee."""
+
+    roles = (RoleAssignment.Role.SCHOOL_ADMIN, RoleAssignment.Role.PRINCIPAL_BOARD)
+
+    def has_object_permission(self, request, view, obj):
+        return request.membership.pk not in (obj.requested_by_id, obj.membership_id)

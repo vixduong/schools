@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from accounts.models import Account, Membership, RoleAssignment
 from schools.tests.factories import make_class, make_year
@@ -27,19 +30,18 @@ def make_account(email=None, phone=None, display_name="Test", password=PASSWORD)
 
 
 def member(school, account, role=RoleAssignment.Role.HOMEROOM_TEACHER):
-    """A Membership holding `role` (homeroom teacher of 7A by default) for the current year."""
+    """A Membership holding `role` (homeroom teacher of 7A by default), in force since a month."""
     with school_scope(school.pk):
         membership = Membership.objects.create(school=school, account=account)
-        year = make_year(school)
         scope = {}
         if role == RoleAssignment.Role.HOMEROOM_TEACHER:
-            scope = {"school_class": make_class(school, year)}
+            year = make_year(school)
+            scope = {"school_year": year, "school_class": make_class(school, year)}
         RoleAssignment.objects.create(
             school=school,
             membership=membership,
             role=role,
-            school_year=year,
-            valid_from=year.starts_on,
+            valid_from=timezone.localdate() - timedelta(days=30),
             **scope,
         )
     return membership

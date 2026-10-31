@@ -87,6 +87,7 @@ class Membership(models.Model):
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     # The Ministry's identifier for a staff member; set when known (import, slice 6).
+    # NULL, not "", when unknown, so the unique never collides on blanks.
     ministry_staff_id = models.CharField(max_length=30, null=True, blank=True)  # noqa: DJ001
 
     class Meta:
@@ -102,20 +103,28 @@ class Membership(models.Model):
     def __str__(self):
         return f"{self.account_id} in {self.school_id}"
 
+    def save(self, *args, **kwargs):
+        self.ministry_staff_id = (self.ministry_staff_id or "").strip() or None
+        super().save(*args, **kwargs)
+
 
 class RoleAssignmentQuerySet(models.QuerySet):
     def in_force(self, on=None):
-        """Assignments whose own period and school year both contain `on` (default: today)."""
+        """Active assignments (not pending a second person's confirmation) whose own period
+        contains `on` (default: today) and whose Membership is active. School-year dates do not
+        clip a role: schools work between years too."""
         on = on or timezone.localdate()
         return self.filter(
             Q(valid_from__lte=on),
             Q(valid_to__isnull=True) | Q(valid_to__gte=on),
-            school_year__starts_on__lte=on,
-            school_year__ends_on__gte=on,
+            membership__status=Membership.Status.ACTIVE,
+            status=RoleAssignment.Status.ACTIVE,
         )
 
 
-SCOPE_COLUMNS = ("subject_group", "school_class", "subject")
+# `school_year` is set only on class-scoped roles (and equals the class's year). `grade` is for
+# a grade-wide role that arrives with the activities phase: no current role may set it.
+SCOPE_COLUMNS = ("school_year", "grade", "subject_group", "school_class", "subject")
 
 
 def _role_scope(role: str, *scoped: str) -> Q:
@@ -127,12 +136,14 @@ def _role_scope(role: str, *scoped: str) -> Q:
 
 
 class RoleAssignment(models.Model):
-    """A Membership's duty in one scope for one school year (docs/roles.md). Tenant table (RLS).
+    """A Membership's duty in one scope (docs/roles.md). Tenant table (RLS).
 
-    The scope is the typed nullable FKs `subject_group`, `school_class` and `subject` (`student`
-    arrives in slice 4b); the check constraint says which a role needs. Every FK to another tenant
-    table has no single-column database FK: the migrations add composite FKs (school_id, x_id) ->
-    x (school_id, id), so the target must belong to the same School. A period is
+    The scope is the typed nullable FKs `school_year`, `grade`, `subject_group`, `school_class`
+    and `subject` (`student` arrives in slice 4b); the check constraint says which a role needs.
+    Every FK to another tenant table has no single-column database FK: the migrations add
+    composite FKs (school_id, x_id) -> x (school_id, id), so the target must belong to the same
+    School; a class-scoped role also has (school_id, school_year_id, school_class_id) ->
+    schoolclass, so its school year is the class's year. A period is
     [valid_from, valid_to] (open-ended when valid_to is null); periods of the same membership,
     role and scope never overlap, so a role can end and resume with its history kept."""
 
@@ -145,11 +156,19 @@ class RoleAssignment(models.Model):
         STUDENT = "student"
         GUARDIAN = "guardian"
 
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        # A School admin granting themselves principal_board waits for a second person.
+        PENDING_CONFIRMATION = "pending_confirmation"
+
     school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE)
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, db_constraint=False)
     role = models.CharField(max_length=30, choices=Role)
     school_year = models.ForeignKey(
-        "schools.SchoolYear", on_delete=models.PROTECT, db_constraint=False
+        "schools.SchoolYear", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    grade = models.ForeignKey(
+        "schools.Grade", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
     )
     subject_group = models.ForeignKey(
         "schools.SubjectGroup", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
@@ -162,6 +181,25 @@ class RoleAssignment(models.Model):
     )
     valid_from = models.DateField()
     valid_to = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=30, choices=Status, default=Status.ACTIVE)
+    # Set only on a self-granted principal_board: who asked, and the second person who confirmed.
+    requested_by = models.ForeignKey(
+        Membership,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="+",
+    )
+    confirmed_by = models.ForeignKey(
+        Membership,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="+",
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     objects = RoleAssignmentQuerySet.as_manager()
 
@@ -173,13 +211,32 @@ class RoleAssignment(models.Model):
                 condition=_role_scope("school_admin")
                 | _role_scope("principal_board")
                 | _role_scope("group_leader", "subject_group")
-                | _role_scope("homeroom_teacher", "school_class")
-                | _role_scope("subject_teacher", "subject", "school_class"),
+                | _role_scope("homeroom_teacher", "school_year", "school_class")
+                | _role_scope("subject_teacher", "school_year", "subject", "school_class"),
                 name="roleassignment_scope_matches_role",
             ),
             models.CheckConstraint(
                 condition=Q(valid_to__isnull=True) | Q(valid_to__gte=models.F("valid_from")),
                 name="roleassignment_valid_to_after_valid_from",
+            ),
+            models.CheckConstraint(
+                condition=Q(confirmed_by__isnull=True)
+                | (
+                    Q(requested_by__isnull=False)
+                    & ~Q(confirmed_by=models.F("requested_by"))
+                    & ~Q(confirmed_by=models.F("membership"))
+                ),
+                name="roleassignment_confirmer_is_a_third_person",
+            ),
+            models.CheckConstraint(
+                condition=Q(requested_by__isnull=True)
+                | Q(status="pending_confirmation")
+                | Q(confirmed_by__isnull=False),
+                name="roleassignment_self_grant_needs_confirmation",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="active") | Q(requested_by__isnull=False),
+                name="roleassignment_pending_has_requester",
             ),
             ExclusionConstraint(
                 name="roleassignment_no_overlapping_periods",
