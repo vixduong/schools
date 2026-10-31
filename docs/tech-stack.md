@@ -22,7 +22,7 @@ One repository, two apps: `backend/` (Django) and `frontend/` (React). The contr
 | Framework | Django **5.2 LTS** + DRF 3.18, psycopg 3 | LTS until Apr 2028 and CI-tested by every library below; move to 6.2 LTS after Apr 2027 |
 | API schema | drf-spectacular → OpenAPI | the contract with the SPA; CI fails on an unreviewed schema diff |
 | Tenancy | shared DB, `school_id` on every School-owned row, Postgres RLS (ADR 0001) | isolation enforced below the application |
-| RLS per request | middleware opens the transaction and runs `set_config('app.school_id', …, true)`; `ATOMIC_REQUESTS` off | `ATOMIC_REQUESTS` wraps only the view, so a GUC set in middleware would be lost |
+| RLS per request | middleware opens a durable transaction and runs `set_config('app.school_id', …, true)`; `ATOMIC_REQUESTS` on, so the view runs in a savepoint inside it | the GUC lives in the middleware's transaction; the savepoint rolls back a failed view's writes (DRF only marks rollback when `ATOMIC_REQUESTS` is on) |
 | DB roles | app role `NOBYPASSRLS`; migrations as table owner | a missed filter cannot leak |
 | Fail closed | policies compare against `NULLIF(current_setting('app.school_id', true), '')`; CI test that every table with `school_id` has a policy | no GUC means no rows |
 | Accounts | global Account table outside RLS; Membership and Role Assignments tenant-scoped (ADR 0002) | one person, several Schools |

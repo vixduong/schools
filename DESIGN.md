@@ -42,7 +42,7 @@ Both faces ship a Vietnamese subset; any replacement face must too. Type scale r
 
 ## Controls
 - Height 36px, hit target 44px, radius 6px, one filled primary per screen.
-- Primary: pen-blue fill. Secondary: 1.5px ink outline. Quiet: underlined text. Destructive: red-ink outline.
+- Primary: pen-blue fill. Secondary: 1.5px ink outline. Quiet: underlined text. Destructive: red-ink outline. Ghost: borderless, hover on `--color-paper-3`, only for grid controls (calendar days, icon buttons), with an `icon` size of 36 × 36.
 - Inputs: 1px muted edge, inset focus ring, error = red edge + red wash + message under the field.
 - Every data region draws four states: loading (skeleton), empty (what goes here, one action), error (what broke, what to do), full.
 

@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./base.css" layer(base);
+
+@custom-variant dark (&:is([data-mode="dark"] *));
+
+/* shadcn reads its own names; point them at ours (DESIGN.md, Exports) */
+:root {
+  --background: var(--color-paper); --foreground: var(--color-ink);
+  --card: var(--color-paper-2); --card-foreground: var(--color-ink);
+  --popover: var(--color-paper-2); --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent); --primary-foreground: var(--color-accent-ink);
+  --secondary: var(--color-paper-3); --secondary-foreground: var(--color-ink-2);
+  --muted: var(--color-paper-3); --muted-foreground: var(--color-muted);
+  --accent: var(--color-paper-3); --accent-foreground: var(--color-ink);
+  --destructive: var(--color-error); --border: var(--color-rule); --input: var(--color-muted); --ring: var(--color-focus);
+  --radius: var(--radius-control);
+}
+
+/* Our accent and muted are exposed as pen and ink-3 so they do not collide with shadcn's */
+@theme inline {
+  --color-pen: var(--color-accent);
+  --color-ink-3: var(--color-muted);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+}

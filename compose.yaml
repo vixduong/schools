@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_PASSWORD: ${DB_SUPERUSER_PASSWORD:?copy .env.example to .env}
+      DB_NAME: ${DB_NAME:?}
+      DB_OWNER_USER: ${DB_OWNER_USER:?}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?}
+      DB_APP_USER: ${DB_APP_USER:?}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $${DB_NAME}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
