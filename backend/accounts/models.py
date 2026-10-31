@@ -1,13 +1,14 @@
 import re
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
 from django.utils import timezone
 
-# Vietnamese national format: 10 digits, leading 0.
-PHONE_PATTERN = r"^0[0-9]{9}$"
+# Vietnamese mobile numbers only (owner decision, slice 3): 10 digits, 0 then 3/5/7/8/9.
+PHONE_PATTERN = r"^0[35789][0-9]{8}$"
 
 
 def normalize_email(raw: str) -> str:
@@ -17,7 +18,7 @@ def normalize_email(raw: str) -> str:
 def normalize_phone(raw: str) -> str:
     """Drop separators and turn +84/84 into the leading 0. Anything else is left for the
     caller (or the database check) to reject."""
-    return re.sub(r"^\+?84(?=[0-9]{9}$)", "0", re.sub(r"[\s.\-()]", "", raw))
+    return re.sub(r"^\+?84(?=[35789][0-9]{8}$)", "0", re.sub(r"[\s.\-()]", "", raw))
 
 
 class AccountManager(models.Manager):
@@ -36,7 +37,13 @@ class Account(AbstractBaseUser):
     display_name = models.CharField(max_length=200)
     # NULL, not "", when absent, so the unique indexes allow many Accounts without one.
     email = models.EmailField(unique=True, null=True, blank=True)  # noqa: DJ001
-    phone = models.CharField(max_length=10, unique=True, null=True, blank=True)  # noqa: DJ001
+    phone = models.CharField(  # noqa: DJ001
+        max_length=10,
+        unique=True,
+        null=True,
+        blank=True,
+        validators=[RegexValidator(PHONE_PATTERN)],
+    )
     is_active = models.BooleanField(default=True)
 
     USERNAME_FIELD = "email"

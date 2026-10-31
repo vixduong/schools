@@ -5,7 +5,7 @@ import pytest
 from accounts.models import Account, Membership, RoleAssignment
 from tenancy.models import School
 from tenancy.rls import school_scope
-from tenancy.tests.conftest import as_app_role  # noqa: F401
+from tenancy.tests.conftest import as_app_role, owner_role  # noqa: F401
 
 PASSWORD = "correct horse"
 
@@ -16,6 +16,15 @@ def schools(transactional_db):
     return School.objects.create(name="A", subdomain="a"), School.objects.create(
         name="B", subdomain="b"
     )
+
+
+def make_account(email=None, phone=None, display_name="Test", password=PASSWORD):
+    """The app role cannot create Accounts, so this runs as the owner."""
+    account = Account(email=email, phone=phone, display_name=display_name)
+    account.set_password(password)
+    with owner_role():
+        account.save()
+    return account
 
 
 def member(school, account, role=RoleAssignment.Role.HOMEROOM_TEACHER):
@@ -36,9 +45,7 @@ def member(school, account, role=RoleAssignment.Role.HOMEROOM_TEACHER):
 @pytest.fixture
 def alice(schools):
     """Member of School A only."""
-    account = Account(email="alice@example.com", phone="0912345678", display_name="Alice")
-    account.set_password(PASSWORD)
-    account.save()
+    account = make_account("alice@example.com", "0912345678", "Alice")
     member(schools[0], account)
     return account
 

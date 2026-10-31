@@ -2,7 +2,7 @@ import pytest
 from django.conf import settings
 from django.db import connection
 
-pytestmark = pytest.mark.usefixtures("as_app_role")
+pytestmark = [pytest.mark.usefixtures("as_app_role"), pytest.mark.urls("tenancy.tests.urls")]
 
 
 def names(response):
@@ -39,7 +39,6 @@ def test_no_scope_leaks_between_requests(client):
         assert cur.fetchone()[0] == 0
 
 
-@pytest.mark.urls("tenancy.tests.urls")
 @pytest.mark.parametrize("query", ["", "?crash=1"])
 def test_writes_roll_back_when_the_request_fails(client, query):
     client.raise_request_exception = False

@@ -1,12 +1,11 @@
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from accounts.models import Account, RoleAssignment, normalize_phone
 from tenancy.rls import school_scope
 
 from .conftest import member
-
-pytestmark = pytest.mark.usefixtures("as_app_role")
 
 
 @pytest.mark.parametrize(
@@ -15,10 +14,29 @@ pytestmark = pytest.mark.usefixtures("as_app_role")
         ("0912 345 678", "0912345678"),
         ("+84 912.345.678", "0912345678"),
         ("84912345678", "0912345678"),
+        ("+84 332 345 678", "0332345678"),
+        # Not mobile: left as typed for the validator and the database check to refuse.
+        ("+84 212 345 678", "+84212345678"),
+        ("84112345678", "84112345678"),
     ],
 )
 def test_normalize_phone(raw, expected):
     assert normalize_phone(raw) == expected
+
+
+@pytest.mark.parametrize("phone", ["0212345678", "0112345678", "0412345678", "0612345678"])
+def test_phone_must_be_a_vietnamese_mobile_number(schools, phone):
+    with pytest.raises(ValidationError):
+        Account(phone=phone, display_name="X").full_clean(exclude=["password"])
+    with pytest.raises(IntegrityError, match="account_phone_is_normalized"):
+        Account.objects.bulk_create([Account(phone=phone, display_name="X")])
+
+
+@pytest.mark.parametrize("phone", ["0312345678", "0512345678", "0712345678", "0812345678"])
+def test_phone_accepts_mobile_prefixes(schools, phone):
+    account = Account(phone=phone, display_name="X")
+    account.full_clean(exclude=["password"])
+    account.save()
 
 
 def test_email_is_unique_case_insensitively(schools):

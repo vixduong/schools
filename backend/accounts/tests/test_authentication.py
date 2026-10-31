@@ -2,7 +2,7 @@ import pytest
 from django.conf import settings
 from django.test import Client
 
-from .conftest import PASSWORD
+from .conftest import PASSWORD, make_account
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 
@@ -52,13 +52,27 @@ def test_csrf_is_enforced_on_post_for_session_authenticated_requests(alice):
 
 @pytest.mark.urls("accounts.tests.urls")
 def test_default_permission_needs_a_membership_not_just_a_session(client, alice, schools):
-    from accounts.models import Account
-
-    bob = Account(email="bob@example.com", display_name="Bob")
-    bob.set_password(PASSWORD)
-    bob.save()
+    bob = make_account("bob@example.com", display_name="Bob")
     client.force_login(bob)
     session = client.session
     session["school_id"] = schools[0].pk
     session.save()
     assert client.post("/api/echo/", HTTP_HOST=A).status_code == 403
+
+
+def test_session_without_a_school_is_rejected(client, alice):
+    client.force_login(alice)  # a valid login that never recorded a School
+    assert client.get("/api/auth/me/", HTTP_HOST=A).status_code == 403
+
+
+@pytest.mark.urls("accounts.tests.urls")
+def test_django_request_user_is_anonymous_for_a_session_of_another_school(client, alice_in_both):
+    sign_in(client, A)
+    assert client.get("/whoami/", HTTP_HOST=A).json() == {"authenticated": True}
+    assert client.get("/whoami/", HTTP_HOST=B).json() == {"authenticated": False}
+
+
+@pytest.mark.urls("accounts.tests.urls")
+def test_django_request_user_is_anonymous_for_a_session_without_a_school(client, alice):
+    client.force_login(alice)
+    assert client.get("/whoami/", HTTP_HOST=A).json() == {"authenticated": False}

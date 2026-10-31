@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from .cookies import parse_secure_cookies
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
@@ -29,14 +31,17 @@ MIDDLEWARE = [
     "tenancy.middleware.TenantMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Right after it: Django's request.user must not outlive a School mismatch.
+    "accounts.middleware.SchoolBoundUserMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
 ]
 
 AUTH_USER_MODEL = "accounts.Account"
 
 # Cookies (ADR 0003). Host-only: no Domain, and the __Host- prefix makes browsers enforce it.
-# The prefix needs Secure, so plain-http local dev sets SECURE_COOKIES=false (see .env.example).
-SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "1") == "1"
+# The prefix needs Secure, so plain-http local dev sets SECURE_COOKIES=false (see .env.example);
+# that is refused unless DJANGO_DEBUG=1.
+SECURE_COOKIES = parse_secure_cookies(os.environ.get("SECURE_COOKIES"), DEBUG)
 _cookie_prefix = "__Host-" if SECURE_COOKIES else ""
 SESSION_COOKIE_NAME = f"{_cookie_prefix}sessionid"
 CSRF_COOKIE_NAME = f"{_cookie_prefix}csrftoken"

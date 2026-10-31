@@ -22,7 +22,8 @@ class LoginSerializer(serializers.Serializer):
         except Account.DoesNotExist:
             check_password(attrs["password"], _DUMMY_HASH)
             raise invalid from None
-        if not (account.is_active and account.check_password(attrs["password"])):
+        # Password first, so an inactive Account costs (and answers) like a wrong password.
+        if not (account.check_password(attrs["password"]) and account.is_active):
             raise invalid
         membership = Membership.objects.filter(
             school=self.context["school"], account=account, status=Membership.Status.ACTIVE

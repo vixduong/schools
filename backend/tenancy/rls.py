@@ -58,14 +58,22 @@ _PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 
 
 def grant_app_role(
-    table: str, privileges: tuple[str, ...] = ("SELECT",), sequence: bool = False
+    table: str,
+    privileges: tuple[str, ...] = ("SELECT",),
+    sequence: bool = False,
+    update_columns: tuple[str, ...] = (),
 ) -> migrations.RunSQL:
     """Migration operation: app-role grants for a global (non-RLS) table. `sequence=True` also
-    grants the app role the table's `id` sequence (needed to INSERT into a table with an `id`)."""
+    grants the app role the table's `id` sequence (needed to INSERT into a table with an `id`).
+    `update_columns` grants UPDATE on those columns only (instead of "UPDATE" in `privileges`)."""
     role = settings.APP_DB_USER
     assert _IDENT.match(table) and _IDENT.match(role), "unsafe identifier"
-    assert privileges and set(privileges) <= _PRIVILEGES, "unsafe privileges"
-    grants = ", ".join(privileges)
+    assert set(privileges) <= _PRIVILEGES, "unsafe privileges"
+    assert privileges or update_columns, "nothing to grant"
+    assert all(_IDENT.match(c) for c in update_columns), "unsafe identifier"
+    assert not (update_columns and "UPDATE" in privileges), "UPDATE is table-wide already"
+    columns = [f"UPDATE ({', '.join(update_columns)})"] if update_columns else []
+    grants = ", ".join([*privileges, *columns])
     seq = f"pg_get_serial_sequence('{table}', 'id')"
     grant_seq = revoke_seq = ""
     if sequence:
@@ -75,4 +83,21 @@ def grant_app_role(
     return migrations.RunSQL(
         sql=f"GRANT {grants} ON {table} TO {role}; {grant_seq}",
         reverse_sql=f"{revoke_seq} REVOKE {grants} ON {table} FROM {role};",
+    )
+
+
+def composite_fk(
+    table: str, column: str, ref_table: str, ref_column: str = "id"
+) -> migrations.RunSQL:
+    """Migration operation: FOREIGN KEY (school_id, column) -> ref_table (school_id, ref_column),
+    so a tenant row can only point at a row of its own School. The target needs a unique
+    constraint on (school_id, ref_column). Declare the model field with `db_constraint=False`."""
+    names = (table, column, ref_table, ref_column)
+    assert all(_IDENT.match(n) for n in names), "unsafe identifier"
+    name = f"{table}_{column}_same_school"
+    assert len(name) <= 63, "constraint name too long"
+    return migrations.RunSQL(
+        sql=f"ALTER TABLE {table} ADD CONSTRAINT {name} "
+        f"FOREIGN KEY (school_id, {column}) REFERENCES {ref_table} (school_id, {ref_column})",
+        reverse_sql=f"ALTER TABLE {table} DROP CONSTRAINT {name}",
     )

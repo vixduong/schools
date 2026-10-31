@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import psycopg
 import pytest
 from django.conf import settings
@@ -34,13 +36,27 @@ def app_conn(schools):
     conn.close()
 
 
+@contextmanager
+def db_role(user, password):
+    """Run Django's own connection as another DB role for the duration of the block."""
+    d = connection.settings_dict
+    previous = (d["USER"], d["PASSWORD"])
+    connection.close()
+    d["USER"], d["PASSWORD"] = user, password
+    try:
+        yield
+    finally:
+        connection.close()
+        d["USER"], d["PASSWORD"] = previous
+
+
+def owner_role():
+    """For test setup the app role may not do (it cannot create or edit Accounts)."""
+    return db_role(settings.OWNER_DB_USER, settings.OWNER_DB_PASSWORD)
+
+
 @pytest.fixture
 def as_app_role(schools):
     """Run Django's own connection as the app role, like production requests do."""
-    d = connection.settings_dict
-    owner = (d["USER"], d["PASSWORD"])
-    connection.close()
-    d["USER"], d["PASSWORD"] = settings.APP_DB_USER, settings.APP_DB_PASSWORD
-    yield
-    connection.close()
-    d["USER"], d["PASSWORD"] = owner
+    with db_role(settings.APP_DB_USER, settings.APP_DB_PASSWORD):
+        yield

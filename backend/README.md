@@ -8,7 +8,7 @@ make backend-dev    # migrate as the owner role, then runserver as the app role
 make backend-check  # ruff + pytest (real Postgres, so db-up first)
 ```
 
-- Schools resolve from the host: `a.localhost:8000/api/probes/` (`BASE_DOMAIN` in `.env`).
+- Schools resolve from the host: `a.localhost:8000/api/auth/csrf/` (`BASE_DOMAIN` in `.env`).
 - Dev School + Account + Membership (DEV ONLY, refuses unless `DJANGO_DEBUG=1`, runs as the owner role):
   `DB_ROLE=owner uv run python manage.py create_dev_school a admin@a.test [--password dev-password]`,
   then `POST a.localhost:8000/api/auth/login/` with `{"identifier": "admin@a.test", "password": "..."}`.
@@ -18,8 +18,11 @@ make backend-check  # ruff + pytest (real Postgres, so db-up first)
   the School it was created on, and the default permission is an active Membership in the host's School.
   Rate limiting on login is not built yet.
 - Cookies are `__Host-sessionid` / `__Host-csrftoken` with `Secure`, which browsers only accept over https.
-  `SECURE_COOKIES` (default true) turns the prefix and `Secure` off for plain-http local dev;
-  `.env.example` sets it to `false`. Never set it to false outside local dev.
+  `SECURE_COOKIES` accepts only `1`, `true`, `0`, `false` (any case; unset means true) and anything else
+  fails at startup. `false` turns the prefix and `Secure` off for plain-http local dev and is refused
+  unless `DJANGO_DEBUG=1`; `.env.example` sets it to `false`.
+- The app role cannot create, delete or edit Accounts (only `SELECT` and `UPDATE (password, last_login)`);
+  create them as the owner role.
 - Two DB roles: `DB_ROLE=owner` (migrations, tests' database setup) and the default `app` (`NOBYPASSRLS`, requests).
   The init script `db/init-roles.sh` runs only on a fresh volume; after changing roles run
   `docker compose down -v` then `make db-up`.

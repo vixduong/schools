@@ -3,9 +3,9 @@
 import psycopg
 import pytest
 from django.conf import settings
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 
-from tenancy.rls import school_scope
+from tenancy.rls import composite_fk, school_scope
 
 COUNT = "SELECT count(*) FROM tenancy_probe"
 
@@ -129,3 +129,64 @@ def test_app_role_reaches_only_global_or_rls_tables(db):
         assert kind == "r", f"{name}: app role reaches a {kind!r} relation RLS cannot guard"
         assert enabled and forced, f"{name}: reachable by the app role without forced RLS"
         assert policies == ["tenant_isolation"], f"{name}: expected one policy, got {policies}"
+
+
+def test_app_role_cannot_create_delete_or_edit_accounts(app_conn):
+    """Column grants on accounts_account: sign-in updates password and last_login, nothing else."""
+    for sql in (
+        "INSERT INTO accounts_account (password, display_name, email, is_active)"
+        " VALUES ('x', 'x', 'x@example.com', true)",
+        "UPDATE accounts_account SET email = 'x@example.com' WHERE false",
+        "UPDATE accounts_account SET is_active = true WHERE false",
+        "DELETE FROM accounts_account WHERE false",
+    ):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            app_conn.execute(sql)
+    app_conn.execute(
+        "UPDATE accounts_account SET password = password, last_login = now() WHERE false"
+    )
+    app_conn.execute("SELECT id, email FROM accounts_account LIMIT 1")
+
+
+# Two tables that both carry school_id must be linked by an FK that includes school_id.
+SINGLE_COLUMN_SCHOOL_FKS = """
+    SELECT con.conname FROM pg_constraint con
+      JOIN pg_attribute child ON child.attrelid = con.conrelid
+                             AND child.attname = 'school_id' AND NOT child.attisdropped
+      JOIN pg_attribute parent ON parent.attrelid = con.confrelid
+                              AND parent.attname = 'school_id' AND NOT parent.attisdropped
+     WHERE con.contype = 'f' AND con.connamespace = 'public'::regnamespace
+       AND NOT child.attnum = ANY (con.conkey)
+"""
+
+
+def test_tenant_foreign_keys_include_school_id(db):
+    with connection.cursor() as cur:
+        cur.execute(SINGLE_COLUMN_SCHOOL_FKS)
+        assert cur.fetchall() == []
+
+
+def test_composite_fk_blocks_cross_school_references_and_the_check_catches_single_column(db):
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE t_parent (id bigserial PRIMARY KEY, school_id bigint NOT NULL,
+                                   UNIQUE (school_id, id));
+            CREATE TABLE t_child (id bigserial PRIMARY KEY, school_id bigint NOT NULL,
+                                  parent_id bigint NOT NULL);
+            INSERT INTO t_parent (id, school_id) VALUES (1, 1);
+            ALTER TABLE t_child ADD CONSTRAINT t_child_single FOREIGN KEY (parent_id)
+              REFERENCES t_parent (id);
+            """
+        )
+        cur.execute(SINGLE_COLUMN_SCHOOL_FKS)
+        assert cur.fetchall() == [("t_child_single",)]
+        cur.execute("ALTER TABLE t_child DROP CONSTRAINT t_child_single")
+        cur.execute(composite_fk("t_child", "parent_id", "t_parent").sql)
+        cur.execute(SINGLE_COLUMN_SCHOOL_FKS)
+        assert cur.fetchall() == []
+        cur.execute("INSERT INTO t_child (school_id, parent_id) VALUES (1, 1)")
+        with pytest.raises(IntegrityError, match="t_child_parent_id_same_school"):
+            with transaction.atomic():
+                cur.execute("INSERT INTO t_child (school_id, parent_id) VALUES (2, 1)")
+        cur.execute(composite_fk("t_child", "parent_id", "t_parent").reverse_sql)

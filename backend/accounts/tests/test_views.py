@@ -5,6 +5,7 @@ from django.test import Client
 
 from accounts.models import Account, Membership, RoleAssignment
 from tenancy.rls import school_scope
+from tenancy.tests.conftest import owner_role
 
 from .conftest import PASSWORD
 
@@ -59,8 +60,21 @@ def test_inactive_membership_cannot_sign_in(client, alice, schools):
 
 
 def test_inactive_account_cannot_sign_in(client, alice):
-    Account.objects.update(is_active=False)
+    with owner_role():
+        Account.objects.update(is_active=False)
     assert sign_in(client).status_code == 400
+
+
+def test_login_rotates_the_session_key(client, alice):
+    session = client.session
+    session["anonymous"] = True
+    session.save()
+    before = session.session_key
+    assert sign_in(client).status_code == 200
+    after = client.session.session_key
+    assert after != before
+    assert not Session.objects.filter(pk=before).exists()
+    assert Session.objects.filter(pk=after).exists()
 
 
 def test_me_requires_sign_in(client, alice):
