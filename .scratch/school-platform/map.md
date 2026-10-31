@@ -31,6 +31,7 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 - [What does the digital report card (học bạ số) require of a school system from 2027?](issues/10-digital-report-card.md): mandatory from 8 Oct 2026 under Circular 70/2026; personal signatures (subject teacher, homeroom, principal) plus the School's; sync to the national database; MVP takes a scoped slice, while live submission waits for the official spec.
 - [Must the platform sync with the national education database, and how?](issues/11-national-education-database.md): reporting is mandatory (Circular 42/2021, contents from Circular 25/2024); the MVP exports Ministry-shaped Excel and carries national IDs and status history; API sync needs the Ministry spec (Decision 4998) and a connection, which digital report cards will also need.
 - [Which features belong to each phase of the roadmap?](issues/05-phased-roadmap.md): Phase 0 Foundation, 1 MVP secondary (1a start of term, 1b end of term incl. digital report card slice and Ministry Excel), 2 Primary, 3 online tests, 4 lessons, 5 extracurricular + Zalo/SMS, 6 Preschool; done = a pilot School runs it a full term; `docs/roadmap.md`.
+- [How should the five core screens look and behave?](issues/08-clickable-prototype.md): teacher home = today's periods + tickets needing action, with a state board below (A + B); gradebook mini lifecycle and return box; profile with Ministry IDs and status history; phone-first Guardian view; recorded in `DESIGN.md` § Screens, prototype on branch `prototype/core-screens`.
 
 ## Not yet specified
 

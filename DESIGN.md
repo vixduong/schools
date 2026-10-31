@@ -60,6 +60,13 @@ Subject blocks inside a lesson or an exam question (libraries per `docs/research
 - **Snapshots**: the SVG snapshot stored with each block is drawn with `currentColor` for ink and the tokens above, so print and Word export stay readable in black and white.
 - **Editing**: the block's editor (MathLive, the board, Ketcher) opens inline under the block, never in a modal, and the snapshot refreshes on close.
 
+## Screens (decided with the prototype on branch `prototype/core-screens`)
+- **Teacher home**: two layers. Top: today's periods on the left (time, class, room, attendance result; the current period on a `--color-select` wash with the one filled action, Điểm danh) and **Cần cô xử lý** on the right as pinned tickets (returned gradebooks, leave requests to approve). Below: **Hồ sơ khác của cô**, a ticket board in three columns by state: Đang nhập, Chờ người khác, Đã khoá. An empty column says what is not waiting. The board is how the statechart idea shows up on a working screen; everything else on the page stays plain.
+- **Gradebook**: a mini lifecycle (three state chips, the current one inked) beside the title; the last return comment in a red-ink box until resubmitted; a save status line; after submitting, cells lock and the action becomes Rút lại để sửa.
+- **Student profile**: name in the display face, identifiers (school ID, Ministry ID, masked national ID, date of birth) as a definition row; tabs Tổng quan, Điểm, Chuyên cần, Học bạ, Lịch sử; status history as dated rows, never deleted.
+- **Guardian view**: phone first, one column up to 440px; child switcher as pills; blocks Hôm nay, Điểm mới (released only), Đơn xin nghỉ (a sent request shows as a waiting ticket), Thông báo.
+- **Login**: per School subdomain; the host and the School name lead; one form; a Guardian activation path by invite code.
+
 ## Dark mode
 - Same hues, re-derived lightness in `tokens.css` (`[data-mode="dark"]` plus `prefers-color-scheme`): paper L 17, raised surfaces lighter (L 21), wells darker (L 14); ink L 93; pen blue lifts to L 72 with dark text on it; red ink to L 69; Level pastels become deep fills with light edges; the hatch drops to 30% ink. No drop shadows.
 - Toggle sets `data-mode` on `<html>`, stored in `localStorage`, read before first paint.
