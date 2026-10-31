@@ -8,4 +8,4 @@ Multi-tenant school management SaaS for Vietnamese schools. Planning stage: no a
 - Docs are in English; UI copy is in Vietnamese. Everything in code is English: route paths and names (`/login`, not `/dang-nhap`), API paths, identifiers, file names.
 - Commit as soon as a plan is written or a slice is implemented and its checks pass, before review; review fixes land as their own commits.
 - Research findings behind decisions are in `docs/research/`; the planning map and its tickets are in `.scratch/school-platform/`.
-- Run `make hooks` once per clone (fast lint and typecheck on commit). For a reviewer agent, which cannot run git, hand it `make review-diff BASE=<sha> NAME=<slice>`.
+- Run `make hooks` once per clone (fast lint and typecheck on commit). For a reviewer agent, which cannot run git, hand it `make review-diff BASE=<sha> NAME=<slice>` and point it at `backend/CODING_STANDARDS.md`.
