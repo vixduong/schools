@@ -2,6 +2,7 @@
 
 import psycopg
 import pytest
+from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 
@@ -190,3 +191,25 @@ def test_composite_fk_blocks_cross_school_references_and_the_check_catches_singl
             with transaction.atomic():
                 cur.execute("INSERT INTO t_child (school_id, parent_id) VALUES (2, 1)")
         cur.execute(composite_fk("t_child", "parent_id", "t_parent").reverse_sql)
+
+
+def test_every_tenant_foreign_key_declared_without_a_db_constraint_has_a_composite_one(db):
+    """A model FK with db_constraint=False must be backed by `FOREIGN KEY (school_id, x_id)
+    REFERENCES target (school_id, id)`; forgetting `composite_fk` leaves it unconstrained."""
+    fields = [
+        f
+        for model in apps.get_models()
+        for f in model._meta.get_fields()
+        if f.many_to_one and f.concrete and not f.db_constraint
+    ]
+    assert len(fields) >= 10, "the models should declare many composite foreign keys"
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT conrelid::regclass::text, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE contype = 'f' AND connamespace = 'public'::regnamespace"
+        )
+        definitions = cur.fetchall()
+    for f in fields:
+        table, target = f.model._meta.db_table, f.related_model._meta.db_table
+        expected = f"FOREIGN KEY (school_id, {f.attname}) REFERENCES {target}(school_id, id)"
+        assert (table, expected) in definitions, f"{table}.{f.attname}: no composite FK"

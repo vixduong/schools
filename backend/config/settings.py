@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "tenancy",
     "accounts",
+    "schools",
 ]
 
 MIDDLEWARE = [

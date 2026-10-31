@@ -4,4 +4,5 @@ from drf_spectacular.views import SpectacularAPIView
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/auth/", include("accounts.urls")),
+    path("api/setup/", include("schools.urls")),
 ]

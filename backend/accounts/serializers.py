@@ -51,9 +51,10 @@ class RoleAssignmentSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "role",
-            "scope_kind",
-            "scope_id",
             "school_year",
+            "subject_group",
+            "school_class",
+            "subject",
             "valid_from",
             "valid_to",
         ]

@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 import pytest
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.test import Client
+from django.utils import timezone
 
 from accounts.models import Account, Membership, RoleAssignment
 from tenancy.rls import school_scope
@@ -39,7 +42,7 @@ def test_login_identifier_is_normalized(client, alice, identifier):
 
 def test_me_lists_only_role_assignments_in_force(client, alice, schools):
     with school_scope(schools[0].pk):
-        RoleAssignment.objects.update(valid_to="2025-12-31")
+        RoleAssignment.objects.update(valid_to=timezone.localdate() - timedelta(days=1))
     sign_in(client)
     assert client.get(ME, HTTP_HOST=A).json()["role_assignments"] == []
 

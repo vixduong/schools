@@ -1,10 +1,12 @@
 import re
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.core.validators import RegexValidator
 from django.db import models
-from django.db.models import Q
-from django.db.models.functions import Lower
+from django.db.models import Func, Q, Value
+from django.db.models.functions import Coalesce, Lower
 from django.utils import timezone
 
 # Vietnamese mobile numbers only (owner decision, slice 3): 10 digits, 0 then 3/5/7/8/9.
@@ -84,10 +86,15 @@ class Membership(models.Model):
     school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
+    # The Ministry's identifier for a staff member; set when known (import, slice 6).
+    ministry_staff_id = models.CharField(max_length=30, null=True, blank=True)  # noqa: DJ001
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["school", "account"], name="membership_one_per_school"),
+            models.UniqueConstraint(
+                fields=["school", "ministry_staff_id"], name="membership_ministry_staff_id_key"
+            ),
             # Target of RoleAssignment's composite foreign key.
             models.UniqueConstraint(fields=["school", "id"], name="membership_school_id_key"),
         ]
@@ -98,16 +105,36 @@ class Membership(models.Model):
 
 class RoleAssignmentQuerySet(models.QuerySet):
     def in_force(self, on=None):
+        """Assignments whose own period and school year both contain `on` (default: today)."""
         on = on or timezone.localdate()
-        return self.filter(Q(valid_from__lte=on), Q(valid_to__isnull=True) | Q(valid_to__gte=on))
+        return self.filter(
+            Q(valid_from__lte=on),
+            Q(valid_to__isnull=True) | Q(valid_to__gte=on),
+            school_year__starts_on__lte=on,
+            school_year__ends_on__gte=on,
+        )
+
+
+SCOPE_COLUMNS = ("subject_group", "school_class", "subject")
+
+
+def _role_scope(role: str, *scoped: str) -> Q:
+    """`role` is valid only with exactly the `scoped` scope columns set."""
+    q = Q(role=role)
+    for column in SCOPE_COLUMNS:
+        q &= Q(**{f"{column}__isnull": column not in scoped})
+    return q
 
 
 class RoleAssignment(models.Model):
     """A Membership's duty in one scope for one school year (docs/roles.md). Tenant table (RLS).
 
-    `membership` has no single-column database FK: the migration adds the composite FK
-    (school_id, membership_id) -> Membership (school_id, id), so the Membership must belong
-    to the same School."""
+    The scope is the typed nullable FKs `subject_group`, `school_class` and `subject` (`student`
+    arrives in slice 4b); the check constraint says which a role needs. Every FK to another tenant
+    table has no single-column database FK: the migrations add composite FKs (school_id, x_id) ->
+    x (school_id, id), so the target must belong to the same School. A period is
+    [valid_from, valid_to] (open-ended when valid_to is null); periods of the same membership,
+    role and scope never overlap, so a role can end and resume with its history kept."""
 
     class Role(models.TextChoices):
         SCHOOL_ADMIN = "school_admin"
@@ -121,10 +148,18 @@ class RoleAssignment(models.Model):
     school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE)
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, db_constraint=False)
     role = models.CharField(max_length=30, choices=Role)
-    # Both null means School-wide. Real class/subject references arrive with school setup.
-    scope_kind = models.CharField(max_length=30, null=True, blank=True)  # noqa: DJ001
-    scope_id = models.BigIntegerField(null=True, blank=True)
-    school_year = models.CharField(max_length=9)  # "2025-2026"
+    school_year = models.ForeignKey(
+        "schools.SchoolYear", on_delete=models.PROTECT, db_constraint=False
+    )
+    subject_group = models.ForeignKey(
+        "schools.SubjectGroup", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    school_class = models.ForeignKey(
+        "schools.SchoolClass", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    subject = models.ForeignKey(
+        "schools.Subject", null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
     valid_from = models.DateField()
     valid_to = models.DateField(null=True, blank=True)
 
@@ -132,21 +167,44 @@ class RoleAssignment(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["school", "membership", "role", "scope_kind", "scope_id", "school_year"],
-                nulls_distinct=False,
-                name="roleassignment_unique_per_scope_and_year",
-            ),
+            # student and guardian are absent on purpose: they need the `student` scope (4b), so
+            # until then neither can be created.
             models.CheckConstraint(
-                condition=Q(scope_kind__isnull=True, scope_id__isnull=True)
-                | Q(scope_kind__isnull=False, scope_id__isnull=False),
-                name="roleassignment_scope_kind_and_id_together",
+                condition=_role_scope("school_admin")
+                | _role_scope("principal_board")
+                | _role_scope("group_leader", "subject_group")
+                | _role_scope("homeroom_teacher", "school_class")
+                | _role_scope("subject_teacher", "subject", "school_class"),
+                name="roleassignment_scope_matches_role",
             ),
             models.CheckConstraint(
                 condition=Q(valid_to__isnull=True) | Q(valid_to__gte=models.F("valid_from")),
                 name="roleassignment_valid_to_after_valid_from",
             ),
+            ExclusionConstraint(
+                name="roleassignment_no_overlapping_periods",
+                expressions=[
+                    ("school", RangeOperators.EQUAL),
+                    ("membership", RangeOperators.EQUAL),
+                    ("role", RangeOperators.EQUAL),
+                    # NULL never equals NULL in an exclusion constraint, so coalesce the scope.
+                    *(
+                        (Coalesce(column, Value(0)), RangeOperators.EQUAL)
+                        for column in SCOPE_COLUMNS
+                    ),
+                    (
+                        Func(
+                            "valid_from",
+                            "valid_to",
+                            Value("[]"),
+                            function="daterange",
+                            output_field=DateRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+            ),
         ]
 
     def __str__(self):
-        return f"{self.role} ({self.school_year})"
+        return f"{self.role} ({self.school_year_id})"

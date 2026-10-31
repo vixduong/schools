@@ -1,8 +1,7 @@
-from datetime import date
-
 import pytest
 
 from accounts.models import Account, Membership, RoleAssignment
+from schools.tests.factories import make_class, make_year
 from tenancy.models import School
 from tenancy.rls import school_scope
 from tenancy.tests.conftest import as_app_role, owner_role  # noqa: F401
@@ -28,16 +27,20 @@ def make_account(email=None, phone=None, display_name="Test", password=PASSWORD)
 
 
 def member(school, account, role=RoleAssignment.Role.HOMEROOM_TEACHER):
+    """A Membership holding `role` (homeroom teacher of 7A by default) for the current year."""
     with school_scope(school.pk):
         membership = Membership.objects.create(school=school, account=account)
+        year = make_year(school)
+        scope = {}
+        if role == RoleAssignment.Role.HOMEROOM_TEACHER:
+            scope = {"school_class": make_class(school, year)}
         RoleAssignment.objects.create(
             school=school,
             membership=membership,
             role=role,
-            scope_kind="class",
-            scope_id=7,
-            school_year="2025-2026",
-            valid_from=date(2025, 9, 1),
+            school_year=year,
+            valid_from=year.starts_on,
+            **scope,
         )
     return membership
 

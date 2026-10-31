@@ -2,7 +2,8 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from accounts.models import Account, RoleAssignment, normalize_phone
+from accounts.models import Account, Membership, RoleAssignment, normalize_phone
+from schools.tests.factories import make_year
 from tenancy.rls import school_scope
 
 from .conftest import member
@@ -60,23 +61,22 @@ def test_role_assignment_cannot_point_at_a_membership_of_another_school(schools)
             RoleAssignment.objects.create(
                 school=a,
                 membership=membership_in_b,
-                role=RoleAssignment.Role.GUARDIAN,
-                school_year="2025-2026",
+                role=RoleAssignment.Role.SCHOOL_ADMIN,
+                school_year=make_year(a),
                 valid_from="2025-09-01",
             )
 
 
-def test_school_wide_role_assignment_is_unique_despite_null_scope(schools, alice):
-    a, _ = schools
-    fields = dict(
-        school=a,
-        role=RoleAssignment.Role.SCHOOL_ADMIN,
-        school_year="2025-2026",
-        valid_from="2025-09-01",
-    )
+def test_ministry_staff_id_is_unique_per_school_when_set(schools):
+    a, b = schools
+    for email in ("x@example.com", "y@example.com"):
+        Account(email=email, display_name="X").save()
+    x, y = Account.objects.order_by("id")
+    with school_scope(b.pk):
+        Membership.objects.create(school=b, account=x, ministry_staff_id="GV-1")
     with school_scope(a.pk):
-        membership = a.membership_set.get()
-    with pytest.raises(IntegrityError):
+        Membership.objects.create(school=a, account=x, ministry_staff_id="GV-1")
+        Membership.objects.create(school=a, account=y)  # null: no clash
+    with pytest.raises(IntegrityError, match="membership_ministry_staff_id_key"):
         with school_scope(a.pk):
-            RoleAssignment.objects.create(membership=membership, **fields)
-            RoleAssignment.objects.create(membership=membership, **fields)
+            Membership.objects.filter(account=y).update(ministry_staff_id="GV-1")
