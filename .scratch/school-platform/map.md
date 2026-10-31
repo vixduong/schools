@@ -34,15 +34,12 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 
 ## Not yet specified
 
-- Lesson authoring: which phase it lands in, and whether the JSXGraph board spec and the shared lesson/exam node schema need their own ticket before then.
-- Extracurricular activities: registration, capacity, conduct points, parent consent.
-- Preschool module: daily log, meals, health, pick-up; how much it shares with the core.
-- Notifications channel to parents (Zalo ZNS, SMS, email, PWA push) and its cost model.
-- School onboarding: data import from Excel / VNEdu / SMAS, School setup wizard, subscription billing.
-- Reporting obligations to education authorities (Sở/Phòng GD, national education database sync).
+<!-- empty: the roadmap placed every remaining patch in a phase; detail beyond this map is listed under Out of scope -->
 
 ## Out of scope
 
 - Writing application code (this map ends at the planning package).
 - Aggregated reporting across a School Chain (each member is its own School).
 - Native mobile apps; live/online classes; AI grading or AI question generation.
+- Detailed specs for phases 3 to 6 (question bank metadata and exam matrix, the JSXGraph board JSON spec, extracurricular rules, Zalo/SMS cost model, Preschool module): each is specified when its phase starts, as its own effort; placement is in `docs/roadmap.md`.
+- Importing from other school systems (VNEdu, SMAS), a setup wizard, self-serve billing: after the MVP per `docs/roadmap.md`.
