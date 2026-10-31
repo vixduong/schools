@@ -48,7 +48,8 @@ Shipped in two releases inside the pilot's first term.
 
 ### 1b, ready for the end of term
 
-- Semester and year averages, learning ratings and promotion rules from the Assessment Profile version in force.
+- Semester and year averages, learning ratings and promotion rules from the Assessment Profile version in force (official, fixed by circular).
+- Internal rating schemes per School (names, thresholds, conditions) for awards, rankings and scholarships, shown beside the official result (ADR 0007).
 - Conduct rating by the homeroom teacher.
 - Digital report card, scoped slice (Circular 70/2026): per-year record, the signing chain (subject teacher, homeroom teacher, principal, then the School's organisational signature), audit trail, XML + PDF output, transfer to another School with consent. One signing provider, the one the pilot School uses, preferring remote signing.
 - Ministry reporting: Excel export in the Ministry import template shape for the start-of-year (30/10) and end-of-year (30/6) reports.
