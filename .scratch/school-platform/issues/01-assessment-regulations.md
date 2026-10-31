@@ -17,3 +17,7 @@ Findings: branch `research/assessment-regulations`, file `docs/research/assessme
 - Preschool: development across 5 domains, daily and per stage, with no scores or levels. Almost everything is defined by the School.
 - Amendment: Circular 89/2026 (effective 1 Dec 2026, not yet in force) amends both circulars: a digital report card (học bạ số), summer re-training for conduct, and province-set common tests. **Version every Assessment Profile by effective date.**
 - Varies by School: re-training format, which regular assessments are recorded, test dates, optional subjects, and nearly all of Preschool. Formulas, thresholds and level names are fixed by the circulars.
+
+## Comments
+
+- Correction from the digital report card research: the digital report card is governed by Circular 70/2026/TT-BGDĐT (in force 8 Oct 2026), which this ticket's research missed; Circular 89/2026 points to it.

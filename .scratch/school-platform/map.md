@@ -28,6 +28,7 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 - [Which libraries can teachers use to build lesson content for maths, geometry, physics, chemistry and biology?](issues/09-lesson-authoring-libraries.md): Tiptap JSON in jsonb with subject nodes (KaTeX + mhchem, JSXGraph, Ketcher, 3Dmol.js), each with source + SVG snapshot; GeoGebra, Desmos, ChemDoodle and live PhET left out on licence.
 - [Who are the users, and what may each role see and change?](issues/04-roles-and-permissions.md): one global Account, a Membership per School, permissions from scoped Role Assignments; eight MVP roles; students of Lower/Upper Secondary take teacher-published tests (15/30-minute quizzes need no approval, periodic tests do); matrix in `docs/roles.md`.
 - [What does the final tech-stack analysis record, and which choices become ADRs?](issues/06-tech-stack-analysis.md): Django 5.2 LTS + DRF, RLS fail-closed (verified on PG16), Postgres-backed tasks; React + TanStack (incl. Form) + shadcn; same-origin session auth; Singapore + R2; OpenTelemetry → Grafana Cloud Singapore; `docs/tech-stack.md`, ADRs 0003–0006.
+- [What does the digital report card (học bạ số) require of a school system from 2027?](issues/10-digital-report-card.md): mandatory from 8 Oct 2026 under Circular 70/2026; personal signatures (subject teacher, homeroom, principal) plus the School's; sync to the national database; MVP takes a scoped slice, while live submission waits for the official spec.
 
 ## Not yet specified
 
