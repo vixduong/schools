@@ -6,6 +6,8 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.models import Membership, RoleAssignment
+from permissions.actor import Actor
+from permissions.engine import can
 
 from .models import (
     AssessmentProfileVersion,
@@ -132,13 +134,18 @@ class PeriodSerializer(SetupSerializer):
 
 
 class RoleAssignmentSetupSerializer(PeriodSerializer):
-    """Who holds which duty, where and when. Only `valid_to` can change afterwards, and the two
-    principal-board flags `can_reopen_gradebooks` and `signs_for_principal` (the School names who
-    reopens gradebooks and who signs for the principal; `title` is fixed at creation and all three
-    stay empty on every other role): to end a role set `valid_to`; to resume the role later,
-    create a new assignment. A School admin granting themselves
-    principal_board creates a `pending_confirmation` row that grants nothing until a second
-    person confirms it (`confirm` action)."""
+    """Who holds which duty, where and when. Only `valid_to` can change afterwards, and the named
+    duties of a principal-board member: `can_reopen_gradebooks` and `signs_for_principal` (the
+    School names who reopens gradebooks and who signs for the principal), and `title`, which is
+    set once while empty and then stays. All three stay empty on every other role. To end a role
+    set `valid_to`; to resume the role later, create a new assignment.
+
+    Duties are sensitive: nobody turns on `can_reopen_gradebooks`, `signs_for_principal` or
+    `title=principal` on their own row (400 `self_duty_change`); another School admin or
+    principal-board member does it. On a row still `pending_confirmation` the duties cannot change
+    at all (400 `pending_confirmation`). A School admin granting themselves principal_board
+    creates a `pending_confirmation` row that grants nothing until a second person confirms it
+    (`confirm` action)."""
 
     IMMUTABLE = (
         "membership",
@@ -148,8 +155,8 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
         "school_class",
         "subject",
         "valid_from",
-        "title",
     )
+    DUTY_FIELDS = ("title", "can_reopen_gradebooks", "signs_for_principal")
 
     class Meta:
         model = RoleAssignment
@@ -183,6 +190,30 @@ class RoleAssignmentSetupSerializer(PeriodSerializer):
         if subject is not None and not subject.is_active:
             raise serializers.ValidationError("subject_inactive")
         return subject
+
+    def validate_title(self, title):
+        stored = getattr(self.instance, "title", None)
+        if stored is not None and title != stored:
+            raise serializers.ValidationError("immutable")
+        return title
+
+    def validate(self, attrs):
+        row = self.instance
+        mine = (attrs["membership"] if row is None else row.membership) == (
+            self.context["request"].membership
+        )
+        principal = RoleAssignment.Title.PRINCIPAL
+
+        def stored(name):
+            return getattr(row, name, RoleAssignment._meta.get_field(name).get_default())
+
+        changed = [n for n in self.DUTY_FIELDS if n in attrs and attrs[n] != stored(n)]
+        turned_on = [n for n in changed if attrs[n] in (True, principal)]
+        if mine and turned_on:
+            raise serializers.ValidationError({n: ["self_duty_change"] for n in turned_on})
+        if row is not None and row.status == RoleAssignment.Status.PENDING_CONFIRMATION and changed:
+            raise serializers.ValidationError({n: ["pending_confirmation"] for n in changed})
+        return attrs
 
     def check_may_end_earlier(self, role, valid_to):
         """Ending (or shortening) a School admin's row must leave admin coverage continuous: some
@@ -251,6 +282,9 @@ class StudentSerializer(SetupSerializer):
     Membership, nor the requester's own."""
 
     IMMUTABLE = ("status",)
+    # Shown only to who may `student_profile.view_sensitive` (the student's homeroom teacher, the
+    # principal board, the School admin); everyone else gets the keys left out.
+    SENSITIVE = ("ministry_student_id", "national_id")
 
     status = serializers.SerializerMethodField()
     scheduled_change = serializers.SerializerMethodField()
@@ -277,6 +311,14 @@ class StudentSerializer(SetupSerializer):
     @extend_schema_field(ScheduledChangeSerializer(allow_null=True))
     def get_scheduled_change(self, student):
         return scheduled_change(student.studentstatusevent_set.all(), timezone.localdate())
+
+    def to_representation(self, student):
+        data = super().to_representation(student)
+        actor = Actor.of(self.context["request"])
+        if not can(actor, "student_profile.view_sensitive", student):
+            for name in self.SENSITIVE:
+                data.pop(name, None)
+        return data
 
     def validate_ministry_student_id(self, value):
         return _id_or_none(value)
@@ -306,7 +348,7 @@ class StudentListSerializer(StudentSerializer):
 
     def to_representation(self, student):
         data = super().to_representation(student)
-        if data["national_id"]:
+        if data.get("national_id"):
             data["national_id"] = "*" * (len(data["national_id"]) - 3) + data["national_id"][-3:]
         return data
 

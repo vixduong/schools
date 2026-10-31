@@ -1,10 +1,12 @@
 """Structure rules, held by the database and exercised as the app role."""
 
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 import pytest
 from django.db import IntegrityError, ProgrammingError, connection
 
+from accounts.models import RoleAssignment
 from accounts.tests.conftest import make_account
 from schools.models import (
     Enrollment,
@@ -334,6 +336,75 @@ def test_a_membership_signs_in_one_student_only_and_only_in_lower_or_upper_secon
         enroll(a, first, make_class(a, other_year, "8A"))
     with pytest.raises(IntegrityError, match="student_membership_key"), school_scope(a.pk):
         Student.objects.filter(pk=first.pk).update(membership=sign_in)
+
+
+@contextmanager
+def refused(constraint):
+    """The write is refused by the database, naming `constraint` (what the API answers with)."""
+    with pytest.raises(IntegrityError) as caught:
+        yield
+    assert caught.value.__cause__.diag.constraint_name == constraint
+
+
+def test_a_students_membership_holds_no_role_assignment_or_guardian_link_and_the_reverse(schools):
+    a, _ = schools
+    accounts = [make_account(f"m{i}@example.com") for i in range(3)]
+    with school_scope(a.pk):
+        klass = make_class(a)
+        student, child = make_student(a, "Student"), make_student(a, "Child")
+        sign_in, teacher, parent = (make_membership(a, account) for account in accounts)
+        enroll(a, student, klass)
+        Student.objects.filter(pk=student.pk).update(membership=sign_in)
+        RoleAssignment.objects.create(
+            school=a, membership=teacher, role="school_admin", valid_from=date(2025, 9, 1)
+        )
+        GuardianLink.objects.create(
+            school=a,
+            membership=parent,
+            student=child,
+            relation="mother",
+            valid_from=date(2025, 9, 1),
+        )
+    with refused("roleassignment_membership_is_not_a_student"):
+        with school_scope(a.pk):
+            RoleAssignment.objects.create(
+                school=a, membership=sign_in, role="school_admin", valid_from=date(2025, 9, 1)
+            )
+    with refused("guardianlink_membership_is_not_a_student"):
+        with school_scope(a.pk):
+            GuardianLink.objects.create(
+                school=a,
+                membership=sign_in,
+                student=child,
+                relation="father",
+                valid_from=date(2025, 9, 1),
+            )
+    # Moving an existing row onto a student's Membership is checked too.
+    with refused("roleassignment_membership_is_not_a_student"):
+        with school_scope(a.pk):
+            RoleAssignment.objects.filter(membership=teacher).update(membership=sign_in)
+    # And a student's sign-in cannot be a Membership that already has a role or a link.
+    with school_scope(a.pk):
+        enroll(a, child, klass)
+    with refused("student_membership_has_no_role_assignment"):
+        with school_scope(a.pk):
+            Student.objects.filter(pk=child.pk).update(membership=teacher)
+    with refused("student_membership_has_no_guardian_link"):
+        with school_scope(a.pk):
+            Student.objects.filter(pk=child.pk).update(membership=parent)
+
+
+def test_the_membership_guard_triggers_lock_the_membership_row(schools):
+    """The role/link side shares the lock, the student side takes the conflicting one, so two
+    transactions racing on the same Membership cannot both miss the other's uncommitted row."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT proname, prosrc FROM pg_proc WHERE proname IN "
+            "('membership_is_not_a_student', 'student_membership_holds_no_role_or_link')"
+        )
+        sources = dict(cursor.fetchall())
+    assert "FOR SHARE" in sources["membership_is_not_a_student"]
+    assert "FOR NO KEY UPDATE" in sources["student_membership_holds_no_role_or_link"]
 
 
 def test_an_enrollment_needs_a_class_of_its_own_year(schools):

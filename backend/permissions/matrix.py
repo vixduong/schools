@@ -122,14 +122,22 @@ MATRIX: dict[str, Row] = {
         school_admin=W(S.SCHOOL),
         homeroom_teacher=W(S.HOMEROOM_CLASS, "own class"),
     ),
+    # Teachers read every class's profiles and scores (docs/roles.md); they write only in their
+    # own scope, which is why the write rows below keep the narrow scopes.
     "student_profile": row(
         "See student profiles",
         principal_board=R(S.SCHOOL, "all"),
-        group_leader=R(S.GROUP_CLASSES, "group's classes"),
-        homeroom_teacher=R(S.HOMEROOM_CLASS, "own class"),
-        subject_teacher=R(S.TEACHING_CLASSES, "own classes"),
+        group_leader=R(S.SCHOOL, "all"),
+        homeroom_teacher=R(S.SCHOOL, "all"),
+        subject_teacher=R(S.SCHOOL, "all"),
         student=R(S.SELF, "self"),
         guardian=R(S.LINKED, "linked"),
+    ),
+    "student_profile_sensitive": row(
+        "See students' sensitive details (national and Ministry IDs, Guardian contact details)",
+        school_admin=R(S.SCHOOL),
+        principal_board=R(S.SCHOOL, "all"),
+        homeroom_teacher=R(S.HOMEROOM_CLASS, "own class"),
     ),
     "attendance_take": row(
         "Take attendance per period",
@@ -168,9 +176,9 @@ MATRIX: dict[str, Row] = {
     "scores_view": row(
         "See scores",
         principal_board=R(S.SCHOOL, "all"),
-        group_leader=R(S.GROUP_SUBJECTS, "own group"),
-        homeroom_teacher=R(S.HOMEROOM_CLASS, "own class, all subjects"),
-        subject_teacher=R(S.TEACHING_PAIR, "own subject × class"),
+        group_leader=R(S.SCHOOL, "all"),
+        homeroom_teacher=R(S.SCHOOL, "all"),
+        subject_teacher=R(S.SCHOOL, "all"),
         student=R(S.SELF, "self, once released", released=True),
         guardian=R(S.LINKED, "linked, once released", released=True),
     ),
@@ -266,6 +274,7 @@ ACTIONS: dict[str, ActionDef] = {
     "accounts.manage": _write("accounts_manage"),
     "guardian_invite.issue": _write("guardian_invite"),
     "student_profile.view": _read("student_profile"),
+    "student_profile.view_sensitive": _read("student_profile_sensitive"),
     "attendance.take": _write("attendance_take"),
     "attendance.view": _read("attendance_view"),
     "leave_request.send": _write("leave_request_send"),

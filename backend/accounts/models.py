@@ -127,6 +127,16 @@ class RoleAssignmentQuerySet(models.QuerySet):
 SCOPE_COLUMNS = ("school_year", "grade", "subject_group", "school_class", "subject")
 
 
+def _period() -> Func:
+    return Func(
+        "valid_from",
+        "valid_to",
+        Value("[]"),
+        function="daterange",
+        output_field=DateRangeField(),
+    )
+
+
 def _role_scope(role: str, *scoped: str) -> Q:
     """`role` is valid only with exactly the `scoped` scope columns set."""
     q = Q(role=role)
@@ -205,6 +215,8 @@ class RoleAssignment(models.Model):
     )
     confirmed_at = models.DateTimeField(null=True, blank=True)
     # Named duties of a principal-board member (docs/roles.md); NULL/false on every other role.
+    # `title` is set once (the API refuses a change), and at most one `principal` row is in force
+    # at a time (exclusion constraint).
     title = models.CharField(max_length=20, choices=Title, null=True, blank=True)  # noqa: DJ001
     can_reopen_gradebooks = models.BooleanField(default=False)
     signs_for_principal = models.BooleanField(default=False)
@@ -269,17 +281,17 @@ class RoleAssignment(models.Model):
                         (Coalesce(column, Value(0)), RangeOperators.EQUAL)
                         for column in SCOPE_COLUMNS
                     ),
-                    (
-                        Func(
-                            "valid_from",
-                            "valid_to",
-                            Value("[]"),
-                            function="daterange",
-                            output_field=DateRangeField(),
-                        ),
-                        RangeOperators.OVERLAPS,
-                    ),
+                    (_period(), RangeOperators.OVERLAPS),
                 ],
+            ),
+            # One principal at a time: the School's principal can be replaced, not joined.
+            ExclusionConstraint(
+                name="roleassignment_one_principal_at_a_time",
+                expressions=[
+                    ("school", RangeOperators.EQUAL),
+                    (_period(), RangeOperators.OVERLAPS),
+                ],
+                condition=Q(title="principal"),
             ),
         ]
 

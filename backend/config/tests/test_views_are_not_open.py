@@ -1,11 +1,16 @@
 """No DRF view is open by accident: every one in the production URLconf has School-bound
 authentication and a real permission, except an explicit allowlist."""
 
+from dataclasses import dataclass
+
 import pytest
 from django.urls import URLPattern, URLResolver, get_resolver
 from drf_spectacular.views import SpectacularAPIView
+from rest_framework import viewsets
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.routers import DefaultRouter
 from rest_framework.views import APIView
 
 from accounts.authentication import CsrfOnlyAuthentication, SchoolSessionAuthentication
@@ -18,14 +23,35 @@ ALLOWED_AUTHENTICATION = {SchoolSessionAuthentication, CsrfOnlyAuthentication}
 MAY_ALLOW_ANY = {LoginView, LogoutView, CsrfView, SpectacularAPIView}
 
 
-def api_views(patterns=None):
+@dataclass(frozen=True)
+class Route:
+    """A URL's view as it runs: a `@action(permission_classes=..., authentication_classes=...)`
+    override reaches the view through the route's initkwargs, not through the class."""
+
+    view: type
+    name: str
+    authentication_classes: tuple
+    permission_classes: tuple
+
+
+def routes(patterns=None):
     for pattern in get_resolver().url_patterns if patterns is None else patterns:
         if isinstance(pattern, URLResolver):
-            yield from api_views(pattern.url_patterns)
+            yield from routes(pattern.url_patterns)
         elif isinstance(pattern, URLPattern):
             view = getattr(pattern.callback, "cls", None)
             if view is not None and issubclass(view, APIView):
-                yield view
+                kwargs = getattr(pattern.callback, "initkwargs", {})
+                yield Route(
+                    view,
+                    f"{view.__qualname__}:{pattern.name}",
+                    tuple(kwargs.get("authentication_classes", view.authentication_classes)),
+                    tuple(kwargs.get("permission_classes", view.permission_classes)),
+                )
+
+
+def api_views():
+    return {route.view for route in routes()}
 
 
 def problems(view):
@@ -36,7 +62,7 @@ def problems(view):
     permissions = list(view.permission_classes)
     if not permissions:
         found.append("permission_classes is empty")
-    if AllowAny in permissions and view not in MAY_ALLOW_ANY:
+    if AllowAny in permissions and getattr(view, "view", view) not in MAY_ALLOW_ANY:
         found.append("AllowAny is not allowed here")
     real = (HasMembership, CanPermission)  # `Can(...)` builds a CanPermission subclass
     if (
@@ -49,12 +75,23 @@ def problems(view):
 
 
 def test_production_urlconf_has_views_to_check():
-    assert {LoginView, LogoutView, CsrfView, MeView, SpectacularAPIView} <= set(api_views())
+    assert {LoginView, LogoutView, CsrfView, MeView, SpectacularAPIView} <= api_views()
 
 
-@pytest.mark.parametrize("view", sorted(set(api_views()), key=lambda v: v.__qualname__))
-def test_view_is_not_open(view):
-    assert problems(view) == []
+ALL_ROUTES = sorted(set(routes()), key=lambda r: r.name)
+
+
+def test_the_action_routes_are_among_those_checked():
+    names = {route.name for route in ALL_ROUTES}
+    assert {
+        "SchoolYearViewSet:school-years-close",
+        "RoleAssignmentViewSet:role-assignments-confirm",
+    } <= names
+
+
+@pytest.mark.parametrize("route", ALL_ROUTES, ids=lambda r: r.name)
+def test_route_is_not_open(route):
+    assert problems(route) == []
 
 
 def test_the_guard_catches_open_views():
@@ -79,3 +116,24 @@ def test_the_guard_catches_open_views():
     assert problems(Anyone) == ["AllowAny is not allowed here"]
     assert problems(Authenticated) == ["no HasMembership or Can(...) permission"]
     assert problems(Checked) == []
+
+
+def test_the_guard_catches_an_action_that_overrides_the_permissions():
+    class Opened(viewsets.ViewSet):
+        permission_classes = [HasMembership, Can("school.configure")]
+
+        @action(detail=False, permission_classes=[AllowAny])
+        def anyone(self, request): ...
+
+        @action(detail=False, authentication_classes=[SessionAuthentication])
+        def plain_session(self, request): ...
+
+        @action(detail=False, permission_classes=[HasMembership])
+        def fine(self, request): ...
+
+    router = DefaultRouter()
+    router.register("opened", Opened, basename="opened")
+    found = {route.name.split(":")[1]: problems(route) for route in routes(router.urls)}
+    assert found["opened-anyone"] == ["AllowAny is not allowed here"]
+    assert len(found["opened-plain-session"]) == 1
+    assert found["opened-fine"] == []

@@ -13,6 +13,23 @@ from schools.models import Enrollment, GuardianLink, SchoolClass, Student, Subje
 from .matrix import Duty, Role
 
 Assignment = RoleAssignment.Role
+LEAVE_REASONS = (
+    Enrollment.ReasonEnded.TRANSFER_OUT,
+    Enrollment.ReasonEnded.DROPPED_OUT,
+    Enrollment.ReasonEnded.GRADUATED,
+)
+
+
+@dataclass(frozen=True)
+class StudentAccess:
+    """Where one own or linked student stands at the School on the date (docs/roles.md "While the
+    student is at the School", "After leaving the School")."""
+
+    enrolled_class: int | None  # the class in force
+    at_school: bool  # in force, or a continuing student between school years
+    classes_ever: frozenset[int]  # every class they started in, on or before the date
+    classes_left: frozenset[int]  # classes left by a leave whose school year has not ended
+    # (only when not at_school: those students keep the post-leave reads)
 
 
 @dataclass(frozen=True)
@@ -138,44 +155,54 @@ class Actor:
         return frozenset(links.values_list("student_id", flat=True))
 
     @cached_property
-    def _student_classes(self) -> tuple[dict[int, int], dict[int, set[int]]]:
-        """(student -> class in force, student -> classes left by a transfer out whose school year
-        has not ended). Two queries for every student of this actor."""
+    def student_access(self) -> dict[int, "StudentAccess"]:
+        """Own and linked students -> where they stand at the School on the date. Two queries for
+        every student of this actor."""
         ids = self.own_student_ids | self.linked_student_ids
         if not ids:
-            return {}, {}
-        current = dict(
+            return {}
+        in_force = dict(
             Enrollment.objects.in_force(self.on)
             .filter(school_id=self.school_id, student_id__in=ids)
             .values_list("student_id", "school_class_id")
         )
-        left: dict[int, set[int]] = {}
-        transferred = Enrollment.objects.filter(
-            school_id=self.school_id,
-            student_id__in=ids,
-            reason_ended=Enrollment.ReasonEnded.TRANSFER_OUT,
-            valid_to__lt=self.on,
-            school_year__ends_on__gte=self.on,
+        # Every period that has started, oldest first: the last one says how the student stands.
+        started: dict[int, list[tuple]] = {student: [] for student in ids}
+        rows = (
+            Enrollment.objects.filter(
+                school_id=self.school_id, student_id__in=ids, valid_from__lte=self.on
+            )
+            .order_by("valid_from", "id")
+            .values_list("student_id", "school_class_id", "reason_ended", "school_year__ends_on")
         )
-        for student, klass in transferred.values_list("student_id", "school_class_id"):
-            left.setdefault(student, set()).add(klass)
-        return current, left
+        for student, klass, reason, year_ends_on in rows:
+            started[student].append((klass, reason, year_ends_on))
+        return {student: self._access(in_force.get(student), started[student]) for student in ids}
 
-    @property
-    def enrolled_class_of(self) -> dict[int, int]:
-        """Own and linked students' class in force on the date."""
-        return self._student_classes[0]
-
-    @property
-    def left_classes_of(self) -> dict[int, set[int]]:
-        """Own and linked students' classes left by a transfer out, readable until year end."""
-        return self._student_classes[1]
+    def _access(self, in_force_class, started) -> "StudentAccess":
+        ever = frozenset(klass for klass, _, _ in started)
+        if in_force_class is not None:
+            return StudentAccess(in_force_class, True, ever, frozenset())
+        # Nothing in force: a continuing student between years (the last period ended with the
+        # year, or is still open after its year) stays; one who left keeps the post-leave reads
+        # until the school year of the leaving period ends; anything else (a class change with no
+        # next class) has no access.
+        if started and started[-1][1] in (None, Enrollment.ReasonEnded.YEAR_END):
+            return StudentAccess(None, True, ever, frozenset())
+        left = frozenset(
+            klass
+            for klass, reason, year_ends_on in started
+            if reason in LEAVE_REASONS and year_ends_on >= self.on
+        )
+        return StudentAccess(None, False, ever, left)
 
     @cached_property
     def own_classes(self) -> frozenset[int]:
         """Classes the person's own student is enrolled in (a student's class content)."""
         return frozenset(
-            klass for s, klass in self.enrolled_class_of.items() if s in self.own_student_ids
+            access.enrolled_class
+            for student, access in self.student_access.items()
+            if student in self.own_student_ids and access.enrolled_class is not None
         )
 
     # Students of the classes this person works in (one query, only when there are such classes).

@@ -47,11 +47,13 @@ class SetupViewSet(
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
-    """School admin only (`school.configure`). No DELETE: years, classes and role assignments are
-    ended or kept, rooms and subjects are deactivated (history instead of deletes). Querysets
-    need no School filter: RLS shows only the request's School."""
+    """Reads for the School admin and the principal board (`school.configure`, 👁 for the board);
+    writes for the School admin only: `read=True` lets a read-only cell through for GET, HEAD and
+    OPTIONS and never for a write (the one exception is `confirm` below). No DELETE: years,
+    classes and role assignments are ended or kept, rooms and subjects are deactivated (history
+    instead of deletes). Querysets need no School filter: RLS shows only the request's School."""
 
-    permission_classes = [HasMembership, Can("school.configure")]
+    permission_classes = [HasMembership, Can("school.configure", read=True)]
 
     def perform_create(self, serializer):
         self._save(serializer)
@@ -131,7 +133,7 @@ class SchoolClassViewSet(SetupViewSet):
 
 
 class RoleAssignmentViewSet(SetupViewSet):
-    permission_classes = [HasMembership, Can("accounts.manage")]
+    permission_classes = [HasMembership, Can("accounts.manage", read=True)]
     queryset = RoleAssignment.objects.order_by("id")
     serializer_class = serializers.RoleAssignmentSetupSerializer
 
@@ -142,7 +144,7 @@ class RoleAssignmentViewSet(SetupViewSet):
         # The School admin (✔) and the principal board (👁) may confirm, as in slice 4.
         permission_classes=[
             HasMembership,
-            Can("accounts.manage", read=True),
+            Can("accounts.manage", read=True, read_on_writes=True),
             NotRequesterOrAssignee,
         ],
     )

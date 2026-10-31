@@ -1298,11 +1298,26 @@ def board_member(school, email="board@example.com"):
     return membership
 
 
-def test_a_principal_board_member_reads_but_cannot_use_setup_endpoints(client, admin_a, schools):
-    """The matrix gives the principal board 👁 on configuring the School; slice 4's endpoints stay
-    School admin only (`school.configure` needs a ✔), so the board gets 403 on all of them."""
+def test_a_principal_board_member_reads_the_setup_but_cannot_change_it(client, admin_a, schools):
+    """The matrix gives the principal board 👁 on configuring the School: every setup endpoint
+    answers its GETs and refuses every write (`read=True` is for safe methods only)."""
     board_member(schools[0])
     sign_in(client, A, "board@example.com")
+    for name in ENDPOINTS:
+        assert client.get(url(name), HTTP_HOST=A).status_code == 200, name
+        assert client.options(url(name), HTTP_HOST=A).status_code == 200, name
+        assert post(client, A, name, {}).status_code == 403, name
+        assert patch(client, A, name, 1, {}).status_code == 403, name
+        assert client.delete(url(name, 1), HTTP_HOST=A).status_code == 403, name
+    assert client.get(f"{url('students', 1)}status-events/", HTTP_HOST=A).status_code == 404
+    for action in ("leave/", "leave/cancel/"):
+        assert client.post(f"{url('students', 1)}{action}", HTTP_HOST=A).status_code == 403
+    assert client.post(f"{url('school-years', 1)}close/", HTTP_HOST=A).status_code == 403
+    assert client.post(f"{url('enrollments', 1)}move/", HTTP_HOST=A).status_code == 403
+
+
+def test_a_teacher_cannot_read_the_setup(client, admin_a, alice, schools):
+    sign_in(client, A, "alice@example.com")
     for name in ENDPOINTS:
         assert client.get(url(name), HTTP_HOST=A).status_code == 403, name
 
@@ -1381,3 +1396,89 @@ def test_the_second_person_who_confirms_may_be_the_principal_board_but_no_one_el
     confirm = f"{url('role-assignments', pending['id'])}confirm/"
     assert sign_in(Client(), A, "alice@example.com").post(confirm, HTTP_HOST=A).status_code == 403
     assert sign_in(Client(), A, "board2@example.com").post(confirm, HTTP_HOST=A).status_code == 200
+
+
+def own_membership(school, email="admin-a@example.com"):
+    with school_scope(school.pk):
+        return Membership.objects.get(account__email=email).pk
+
+
+def test_nobody_turns_on_a_named_duty_for_their_own_row(admin, schools):
+    a, _ = schools
+    mine = own_membership(a)
+    second_admin(a)
+    base = {"membership": mine, "role": "principal_board", "valid_from": str(timezone.localdate())}
+    for duty in (
+        {"can_reopen_gradebooks": True},
+        {"signs_for_principal": True},
+        {"title": "principal"},
+    ):
+        refused = post(admin, A, "role-assignments", {**base, **duty})
+        assert refused.status_code == 400, duty
+        assert refused.json() == {next(iter(duty)): ["self_duty_change"]}
+    # A vice principal title, or no duty, is not sensitive: the row is created, pending.
+    pending = post(admin, A, "role-assignments", {**base, "title": "vice_principal"})
+    assert pending.status_code == 201, pending.json()
+    row = pending.json()
+    # On a pending row the duties cannot change at all: the owner is refused as the owner, ...
+    own = patch(admin, A, "role-assignments", row["id"], {"signs_for_principal": True})
+    assert own.json() == {"signs_for_principal": ["self_duty_change"]}
+    # ... another admin as a change to a row that waits for its confirmation.
+    other = sign_in(Client(), A, "admin2@example.com")
+    waiting = patch(other, A, "role-assignments", row["id"], {"signs_for_principal": True})
+    assert waiting.status_code == 400
+    assert waiting.json() == {"signs_for_principal": ["pending_confirmation"]}
+    # Sending the stored values back is no change.
+    same = patch(other, A, "role-assignments", row["id"], {"can_reopen_gradebooks": False})
+    assert same.status_code == 200
+    # Once the second person confirmed, another admin sets the duties; the owner still cannot.
+    assert (
+        other.post(f"{url('role-assignments', row['id'])}confirm/", HTTP_HOST=A).status_code == 200
+    )
+    done = patch(other, A, "role-assignments", row["id"], {"can_reopen_gradebooks": True})
+    assert done.status_code == 200 and done.json()["can_reopen_gradebooks"] is True
+    again = patch(admin, A, "role-assignments", row["id"], {"signs_for_principal": True})
+    assert again.json() == {"signs_for_principal": ["self_duty_change"]}
+    # Turning a duty off on their own row is allowed.
+    off = patch(admin, A, "role-assignments", row["id"], {"can_reopen_gradebooks": False})
+    assert off.status_code == 200 and off.json()["can_reopen_gradebooks"] is False
+
+
+def test_the_title_is_set_once_and_there_is_one_principal_at_a_time(admin, alice, schools):
+    a, _ = schools
+    teacher = Membership_pk(a, alice)
+    first = grant_principal_board(admin, A, teacher).json()
+    assert first["title"] is None
+    named = patch(admin, A, "role-assignments", first["id"], {"title": "vice_principal"})
+    assert named.status_code == 200 and named.json()["title"] == "vice_principal"
+    changed = patch(admin, A, "role-assignments", first["id"], {"title": "principal"})
+    assert changed.json() == {"title": ["immutable"]}
+    cleared = patch(admin, A, "role-assignments", first["id"], {"title": None})
+    assert cleared.json() == {"title": ["immutable"]}
+    # Two principals at once are refused by the database; a vice principal beside one is fine.
+    today = str(timezone.localdate())
+    boss = second_admin(a)
+    principal = post(
+        admin,
+        A,
+        "role-assignments",
+        {
+            "membership": boss.pk,
+            "role": "principal_board",
+            "valid_from": today,
+            "title": "principal",
+        },
+    )
+    assert principal.status_code == 201, principal.json()
+    third = board_member(a, "board3@example.com")
+    with school_scope(a.pk):
+        row = RoleAssignment.objects.get(membership=third)
+    clash = patch(admin, A, "role-assignments", row.pk, {"title": "principal"})
+    assert clash.json() == {"constraint": ["roleassignment_one_principal_at_a_time"]}
+    vice = patch(admin, A, "role-assignments", row.pk, {"title": "vice_principal"})
+    assert vice.status_code == 200
+
+
+def Membership_pk(school, account):
+    with school_scope(school.pk):
+        return Membership.objects.get(account=account).pk

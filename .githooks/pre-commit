@@ -4,7 +4,7 @@ set -e
 cd "$(git rev-parse --show-toplevel)"
 py=$(git diff --cached --name-only --diff-filter=ACMR -- 'backend/*.py' | sed 's#^backend/##')
 if [ -n "$py" ]; then
-  (cd backend && uv run ruff check $py && uv run ruff format --check $py)
+  (cd backend && uv run ruff check --force-exclude $py && uv run ruff format --check --force-exclude $py)
 fi
 if git diff --cached --name-only --diff-filter=ACMR | grep -q '^frontend/'; then
   pnpm --dir frontend exec biome check . && pnpm --dir frontend exec tsc -b
