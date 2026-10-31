@@ -9,6 +9,7 @@ export
 	@echo "created .env from .env.example"
 
 db-up: .env
+	@docker info >/dev/null 2>&1 || { echo "Docker is not running: start Docker Desktop (open -a Docker) and retry."; exit 1; }
 	docker compose up -d --wait db
 
 db-down:
@@ -37,3 +38,14 @@ frontend-check:
 
 .PHONY: check
 check: backend-check frontend-check
+
+.PHONY: hooks review-diff
+# Once per clone: use the versioned git hooks in .githooks/.
+hooks:
+	git config core.hooksPath .githooks
+
+# Diff for a reviewer agent (it cannot run git): make review-diff BASE=<sha> NAME=<slice>
+review-diff:
+	@mkdir -p .scratch/review
+	git diff $(BASE)..HEAD > .scratch/review/$(NAME).diff
+	@echo ".scratch/review/$(NAME).diff"
