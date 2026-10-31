@@ -1,0 +1,3 @@
+# Lesson and question content as Tiptap JSON, each subject block with its source and an SVG snapshot
+
+Lessons and exam questions are stored as Tiptap JSON in Postgres `jsonb`; every subject block (formula, board, molecule) keeps its editable source and an SVG snapshot, so print, Word export and the exam bank reuse it without re-rendering. Subject tools are limited to permissively licensed libraries (KaTeX + mhchem, JSXGraph, Ketcher, 3Dmol.js): GeoGebra and ChemDoodle need paid commercial licences, Desmos and PhET terms could not be confirmed, so none of them is embedded. The cost is designing our own JSON spec for JSXGraph boards and building Word export ourselves.

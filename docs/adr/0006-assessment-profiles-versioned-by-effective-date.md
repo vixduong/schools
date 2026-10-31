@@ -1,0 +1,3 @@
+# Assessment Profiles are versioned by the date a regulation takes effect
+
+Every Assessment Profile is stored as dated versions, and a school year is assessed under the version in force for it, because the rules change by circular (Circular 89/2026 amends Circulars 22/2021 and 27/2020 from 1 Dec 2026) and past report cards must stay reproducible under the rules that produced them. Formulas, thresholds and level names come from the circular, not from School settings; Schools configure only what the circulars leave to them. We rejected a single mutable profile because a rule change would silently rewrite last year's results.

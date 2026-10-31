@@ -1,7 +1,7 @@
 # What does the final tech-stack analysis record, and which choices become ADRs?
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 02, 03
 
 ## Question

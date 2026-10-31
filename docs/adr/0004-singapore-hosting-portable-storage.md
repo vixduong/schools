@@ -1,0 +1,3 @@
+# Singapore hosting with portable storage, Vietnam hosting on demand
+
+The default deployment runs in Singapore with files on Cloudflare R2, because Vietnam's PDPL 91/2025 and Decree 356/2025 impose no localization duty, only a transfer impact assessment filing, and this keeps cost and operations low for private Schools. Storage sits behind an S3-compatible interface and the whole stack stays one codebase, so a Vietnam-hosted deployment for public Schools or a future localization order is a new environment, not a rewrite. We rejected Vietnam-only hosting from day one as cost without a buyer who requires it yet.

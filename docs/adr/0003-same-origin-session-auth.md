@@ -1,0 +1,3 @@
+# Same-origin SPA and API per School, with session cookies
+
+Each School's SPA and API answer on one origin, `<school>.app.vn` and `<school>.app.vn/api`, and the browser authenticates with a host-only Django session cookie plus CSRF header, not with JWTs. A shared `api.app.vn` would need CORS, wildcard CSRF origins and a cookie on `.app.vn` visible to every School; tokens in the browser are exposed to XSS and need refresh and revocation that a 1–2 developer team would have to build. The cost is a separate sign-in per School subdomain (accepted in ADR 0002) and serving the SPA through a wildcard route; tokens return only for a native app or third-party API access.
