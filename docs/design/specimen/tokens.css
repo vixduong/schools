@@ -1,0 +1,52 @@
+:root {
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  /* app scale, ratio 1.2 from a 16px body */
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.488rem;
+  --text-display-s: 1.728rem; --text-display: 2.488rem; --text-section: 1.44rem; --text-title: 1.2rem; --text-lead: 1rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --container: 1440px; --gutter: 40px; --gap-columns: 24px; --section-gap-s: 64px; --section-gap: 96px; --section-gap-l: 144px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* paper and ink, sampled from the statechart-art plates */
+  --color-paper: oklch(96.2% 0.012 85);    /* the sheet */
+  --color-paper-2: oklch(98.6% 0.008 90);  /* ticket stock, raised */
+  --color-paper-3: oklch(92.6% 0.016 80);  /* wells, the top bar */
+  --color-ink: oklch(25% 0.012 65);
+  --color-ink-2: oklch(38% 0.012 65);
+  --color-muted: oklch(49% 0.014 70);
+  --color-rule: oklch(84% 0.018 80);
+
+  /* fountain-pen blue: the one signal for actions, selection, focus */
+  --color-accent: oklch(44% 0.13 255);
+  --color-accent-ink: oklch(98.6% 0.008 90);
+  --color-focus: oklch(46% 0.19 258);
+
+  /* red ink: warnings, errors, the failing path. Never decoration */
+  --color-error: oklch(51% 0.19 25);
+  --color-error-wash: oklch(95.5% 0.025 20);
+  --color-success: oklch(47% 0.11 150);
+
+  /* pins: a record's state, always beside its word */
+  --color-pin-open: oklch(55% 0.13 245);
+  --color-pin-waiting: oklch(76% 0.14 80);
+  --color-pin-locked: oklch(30% 0.012 65);
+  --color-pin-alert: oklch(55% 0.2 27);
+
+  /* pencil regions: one pastel per Level, ink edge beside it */
+  --color-level-pre: oklch(94% 0.045 88);     --color-level-pre-edge: oklch(62% 0.09 80);
+  --color-level-pri: oklch(93.5% 0.035 145);  --color-level-pri-edge: oklch(58% 0.08 145);
+  --color-level-lower: oklch(93% 0.025 240);  --color-level-lower-edge: oklch(56% 0.07 245);
+  --color-level-upper: oklch(93% 0.03 12);    --color-level-upper-edge: oklch(58% 0.09 15);
+
+  --font-display: "Hepta Slab", ui-serif, Georgia, serif;
+  --font-body: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: var(--font-display);
+
+  --radius-ticket: 2px; --radius-control: 6px; --radius-card: 10px; --radius-pill: 999px;
+  --rule-hair: 1px; --rule-pen: 1.5px;
+  --shadow-card: none;
+  --hatch: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-ink) 55%, transparent) 0 1px, transparent 1px 4px);
+  --tracking-display: -0.01em;
+  --control-h: 36px;
+}

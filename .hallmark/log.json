@@ -1,0 +1,30 @@
+[
+ {
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "custom",
+  "axes": "light/slab-serif/cool",
+  "hero": "none (app)",
+  "nav": "top bar",
+  "footer": "one line",
+  "imagery": "none, one illustration slot",
+  "photos": [],
+  "entry": "lifecycle statechart",
+  "sections": [
+   "lifecycle",
+   "gradebook",
+   "levels",
+   "colour",
+   "type",
+   "controls",
+   "states"
+  ],
+  "signature": "gradebook lifecycle as pinned tickets",
+  "waived": [
+   "65"
+  ],
+  "prompt": "design system for Vietnamese school SaaS from statechart-art",
+  "date": "2026-10-31",
+  "mode": "build"
+ }
+]

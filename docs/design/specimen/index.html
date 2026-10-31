@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hệ thiết kế: giấy, mực và ghim</title>
+<meta name="description" content="Bảng mẫu hệ thiết kế cho phần mềm quản lý trường học: màu, chữ, vé trạng thái, vùng cấp học và các điều khiển.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hepta+Slab:wght@300;400&family=Be+Vietnam+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="specimen.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="container">
+    <a class="wordmark" href="#" aria-label="Trang chủ">sổ trường</a>
+    <nav aria-label="Chính">
+      <ul>
+        <li><a href="#">Lớp học</a></li>
+        <li><a href="#" aria-current="page">Sổ điểm</a></li>
+        <li><a href="#">Điểm danh</a></li>
+        <li><a href="#">Học sinh</a></li>
+        <li><a href="#">Thông báo</a></li>
+      </ul>
+    </nav>
+    <span class="school">Trường liên cấp Mẫu</span>
+    <button class="btn" type="button">Tài khoản</button>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-head">
+    <h1>Giấy, mực và ghim</h1>
+    <p class="note">Mỗi hồ sơ là một tấm vé có ghim. Mực đỏ chỉ dành cho điều cần chú ý.</p>
+  </div>
+
+  <section aria-labelledby="h-life" style="margin-top: 0">
+    <header>
+      <h2 id="h-life">Vòng đời một sổ điểm</h2>
+      <p class="note">Ghim cho biết trạng thái, chữ trên vé nói rõ trạng thái đó. Đường mực đỏ là đường cần lý do.</p>
+    </header>
+    <div class="life-wrap">
+    <div class="lifecycle" role="group" aria-label="Sơ đồ trạng thái sổ điểm">
+      <svg viewBox="0 0 960 300" aria-hidden="true">
+        <path class="thread" d="M224 76 H388"/><path class="head" d="M394 76 l-9 -4.5 v9 z"/>
+        <text x="306" y="64" text-anchor="middle">gửi duyệt</text>
+        <path class="thread" d="M584 76 H748"/><path class="head" d="M754 76 l-9 -4.5 v9 z"/>
+        <text x="666" y="64" text-anchor="middle">tổ trưởng duyệt</text>
+        <path class="thread" d="M490 120 V196 H170 V126"/><path class="head" d="M170 120 l-4.5 9 h9 z"/>
+        <text x="330" y="186" text-anchor="middle">trả lại [kèm nhận xét]</text>
+        <path class="thread red" d="M850 120 V256 H100 V126"/><path class="head red" d="M100 120 l-4.5 9 h9 z"/>
+        <text class="red" x="475" y="246" text-anchor="middle">mở lại [hiệu trưởng cho phép, ghi lý do]</text>
+      </svg>
+      <div class="ticket t1"><span class="pin open" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Đang nhập</span></div>
+      <div class="ticket t2"><span class="pin waiting" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Chờ duyệt</span></div>
+      <div class="ticket t3"><span class="pin locked" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Đã khoá</span></div>
+    </div>
+    <dl class="pin-legend">
+      <div><dt><span class="pin open" aria-hidden="true"></span>Ghim xanh</dt><dd>đang mở, giáo viên còn sửa được</dd></div>
+      <div><dt><span class="pin waiting" aria-hidden="true"></span>Ghim vàng</dt><dd>đang chờ một người khác</dd></div>
+      <div><dt><span class="pin locked" aria-hidden="true"></span>Ghim mực</dt><dd>đã khoá, chỉ xem</dd></div>
+      <div><dt><span class="pin needs" aria-hidden="true"></span>Ghim đỏ</dt><dd>cần xử lý: bị trả lại, quá hạn</dd></div>
+    </dl>
+    </div>
+    <ol class="lifecycle-list">
+      <li><div class="ticket"><span class="pin open" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Đang nhập</span></div><span class="note">gửi duyệt</span></li>
+      <li><div class="ticket"><span class="pin waiting" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Chờ duyệt</span></div><span class="note">tổ trưởng duyệt, hoặc trả lại kèm nhận xét</span></li>
+      <li><div class="ticket"><span class="pin locked" aria-hidden="true"></span><span class="ref">Lớp 7A, Toán</span><span class="state">Đã khoá</span></div><span class="note">khoá lại sau khi duyệt</span><span class="note red">mở lại chỉ khi hiệu trưởng cho phép, ghi lý do</span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-book">
+    <header>
+      <h2 id="h-book">Sổ điểm giữ nguyên chữ sans</h2>
+      <p class="note">Bảng là nơi làm việc: chữ gọn, số thẳng hàng, không trang trí.</p>
+    </header>
+    <div class="gradebook-bar">
+      <div class="ticket small"><span class="pin open" aria-hidden="true"></span><span class="state">Đang nhập</span></div>
+      <div class="tabs" role="tablist" aria-label="Học kỳ">
+        <button type="button" role="tab" aria-selected="true">Học kỳ I</button>
+        <button type="button" role="tab" aria-selected="false" tabindex="-1">Học kỳ II</button>
+        <button type="button" role="tab" aria-selected="false" tabindex="-1">Cả năm</button>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button">Xuất Excel</button>
+        <button class="btn primary" type="button">Gửi duyệt</button>
+      </div>
+    </div>
+    <p class="scroll-cue note">Vuốt ngang để xem các cột điểm</p>
+    <div class="table-wrap">
+      <table class="gradebook">
+        <caption class="visually-hidden">Lớp 7A, môn Toán, học kỳ I. Dữ liệu mẫu.</caption>
+        <thead><tr><th class="num">STT</th><th>Họ và tên</th><th class="num">TX1</th><th class="num">TX2</th><th class="num">TX3</th><th class="num">TX4</th><th class="num">Giữa kỳ</th><th class="num">Cuối kỳ</th><th class="num">Trung bình</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td class="name">Nguyễn Minh An</td><td class="num">8</td><td class="num">9</td><td class="num">7</td><td class="num">8</td><td class="num">7,5</td><td class="num">8</td><td class="num avg">7,9</td></tr>
+          <tr><td class="num">2</td><td class="name">Trần Thu Hà</td><td class="num">9</td><td class="num">10</td><td class="num">9</td><td class="num">9</td><td class="num">9</td><td class="num">9,5</td><td class="num avg">9,3</td></tr>
+          <tr><td class="num">3</td><td class="name">Lê Quốc Bảo</td><td class="num">6</td><td class="num">7</td><td class="num">5</td><td class="num">6</td><td class="num">6,5</td><td class="num">5,5</td><td class="num avg">5,9</td></tr>
+          <tr><td class="num">4</td><td class="name">Phạm Gia Hân</td><td class="num">8</td><td class="num">8</td><td class="num">9</td><td class="num"><input class="cell" aria-label="TX4, Phạm Gia Hân" inputmode="decimal" name="tx4-4"></td><td class="num">8</td><td class="num"><input class="cell" aria-label="Cuối kỳ, Phạm Gia Hân" inputmode="decimal" name="ck-4"></td><td class="num avg"><span class="pending">chưa đủ điểm</span></td></tr>
+          <tr><td class="num">5</td><td class="name">Võ Đức Duy</td><td class="num">7</td><td class="num"><input class="cell" aria-label="TX2, Võ Đức Duy" inputmode="decimal" name="tx2-5" value="11" aria-invalid="true" aria-describedby="err-5"><span class="cell-error" id="err-5">Điểm từ 0 đến 10</span></td><td class="num">8</td><td class="num">7</td><td class="num">7</td><td class="num"><input class="cell" aria-label="Cuối kỳ, Võ Đức Duy" inputmode="decimal" name="ck-5"></td><td class="num avg"><span class="pending">chưa đủ điểm</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-levels">
+    <header>
+      <h2 id="h-levels">Mỗi cấp học một màu chì</h2>
+      <p class="note">Một trường liên cấp, hai cách đánh giá chạy song song.</p>
+    </header>
+    <div class="school-frame">
+      <div class="regions">
+        <div class="region pri">
+          <h3>Tiểu học</h3>
+          <dl>
+            <div><dt>Tiếng Việt</dt><dd>Hoàn thành tốt</dd></div>
+            <div><dt>Toán</dt><dd>Hoàn thành</dd></div>
+            <div><dt>Bài kiểm tra cuối kỳ</dt><dd>9</dd></div>
+          </dl>
+        </div>
+        <div class="region lower">
+          <h3>Trung học cơ sở</h3>
+          <dl>
+            <div><dt>Ngữ văn</dt><dd>8,4</dd></div>
+            <div><dt>Toán</dt><dd>7,9</dd></div>
+            <div><dt>Giáo dục thể chất</dt><dd>Đạt</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-color">
+    <header>
+      <h2 id="h-color">Giấy, mực, bút xanh</h2>
+      <p class="note">Bút xanh cho hành động. Mực đỏ cho cảnh báo. Màu chì cho cấp học.</p>
+    </header>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Mẫu</th><th>Token</th><th>Vai trò</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip" style="--c: var(--color-paper)"></span></td><td><code>--color-paper</code></td><td>Trang giấy</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-paper-2)"></span></td><td><code>--color-paper-2</code></td><td>Giấy vé, ô nhập, bề mặt nổi</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-paper-3)"></span></td><td><code>--color-paper-3</code></td><td>Thanh trên, vùng chìm</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-ink)"></span></td><td><code>--color-ink</code></td><td>Chữ, nét viền vé</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-muted)"></span></td><td><code>--color-muted</code></td><td>Chú thích, viền ô nhập</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-accent)"></span></td><td><code>--color-accent</code></td><td>Bút xanh: nút chính, mục đang chọn, viền focus</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-error)"></span></td><td><code>--color-error</code></td><td>Mực đỏ: lỗi, cảnh báo, đường mở lại sổ</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-pin-waiting)"></span></td><td><code>--color-pin-*</code></td><td>Ghim trạng thái: xanh đang mở, vàng chờ, mực đã khoá, đỏ cần xử lý</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-level-pre)"></span></td><td><code>--color-level-pre</code></td><td>Mầm non</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-level-pri)"></span></td><td><code>--color-level-pri</code></td><td>Tiểu học</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-level-lower)"></span></td><td><code>--color-level-lower</code></td><td>Trung học cơ sở</td></tr>
+          <tr><td><span class="chip" style="--c: var(--color-level-upper)"></span></td><td><code>--color-level-upper</code></td><td>Trung học phổ thông</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-type">
+    <header>
+      <h2 id="h-type">Hai họ chữ, đủ dấu tiếng Việt</h2>
+      <p class="note">Hepta Slab nét mảnh cho tiêu đề và vé. Be Vietnam Pro cho mọi chữ làm việc.</p>
+    </header>
+    <dl class="type-rows">
+      <div><dt>Tiêu đề trang</dt><dd class="s-display">Sổ điểm lớp 7A</dd></div>
+      <div><dt>Tiêu đề mục</dt><dd class="s-section">Điểm danh tuần này</dd></div>
+      <div><dt>Tiêu đề nhỏ</dt><dd class="s-title">Học kỳ I, năm học 2026-2027</dd></div>
+      <div><dt>Thân</dt><dd class="s-body">Giáo viên bộ môn nhập điểm thường xuyên, giữa kỳ và cuối kỳ. Điểm trung bình được tính khi đủ cột.</dd></div>
+      <div><dt>Ghi chú nghiêng</dt><dd class="note">giáo viên gửi duyệt, rồi tổ trưởng xem</dd></div>
+      <div><dt>Nhãn</dt><dd class="s-label">Họ và tên</dd></div>
+      <div><dt>Số liệu</dt><dd class="s-figure">7,9  9,3  5,9  10,0</dd></div>
+    </dl>
+  </section>
+
+  <section aria-labelledby="h-controls">
+    <header>
+      <h2 id="h-controls">Nút và ô nhập</h2>
+      <p class="note">Cao 36px, vùng chạm 44px. Một nút chính trên mỗi màn hình.</p>
+    </header>
+    <div class="row" style="margin-bottom: var(--space-xl)">
+      <button class="btn primary" type="button">Gửi duyệt</button>
+      <button class="btn" type="button">Xuất Excel</button>
+      <button class="btn quiet" type="button">Xem lịch sử sửa</button>
+      <button class="btn danger" type="button">Xoá cột điểm</button>
+      <button class="btn primary" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Đang gửi</button>
+      <button class="btn" type="button" disabled>Đã khoá</button>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <label for="f-gk">Điểm giữa kỳ</label>
+        <input id="f-gk" name="gk" inputmode="decimal" autocomplete="off" value="7,5">
+        <span class="help">Thang 10, một chữ số thập phân</span>
+      </div>
+      <div class="field">
+        <label for="f-ck">Điểm cuối kỳ</label>
+        <input id="f-ck" name="ck" inputmode="decimal" autocomplete="off" value="11" aria-invalid="true" aria-describedby="f-ck-err">
+        <span class="help error" id="f-ck-err">Điểm phải từ 0 đến 10. Sửa lại rồi lưu.</span>
+      </div>
+      <div class="field">
+        <label for="f-hk">Học kỳ</label>
+        <select id="f-hk" name="hk"><option>Học kỳ I</option><option>Học kỳ II</option></select>
+        <span class="help"></span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-states">
+    <header>
+      <h2 id="h-states">Trống, đang tải, lỗi</h2>
+      <p class="note">Mỗi vùng có dữ liệu đều có đủ bốn trạng thái.</p>
+    </header>
+    <div class="states">
+      <div class="state-box">
+        <div data-slot="illustration">Chỗ cho tranh vẽ tay, đặt hoạ sĩ vẽ</div>
+        <h3>Lớp 7A chưa có học sinh</h3>
+        <p>Nhập danh sách từ Excel để bắt đầu điểm danh và nhập điểm.</p>
+        <div><button class="btn primary" type="button">Nhập từ Excel</button></div>
+      </div>
+      <div class="state-box" aria-busy="true" aria-label="Đang tải danh sách lớp">
+        <div class="skeleton w60"></div>
+        <div class="skeleton w80"></div>
+        <div class="skeleton w40"></div>
+        <div class="skeleton w80"></div>
+      </div>
+      <div class="state-box">
+        <div class="alert" role="alert">
+          <strong>Không lưu được điểm</strong>
+          <span>Mất kết nối khi lưu cột cuối kỳ. Điểm vừa nhập vẫn còn trên máy này, hãy thử lưu lại.</span>
+        </div>
+        <div><button class="btn" type="button">Lưu lại</button></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="page-foot">
+    <p>Dữ liệu trên trang là dữ liệu mẫu. Phong cách tham khảo từ statechart-art của Kevin Ngo.</p>
+  </footer>
+</main>
+</body>
+</html>

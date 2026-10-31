@@ -29,5 +29,9 @@ The rules for how students in one Level are assessed: numeric scores with weight
 _Avoid_: Grading scheme, grading config
 
 **Achievement Level**:
-A qualitative rating used in Primary assessment (Excellent / Completed / Not completed) instead of a numeric score.
-_Avoid_: Mark, rank
+The rating a Primary subject receives at each checkpoint: Hoàn thành tốt, Hoàn thành or Chưa hoàn thành. Primary also records integer test scores; the two sit side by side and are never averaged.
+_Avoid_: Mark, rank, grade
+
+**Assessment Profile Version**:
+One dated edition of an Assessment Profile, tied to the regulation in force from its effective date; a school year is assessed under the version in force for it.
+_Avoid_: Ruleset, config version

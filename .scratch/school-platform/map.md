@@ -19,6 +19,10 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 ## Decisions so far
 
 <!-- one line per closed ticket: [title](link): gist -->
+- [What do Vietnamese law and public-school buyers require of where student data is stored?](issues/02-data-residency-and-privacy.md): no localization duty under PDPL 91/2025 and Decree 356/2025; Singapore + R2 is fine for private Schools with a transfer-impact filing and parent consent; public Schools need a Vietnam-hosted option.
+- [What are the current versions and proven patterns for the chosen stack?](issues/03-stack-versions-and-tenancy-patterns.md): Django 5.2 LTS + DRF 3.18; RLS through a transaction-local `set_config`; same-origin `<school>.app.vn/api` with a session cookie and CSRF; a Postgres-backed task queue only for bulk work.
+
+- [Which Vietnamese assessment regulations must each Assessment Profile encode?](issues/01-assessment-regulations.md): Circular 22/2021 for secondary (weighted semester average, 4-level ratings), Circular 27/2020 for primary (3-level subject ratings plus integer test scores, no averages), free-form preschool; Circular 89/2026 lands 1 Dec 2026, so profiles are versioned by effective date.
 
 ## Not yet specified
 
