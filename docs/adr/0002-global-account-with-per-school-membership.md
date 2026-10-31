@@ -1,0 +1,3 @@
+# One global Account, one Membership per School
+
+An Account (login, phone, password) lives outside tenant isolation and is shared across Schools, while everything a person does in a School hangs off a tenant-scoped Membership and its Role Assignments, which row-level security covers like any other School data. We chose this over one account per School because Guardians with children in two Schools and teachers working at two Schools are common, and separate logins would duplicate identities and passwords. The cost is one non-tenant table that must never carry School data, and a session per School subdomain (host-only cookies) rather than a single sign-in across Schools.
