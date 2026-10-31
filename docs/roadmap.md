@@ -41,6 +41,7 @@ Shipped in two releases inside the pilot's first term.
 - Timetable entered by hand, with clash checks on teacher and room.
 - Attendance per period by the subject teacher; overview for the homeroom teacher.
 - Leave requests from Guardians, approved by the homeroom teacher (a ticket with a lifecycle).
+- Mid-year transfers in the gradebook: a student who arrives during a term brings results from the previous School (entered or imported with their source and the transfer document, never read from another School's data); averages combine them as the circular requires; a student who leaves keeps their results here up to the leaving date.
 - Gradebook per Circular 22/2021: score columns by periods per year, comment-only subjects, entry with validation, the submit → approve or return → lock workflow, reopen by the named principal board member with a reason, every change logged.
 - Guardian portal (PWA): scores once released, attendance, timetable, notices, leave requests.
 - Student accounts (read-only in this phase): scores once released, timetable, notices.

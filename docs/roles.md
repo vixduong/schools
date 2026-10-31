@@ -6,6 +6,7 @@ Decided in the ticket *Who are the users, and what may each role see and change?
 
 - One **Account** per person across the platform; one **Membership** per School it belongs to; signed in per School subdomain, one session per School.
 - Permissions come from **Role Assignments** in force: role × scope (School, Grade, class, subject, subject group) × school year. A person may hold several at once (homeroom teacher of 7A, Maths teacher of 7A and 7B, Maths group leader, Guardian of a Grade 3 student). Last year's assignments expire; their history stays.
+- A student and a Guardian get no Role Assignment rows: a student's rights come from `Student.membership` + Enrollment, a Guardian's from a `GuardianLink`, so each link has one source of truth (the Role Assignment roles are the staff roles only).
 - Records belong to the School that made them. A transfer ends one **Enrollment** and starts another; the report card moves by the official route, never by sharing data between Schools.
 
 ## Roles (MVP)
