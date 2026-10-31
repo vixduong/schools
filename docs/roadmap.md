@@ -4,6 +4,17 @@ Decided in the ticket *Which features belong to each phase of the roadmap?* (`.s
 
 **Done means**: at least one pilot School runs the phase's features for a full term with no paper or Excel kept in parallel, and no lost or wrong scores. Phase 0 has no pilot; it is done when phase 1a can be built on it without changing its model.
 
+**Phases overlap.** "Done" is an acceptance gate for a phase, not a start gate for the next one: development of the next phase starts as soon as its build dependencies exist, while the current phase is still in its pilot term. Waiting a full term between phases would leave the team idle. Order still follows dependencies (what a phase reuses must be built first), and a phase is offered to more Schools only after its own acceptance.
+
+**Feedback during every pilot.** While a phase is being accepted, feedback keeps flowing into the plan from several sources:
+
+- the pilot School: teachers, the principal board, Guardians and students, through an in-app feedback form on every screen and a short check-in with the School each fortnight;
+- support requests and the operator's own use;
+- observability: errors, slow pages and failed tasks from Grafana alerts;
+- regulation changes (new circulars) and Ministry specification updates.
+
+Every item is triaged into one queue in this order: **(1)** anything that loses or corrupts scores, records or signatures, fixed at once; **(2)** what blocks the pilot School's daily work; **(3)** regulation changes with a deadline; **(4)** improvements and new features, scheduled into the current or a later phase. Fixes and improvements ship continuously; nothing waits for a phase boundary.
+
 **First customers**: private and multi-level Schools, by subscription, onboarded by hand.
 
 ## Phase 0: Foundation

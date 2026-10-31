@@ -1,7 +1,7 @@
 # How should the five core screens look and behave?
 
 Type: prototype
-Status: open
+Status: claimed
 Blocked by: 04, 07
 
 ## Question
