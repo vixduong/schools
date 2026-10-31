@@ -24,10 +24,11 @@ An English planning package, ready to hand off to implementation: (a) a phased r
 
 - [Which Vietnamese assessment regulations must each Assessment Profile encode?](issues/01-assessment-regulations.md): Circular 22/2021 for secondary (weighted semester average, 4-level ratings), Circular 27/2020 for primary (3-level subject ratings plus integer test scores, no averages), free-form preschool; Circular 89/2026 lands 1 Dec 2026, so profiles are versioned by effective date.
 - [What are the design conventions of the brand layer, built with /hallmark?](issues/07-design-system.md): approved; pinned tickets on statecharts, pen blue for action, red ink for warnings, a pencil pastel per Level, Hepta Slab + Be Vietnam Pro, plain working surfaces; dark mode, data table, combobox and date pickers specified too.
+- [Which libraries can teachers use to build lesson content for maths, geometry, physics, chemistry and biology?](issues/09-lesson-authoring-libraries.md): Tiptap JSON in jsonb with subject nodes (KaTeX + mhchem, JSXGraph, Ketcher, 3Dmol.js), each with source + SVG snapshot; GeoGebra, Desmos, ChemDoodle and live PhET left out on licence.
 
 ## Not yet specified
 
-- Lesson authoring: the editor, how subject blocks (formulas, geometry, simulations, molecules) are stored and shared between lessons and the exam bank, and in which phase it lands.
+- Lesson authoring: which phase it lands in, and whether the JSXGraph board spec and the shared lesson/exam node schema need their own ticket before then.
 - Exam bank and test generation: question metadata, exam matrix, shuffling, how marks flow into the gradebook. Depends on the roadmap phase it lands in.
 - Extracurricular activities: registration, capacity, conduct points, parent consent.
 - Preschool module: daily log, meals, health, pick-up; how much it shares with the core.
