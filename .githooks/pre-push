@@ -1,0 +1,6 @@
+#!/bin/sh
+# The full check before anything leaves this clone (no CI yet): both test suites, lint, types and
+# the smoke run. A few minutes; `git push --no-verify` skips it only for a docs-only push.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+make check

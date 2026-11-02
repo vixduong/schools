@@ -24,6 +24,7 @@ Read during review, not implementation. Each rule is a judgement call that no au
 ## Invariants
 
 - **The database holds cross-table rules.** A rule spanning two tables (term inside its year, enrollment inside its year, membership kinds) is a trigger that locks the parent row (`FOR SHARE`, or `FOR NO KEY UPDATE` on the side that must conflict); a serializer check alone is UX, not protection. Concurrent writers that count rows (last School admin) lock the counted rows in a fixed order.
+- **Side effects that must survive a refused request** (rate-limit counts, security events) commit outside the request's transaction: a middleware before `TenantMiddleware`. Inside it they are undone by the view's rollback, or hold row locks until the response.
 - **Constraint names are API.** DB violations map to 400 `{"constraint": [<name>]}`; renaming a constraint is a breaking change.
 
 ## Permissions

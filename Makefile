@@ -48,8 +48,13 @@ frontend-check:
 	rm frontend/src/api/.schema.check.d.ts
 	pnpm --dir frontend test
 
-.PHONY: check
-check: backend-check frontend-check
+.PHONY: check smoke
+check: backend-check frontend-check smoke
+
+# The running app on a fresh database (scripts/smoke.sh): what stubbed tests cannot see.
+smoke: .env
+	@docker info >/dev/null 2>&1 || { echo "Docker is not running: start Docker Desktop (open -a Docker) and retry."; exit 1; }
+	sh scripts/smoke.sh
 
 .PHONY: hooks review-diff red
 # Once per clone: use the versioned git hooks in .githooks/.
@@ -63,13 +68,16 @@ review-diff:
 	@echo ".scratch/review/$(NAME).diff"
 
 # Prove a test goes red without a guard (CODING_STANDARDS.md "Tests"): replace OLD with NEW in
-# FILE once, run the tests matching K, restore FILE from git (commit or stage FILE first).
+# FILE once, run RUN (default: the backend tests matching K), restore FILE from git (commit or
+# stage FILE first).
 # make red FILE=backend/audit/views.py OLD='if grant is None:' NEW='if False:' K=needs_a_grant
+# make red FILE=frontend/src/api/client.ts OLD='api.use(csrf);' NEW='' RUN="pnpm --dir frontend exec vitest run -t 'CSRF'"
+RUN ?= cd backend && uv run pytest -q -k "$$K"
 red:
 	@git diff --quiet -- "$$FILE" || { echo "$$FILE has unstaged changes: stage them first"; exit 1; }
 	@# FILE, OLD and NEW come from the environment (the top-level export), so quotes in them are safe.
 	@python3 -c "import os; p, a, b = (os.environ[k] for k in ('FILE', 'OLD', 'NEW')); s = open(p).read(); assert a in s, 'OLD not found'; open(p, 'w').write(s.replace(a, b, 1))"
-	-cd backend && uv run pytest -q -k "$(K)" 2>&1 | tail -1
+	-$(RUN) 2>&1 | grep -E "passed|failed|Tests " | tail -2
 	@git checkout -- "$$FILE"
 
 .PHONY: backup restore-drill
