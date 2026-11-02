@@ -52,3 +52,34 @@ def test_activation_is_limited_too(schools):
         "/api/auth/activate/", body, content_type="application/json", HTTP_HOST=A
     )
     assert response.status_code == 429
+
+
+def test_a_number_counts_as_the_same_identifier(schools):
+    """DRF's CharField reads 84912345678 as text, and the Account lookup normalises it to
+    0912345678: the limiter must count it as that identifier."""
+    for n in range(LIMITS["identifier"]):
+        login(84912345678 if n % 2 else "0912345678", "wrong")
+    assert login("0912345678", "wrong").status_code == 429
+
+
+def test_sign_in_takes_json_only(alice):
+    """A form body would hide the identifier from the limiter."""
+    body = {"identifier": "alice@example.com", "password": PASSWORD}
+    assert Client().post("/api/auth/login/", body, HTTP_HOST=A).status_code == 415
+
+
+def test_real_sign_ins_do_not_use_up_the_budget(alice):
+    """One school network shares an address: successes give their attempt back."""
+    for _ in range(LIMITS["identifier"] + 2):
+        assert login("alice@example.com", PASSWORD).status_code == 200
+    assert login("alice@example.com", "wrong").status_code == 400
+
+
+def test_the_count_commits_before_the_schools_transaction():
+    """Placed before TenantMiddleware: no counter row stays locked through the password check."""
+    from django.conf import settings
+
+    order = settings.MIDDLEWARE
+    assert order.index("accounts.ratelimit.SignInRateLimitMiddleware") < order.index(
+        "tenancy.middleware.TenantMiddleware"
+    )

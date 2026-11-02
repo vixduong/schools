@@ -74,3 +74,10 @@ def test_the_admin_is_an_email_or_a_vn_mobile(transactional_db):
     assert activate(code, identifier="0912345678").status_code == 200
     with owner_role(), school_scope(School.objects.get().pk):
         assert RoleAssignment.objects.get().role == "school_admin"
+
+
+def test_a_mistyped_subdomain_cannot_reissue_another_schools_invitation(transactional_db):
+    first, _ = create()
+    with pytest.raises(CommandError, match="is 'THCS Mẫu'"):
+        create(name="Trường khác", admin="other@example.com")
+    assert activate(first).status_code == 200  # the first code still works

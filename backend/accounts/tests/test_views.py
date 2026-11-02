@@ -17,7 +17,8 @@ LOGIN, LOGOUT, ME, CSRF = (f"/api/auth/{p}/" for p in ("login", "logout", "me", 
 
 
 def sign_in(client, host=A, identifier="alice@example.com", password=PASSWORD):
-    return client.post(LOGIN, {"identifier": identifier, "password": password}, HTTP_HOST=host)
+    body = {"identifier": identifier, "password": password}
+    return client.post(LOGIN, body, content_type="application/json", HTTP_HOST=host)
 
 
 def test_login_on_a_member_school_returns_me_and_sets_the_session(client, alice):
@@ -99,10 +100,13 @@ def test_csrf_endpoint_sets_the_cookie(client):
 def test_login_and_logout_enforce_csrf(alice):
     client = Client(enforce_csrf_checks=True)
     creds = {"identifier": "alice@example.com", "password": PASSWORD}
-    assert client.post(LOGIN, creds, HTTP_HOST=A).status_code == 403
+    assert (
+        client.post(LOGIN, creds, content_type="application/json", HTTP_HOST=A).status_code == 403
+    )
     client.get(CSRF, HTTP_HOST=A)
     token = client.cookies[settings.CSRF_COOKIE_NAME].value
-    assert client.post(LOGIN, creds, HTTP_HOST=A, HTTP_X_CSRFTOKEN=token).status_code == 200
+    json = {"content_type": "application/json", "HTTP_HOST": A, "HTTP_X_CSRFTOKEN": token}
+    assert client.post(LOGIN, creds, **json).status_code == 200
     assert client.post(LOGOUT, HTTP_HOST=A).status_code == 403
     token = client.cookies[settings.CSRF_COOKIE_NAME].value
     assert client.post(LOGOUT, HTTP_HOST=A, HTTP_X_CSRFTOKEN=token).status_code == 204

@@ -5,7 +5,6 @@ import re
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -39,6 +38,8 @@ class Command(BaseCommand):
         except ValidationError:
             raise CommandError(f"{admin!r} is neither an email nor a VN mobile number.") from None
         school, created = School.objects.get_or_create(subdomain=subdomain, defaults={"name": name})
+        if school.name != name:  # a mistyped subdomain must not reissue another School's invite
+            raise CommandError(f"{subdomain} is {school.name!r}, not {name!r}.")
         with school_scope(school.pk):
             set_actor(f"operator:{operator}")
             has_admin = (
@@ -61,14 +62,13 @@ class Command(BaseCommand):
                 display_name=admin_name,
             )
             code = issue_code(invitation)
-            with transaction.atomic():
-                invitation.save()
-                InvitationRole.objects.create(
-                    school=school,
-                    invitation=invitation,
-                    role=RoleAssignment.Role.SCHOOL_ADMIN,
-                    valid_from=timezone.localdate(),
-                )
+            invitation.save()
+            InvitationRole.objects.create(
+                school=school,
+                invitation=invitation,
+                role=RoleAssignment.Role.SCHOOL_ADMIN,
+                valid_from=timezone.localdate(),
+            )
         scheme = "https" if settings.SECURE_COOKIES else "http"
         self.stdout.write(
             f"{'Created' if created else 'Existing'} School {school.name!r}.\n"

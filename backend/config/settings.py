@@ -34,10 +34,10 @@ MIDDLEWARE = [
     "config.observability.RequestLogMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Before the School's transaction: each count commits at once (accounts/ratelimit.py).
+    "accounts.ratelimit.SignInRateLimitMiddleware",
     # Tenant first: sessions are read and saved inside the School's transaction.
     "tenancy.middleware.TenantMiddleware",
-    # Inside the School's transaction, outside the view's savepoint: failed sign-ins still count.
-    "accounts.ratelimit.SignInRateLimitMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Right after it: Django's request.user must not outlive a School mismatch.

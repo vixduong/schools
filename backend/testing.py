@@ -71,7 +71,10 @@ def member(school, account, role=RoleAssignment.Role.HOMEROOM_TEACHER):
 def sign_in(host, email):
     client = Client()
     response = client.post(
-        "/api/auth/login/", {"identifier": email, "password": PASSWORD}, HTTP_HOST=host
+        "/api/auth/login/",
+        {"identifier": email, "password": PASSWORD},
+        content_type="application/json",
+        HTTP_HOST=host,
     )
     assert response.status_code == 200, response.json()
     return client

@@ -2167,8 +2167,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["Activate"];
-                "application/x-www-form-urlencoded": components["schemas"]["Activate"];
-                "multipart/form-data": components["schemas"]["Activate"];
             };
         };
         responses: {
@@ -2210,8 +2208,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["Login"];
-                "application/x-www-form-urlencoded": components["schemas"]["Login"];
-                "multipart/form-data": components["schemas"]["Login"];
             };
         };
         responses: {

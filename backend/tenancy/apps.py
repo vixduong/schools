@@ -3,8 +3,9 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.backends.signals import connection_created
 
-# A request left idle inside its transaction (a stuck worker) releases its locks after this.
-IDLE_IN_TRANSACTION_TIMEOUT = "30s"
+# A request left idle inside its transaction (a stuck worker) releases its locks after this; long
+# enough for a slow 5 MB upload read inside the request's transaction (Excel import).
+IDLE_IN_TRANSACTION_TIMEOUT = "5min"
 
 
 def guard_app_role(sender, connection, **kwargs):

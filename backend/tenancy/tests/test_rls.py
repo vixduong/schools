@@ -242,7 +242,7 @@ def test_app_role_connections_bound_idle_transactions(as_app_role):
 
     with connection.cursor() as cursor:
         cursor.execute("SHOW idle_in_transaction_session_timeout")
-        assert cursor.fetchone()[0] == "30s"
+        assert cursor.fetchone()[0] == "5min"
 
 
 def test_an_app_role_that_bypasses_rls_is_refused(monkeypatch, db):

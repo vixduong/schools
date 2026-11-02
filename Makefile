@@ -76,6 +76,7 @@ red:
 # Backups of the compose database (docs/slices/slice-9.md); the scripts run inside its container
 # as the superuser (a backup must bypass RLS) and the files land in ./backups.
 backup:
+	docker compose exec -T db rm -rf /tmp/backup
 	docker compose exec -T -u postgres -e PGDATABASE=$(DB_NAME) db sh -s -- /tmp/backup < scripts/backup.sh
 	mkdir -p backups && docker compose cp db:/tmp/backup/. backups/
 	docker compose exec -T db rm -rf /tmp/backup

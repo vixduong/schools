@@ -25,6 +25,7 @@ def test_each_role_signs_in_with_its_role(client, schools, settings, identifier,
     response = client.post(
         "/api/auth/login/",
         {"identifier": identifier, "password": PASSWORD},
+        content_type="application/json",
         HTTP_HOST="c.localhost",
     )
     assert response.status_code == 200

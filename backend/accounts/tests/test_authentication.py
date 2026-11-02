@@ -13,6 +13,7 @@ def sign_in(client, host):
     return client.post(
         "/api/auth/login/",
         {"identifier": "alice@example.com", "password": PASSWORD},
+        content_type="application/json",
         HTTP_HOST=host,
     )
 
@@ -43,6 +44,7 @@ def test_csrf_is_enforced_on_post_for_session_authenticated_requests(alice):
     client.post(
         "/api/auth/login/",
         {"identifier": "alice@example.com", "password": PASSWORD},
+        content_type="application/json",
         **sign_in_headers,
     )
     assert client.post("/api/echo/", HTTP_HOST=A).status_code == 403

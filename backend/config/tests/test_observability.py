@@ -66,3 +66,15 @@ def test_tracing_is_off_without_an_endpoint(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     setup_tracing()
     assert not DjangoInstrumentor().is_instrumented_by_opentelemetry
+
+
+def test_exception_messages_stay_out_of_the_log():
+    try:
+        email = "-".join(["alice", "example.com"])  # runtime data, not in the source line
+        raise ValueError(f"Key (email)=({email}) already exists.")
+    except ValueError:
+        import sys
+
+        record = logging.LogRecord("x", logging.ERROR, __file__, 1, "boom", None, sys.exc_info())
+    line = JsonFormatter().format(record)
+    assert "builtins.ValueError" in line and "alice-example" not in line

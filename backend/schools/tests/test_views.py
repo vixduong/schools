@@ -59,7 +59,10 @@ def url(name, pk=None):
 
 def sign_in(client, host, email):
     response = client.post(
-        "/api/auth/login/", {"identifier": email, "password": PASSWORD}, HTTP_HOST=host
+        "/api/auth/login/",
+        {"identifier": email, "password": PASSWORD},
+        content_type="application/json",
+        HTTP_HOST=host,
     )
     assert response.status_code == 200
     return client

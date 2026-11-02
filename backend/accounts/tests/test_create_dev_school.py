@@ -19,6 +19,7 @@ def test_creates_a_school_you_can_sign_in_to(client, schools, settings):
     response = client.post(
         "/api/auth/login/",
         {"identifier": "c@example.com", "password": "pw-for-c"},
+        content_type="application/json",
         HTTP_HOST="c.localhost",
     )
     assert [r["role"] for r in response.json()["role_assignments"]] == ["school_admin"]

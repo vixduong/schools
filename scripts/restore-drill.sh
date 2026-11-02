@@ -1,6 +1,7 @@
 #!/bin/sh
-# Restore a dump into a scratch database and prove it usable (docs/slices/slice-9.md): row counts
-# match the backup's manifest, every tenant table still forces RLS with the tenant_isolation
+# Restore a dump into a scratch database and prove it usable (docs/slices/slice-9.md): the same
+# tables with the same row counts as the backup's manifest (django_migrations included, so the
+# applied migrations match), every tenant table still forces RLS with the tenant_isolation
 # policy, and the app role can still read every table. The scratch database is dropped after.
 # Usage: restore-drill.sh <file.dump> (its .manifest beside it). Same libpq environment as
 # backup.sh, on a cluster where the owner and app roles exist; DB_APP_USER names the app role.
@@ -26,6 +27,12 @@ while read -r table expected; do
     fail=1
   fi
 done < "$manifest"
+restored=$(q "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind = 'r' AND n.nspname = 'public'")
+if [ "$tables" -eq 0 ] || [ "$tables" != "$restored" ]; then
+  echo "MANIFEST: lists $tables tables, the restore has $restored"
+  fail=1
+fi
 
 tenant="FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relkind = 'r' AND n.nspname = 'public'

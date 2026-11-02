@@ -19,7 +19,13 @@ SELECT format('SELECT %L || '' '' || count(*) FROM public.%I', c.relname, c.reln
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relkind = 'r' AND n.nspname = 'public' ORDER BY c.relname \gexec
 \o
-\! pg_dump -Fc --snapshot="\$SNAPSHOT" -f "\$DUMP"
+\! pg_dump -Fc --snapshot="\$SNAPSHOT" -f "\$DUMP" || rm -f "\$DUMP"
 COMMIT;
 SQL
+# psql does not fail on a failed \! command: a missing or empty dump is the failure.
+if [ ! -s "$DUMP" ]; then
+  echo "backup FAILED: pg_dump did not write $DUMP" >&2
+  rm -f "$DUMP" "$base.manifest"
+  exit 1
+fi
 echo "$DUMP"

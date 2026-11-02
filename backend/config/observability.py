@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import time
+import traceback
 from datetime import UTC, datetime
 
 from opentelemetry import trace
@@ -25,8 +26,12 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             **{f: getattr(record, f) for f in REQUEST_FIELDS if hasattr(record, f)},
         }
-        if record.exc_info:
-            line["exception"] = self.formatException(record.exc_info)
+        if record.exc_info and record.exc_info[0]:
+            # Type and traceback, not the message: a database error's DETAIL can quote an email.
+            kind, _, tb = record.exc_info
+            line["exception"] = f"{kind.__module__}.{kind.__qualname__}\n" + "".join(
+                traceback.format_tb(tb)
+            )
         return json.dumps(line, ensure_ascii=False)
 
 
@@ -76,5 +81,5 @@ def setup_tracing() -> None:
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(provider)
     DjangoInstrumentor().instrument()
-    # Query text only, never its parameters (they carry names and identifiers).
-    PsycopgInstrumentor().instrument(enable_commenter=False)
+    # Query text only: parameters (names, identifiers) are not captured, psycopg's default.
+    PsycopgInstrumentor().instrument()
