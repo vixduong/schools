@@ -13,6 +13,17 @@ def set_school(school_id: int) -> None:
         cursor.execute("SELECT set_config('app.school_id', %s, true)", [str(school_id)])
 
 
+def set_actor(actor: str, membership_id: int | None = None) -> None:
+    """Who acts in the current transaction, for the audit log (`audit_row_change`,
+    `audit_record`): `member` with their Membership, `activation`, `operator:<name>`. Unset,
+    the log says `system`. Transaction-local, like the School."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT set_config('app.actor', %s, true), set_config('app.membership_id', %s, true)",
+            [actor, "" if membership_id is None else str(membership_id)],
+        )
+
+
 @contextmanager
 def school_scope(school_id: int):
     """Open a transaction scoped to a School (used by the middleware and by tests).

@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from permissions.actor import Actor
 from schools.views import database_rules
+from tenancy.rls import set_actor
 
 from .authentication import CsrfOnlyAuthentication
 from .invitations import accept
@@ -44,6 +45,7 @@ class ActivateView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         invitation, account = data["invitation"], data["account"]
+        set_actor("activation")
         with database_rules():
             if account is None:
                 account = Account(

@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from accounts.invitations import issue_code
 from accounts.models import Invitation, Membership, RoleAssignment
 from accounts.permissions import HasMembership, NotRequesterOrAssignee
+from audit import log as audit
 from permissions.actor import Actor
 from permissions.drf import Can
 from permissions.engine import can, visible_students
@@ -190,6 +191,14 @@ class StudentViewSet(SetupViewSet):
         if self.action == "list":
             return serializers.StudentListSerializer
         return super().get_serializer_class()
+
+    def retrieve(self, request, *args, **kwargs):
+        """One student; the full national ID and Ministry IDs only to who may see them, and that
+        view is in the audit log (`student.view_sensitive`)."""
+        response = super().retrieve(request, *args, **kwargs)
+        if "national_id" in response.data:
+            audit.record("student.view_sensitive", Student(pk=response.data["id"]))
+        return response
 
     def filter_queryset(self, queryset):
         if self.action == "list" and "status" in self.request.query_params:

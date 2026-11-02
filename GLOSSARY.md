@@ -40,6 +40,14 @@ _Avoid_: Account type, user type, role (alone, when the scoped assignment is mea
 A School's statement that a person is expected, and as what (staff with their Role Assignments, Guardian of a student, or the student themself), carried by a one-time code. The person activates it on the School's host, creating their Account or proving they own one; a School never creates an Account itself.
 _Avoid_: Invite code (for the whole record; the code is one part of it), account creation
 
+**Audit log**:
+The School's append-only record of who changed or saw what: role, membership, invitation, student, enrollment and Guardian-link changes, full views of sensitive details, and every support grant and operator command. Read by the School admin and the principal board; no one edits or deletes an entry.
+_Avoid_: History (for the log; a row's own history is its periods and events), activity feed
+
+**Support grant**:
+A School's time-limited permission (1 to 72 hours) for the platform operator to read its data, for a stated reason. The operator uses it only through a logged, read-only server command.
+_Avoid_: Impersonation, admin access
+
 **Import batch**:
 One uploaded Excel file of staff, students or Guardians: its rows as checked at the preview, applied all together or not at all at the commit. Imports create students, Enrollments and Invitations, never Accounts.
 _Avoid_: Upload (for the record), sync

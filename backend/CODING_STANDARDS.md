@@ -15,6 +15,11 @@ Read during review, not implementation. Each rule is a judgement call that no au
 - **Immutable fields answer 400 `immutable`** when a different value is sent; the same value is accepted.
 - **No hard deletes** of School data; end or deactivate. Migrations never TRUNCATE or bulk-delete after the first production data; schema changes go expand/contract.
 
+## Audit
+
+- **A new table about people, roles or scores gets the audit trigger** (`AUDITED` in `audit/migrations/0001_initial.py` shows the pattern: `CREATE TRIGGER audit_row_change ...`), with secrets passed as hidden columns. Reads of sensitive details call `audit.log.record`.
+- **Nothing writes `audit_auditevent` directly**; the app role cannot. A view that acts for someone other than the signed-in member calls `set_actor` first.
+
 ## Invariants
 
 - **The database holds cross-table rules.** A rule spanning two tables (term inside its year, enrollment inside its year, membership kinds) is a trigger that locks the parent row (`FOR SHARE`, or `FOR NO KEY UPDATE` on the side that must conflict); a serializer check alone is UX, not protection. Concurrent writers that count rows (last School admin) lock the counted rows in a fixed order.

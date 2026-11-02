@@ -1,5 +1,7 @@
 from rest_framework.permissions import BasePermission
 
+from tenancy.rls import set_actor
+
 from .models import Membership
 
 
@@ -13,7 +15,10 @@ class HasMembership(BasePermission):
         request.membership = Membership.objects.filter(
             school=request.school, account=request.user, status=Membership.Status.ACTIVE
         ).first()
-        return request.membership is not None
+        if request.membership is None:
+            return False
+        set_actor("member", request.membership.pk)  # the audit log's actor from here on
+        return True
 
 
 class NotRequesterOrAssignee(BasePermission):
