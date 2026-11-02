@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { safeRedirect } from "@/lib/messages";
-import { routeTree } from "@/routeTree.gen";
+import { makeApp } from "@/router";
 
 type Reply = { status: number; body?: unknown };
 type Handler = (request: Request) => Reply | undefined;
@@ -38,16 +38,15 @@ async function renderApp(path: string, handler: Handler) {
           headers: { "Content-Type": "application/json" },
         });
   });
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const history = createMemoryHistory({ initialEntries: [path] });
-  const router = createRouter({ routeTree, history, context: { queryClient } });
+  const { queryClient, router } = makeApp(history);
   await router.load();
   render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return { calls, history };
+  return { calls, history, queryClient };
 }
 
 function fill(label: string, value: string) {
@@ -105,6 +104,60 @@ test("signing out clears the session and returns to the login screen", async () 
   });
   fireEvent.click(await screen.findByRole("button", { name: "Đăng xuất" }));
   await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  expect(screen.queryByText("Cô Lan")).not.toBeInTheDocument();
+});
+
+test("a sign-out the server refused stays signed in and says so", async () => {
+  const { history } = await renderApp("/", (r) => {
+    if (r.url.endsWith("/api/auth/me/")) return { status: 200, body: ME };
+    if (r.url.endsWith("/api/auth/logout/")) return { status: 403 };
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Đăng xuất" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Chưa đăng xuất được");
+  expect(history.location.pathname).toBe("/");
+});
+
+test("a server failure is no wrong password", async () => {
+  await renderApp("/login", (r) =>
+    r.url.endsWith("/api/auth/login/")
+      ? { status: 502, body: "<html>Bad gateway</html>" }
+      : undefined,
+  );
+  await screen.findByRole("heading", { name: "THCS Mẫu" });
+  fill("Số điện thoại hoặc email", "0912000111");
+  fill("Mật khẩu", "x");
+  fireEvent.click(screen.getByRole("button", { name: "Đăng nhập" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Không kết nối được máy chủ");
+});
+
+test("a session that ends while signed in goes back to the login screen", async () => {
+  let live = true;
+  const { history, queryClient } = await renderApp("/gradebook", (r) =>
+    r.url.endsWith("/api/auth/me/")
+      ? live
+        ? { status: 200, body: ME }
+        : { status: 403 }
+      : undefined,
+  );
+  await screen.findByText("Cô Lan");
+  live = false; // signed out in another tab
+  await queryClient.refetchQueries({ queryKey: ["me"] });
+  await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  expect(history.location.search).toContain("redirect=%2Fgradebook");
+  expect(screen.queryByText("Cô Lan")).not.toBeInTheDocument();
+});
+
+test("activation signs in and lands on the page asked for", async () => {
+  const { history } = await renderApp("/activate?redirect=%2Fguardian", (r) => {
+    if (r.url.endsWith("/api/auth/activate/")) return { status: 200, body: ME };
+    if (r.url.endsWith("/api/auth/me/")) return { status: 200, body: ME };
+  });
+  await screen.findByRole("heading", { name: "THCS Mẫu" });
+  fill("Mã mời", "ABCDE-FGHJK");
+  fill("Số điện thoại hoặc email", "0912000111");
+  fill("Mật khẩu", "new password 1");
+  fireEvent.click(screen.getByRole("button", { name: "Kích hoạt và đăng nhập" }));
+  await waitFor(() => expect(history.location.pathname).toBe("/guardian"));
 });
 
 test("activation reports a weak password under its field and a bad code once", async () => {
@@ -131,4 +184,5 @@ test("redirects stay on this site", () => {
   expect(safeRedirect("/gradebook?x=1")).toBe("/gradebook?x=1");
   expect(safeRedirect("//evil.example/x")).toBeUndefined();
   expect(safeRedirect("https://evil.example")).toBeUndefined();
+  expect(safeRedirect("/\\evil.example/x")).toBeUndefined();
 });

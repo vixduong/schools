@@ -15,20 +15,13 @@ import "@fontsource/be-vietnam-pro/vietnamese-600.css";
 import "@fontsource/be-vietnam-pro/vietnamese-400-italic.css";
 import "./styles/app.css";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { routeTree } from "./routeTree.gen";
+import { makeApp } from "./router";
 
-const queryClient = new QueryClient();
-const router = createRouter({ routeTree, context: { queryClient } });
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
+const { queryClient, router } = makeApp();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root missing from index.html");

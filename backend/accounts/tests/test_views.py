@@ -131,3 +131,4 @@ def test_me_lists_the_capabilities_of_the_member(client, alice, schools):
 def test_the_login_screen_can_name_the_school(schools):
     response = Client().get("/api/auth/school/", HTTP_HOST="a.localhost")
     assert response.json() == {"name": "A", "subdomain": "a"}
+    assert Client().get("/api/auth/school/", HTTP_HOST="nope.localhost").status_code == 404

@@ -6,7 +6,9 @@ import { AppShell } from "@/components/app-shell";
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ context, location }) => {
     try {
-      await context.queryClient.ensureQueryData(meQuery);
+      // Cached `me` shows at once and is checked again in the background; a session that ended
+      // meanwhile sends the person to /login (makeApp's query cache).
+      await context.queryClient.ensureQueryData({ ...meQuery, revalidateIfStale: true });
     } catch (error) {
       if (error instanceof SignedOut) {
         throw redirect({ to: "/login", search: { redirect: location.href } });

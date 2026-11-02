@@ -1,5 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 import { api } from "@/api/client";
 import { meQuery } from "@/api/queries";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -13,8 +14,16 @@ export function AppShell() {
   const queryClient = useQueryClient();
   const router = useRouter();
 
+  const [signOutFailed, setSignOutFailed] = useState(false);
+
+  // Only a confirmed sign-out leaves the screen: on a shared computer a failed one must not look
+  // like success while the session is still live.
   async function signOut() {
-    await api.POST("/api/auth/logout/");
+    const { response } = await api.POST("/api/auth/logout/").catch(() => ({ response: null }));
+    if (!response?.ok) {
+      setSignOutFailed(true);
+      return;
+    }
     queryClient.clear();
     router.history.push("/login");
   }
@@ -39,6 +48,11 @@ export function AppShell() {
           <Button variant="quiet" onClick={signOut}>
             Đăng xuất
           </Button>
+          {signOutFailed && (
+            <p role="alert" className="w-full text-sm text-destructive">
+              Chưa đăng xuất được. Kiểm tra mạng rồi bấm Đăng xuất lại.
+            </p>
+          )}
         </div>
       </header>
       <main className="container py-10">

@@ -50,10 +50,9 @@
   --font-serif: var(--font-display);
 }
 
-/* Button press and disabled states (DESIGN.md, Motion: colour and a 1px press only) */
-@layer components {
-  [data-slot="button"]:active:not(:disabled) { transform: translateY(1px); }
-  [data-slot="button"]:disabled {
-    background: var(--color-paper-3); color: var(--color-muted); border-color: var(--color-rule); cursor: not-allowed;
-  }
+/* Button press and disabled states (DESIGN.md, Motion: colour and a 1px press only). Unlayered
+ * on purpose: it must beat the variants' layered utilities (bg-primary, hover:bg-primary/90). */
+[data-slot="button"]:active:not(:disabled) { transform: translateY(1px); }
+[data-slot="button"]:disabled {
+  background: var(--color-paper-3); color: var(--color-muted); border-color: var(--color-rule); cursor: not-allowed;
 }

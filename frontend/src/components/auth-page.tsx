@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, type RefObject, useEffect } from "react";
 import { schoolQuery } from "@/api/queries";
+import { FormFailure, NETWORK } from "@/lib/messages";
 
 /** Login and activation: the host and the School's name lead, then one form (DESIGN.md, Login). */
 export function AuthPage({ lead, children }: { lead: string; children: ReactNode }) {
@@ -59,4 +60,28 @@ export function FormError({ message }: { message?: string }) {
       {message}
     </p>
   );
+}
+
+/** The form-level message of a failed submit: the API's refusal, or a server problem. */
+export function formMessage(error: Error | null): string | undefined {
+  if (!error) return undefined;
+  return error instanceof FormFailure ? error.form : NETWORK;
+}
+
+/** Props marking `name` invalid and pointing at its message, when the API refused it. */
+export function invalidProps(error: Error | null, name: string) {
+  return error instanceof FormFailure && error.fields[name]
+    ? { "aria-invalid": true as const, "aria-describedby": `${name}-error` }
+    : {};
+}
+
+/** After a refused submit, focus the first field the API refused (its message is read with it). */
+export function useFocusRefused(form: RefObject<HTMLFormElement | null>, error: Error | null) {
+  useEffect(() => {
+    if (error) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [error, form]);
+}
+
+export function fieldError(error: Error | null, name: string): string | undefined {
+  return error instanceof FormFailure ? error.fields[name] : undefined;
 }
