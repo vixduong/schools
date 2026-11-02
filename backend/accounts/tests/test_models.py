@@ -4,8 +4,7 @@ from django.db import IntegrityError
 
 from accounts.models import Account, Membership, RoleAssignment, normalize_phone
 from tenancy.rls import school_scope
-
-from .conftest import member
+from testing import member
 
 
 @pytest.mark.parametrize(

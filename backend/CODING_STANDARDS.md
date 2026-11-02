@@ -6,6 +6,7 @@ Read during review, not implementation. Each rule is a judgement call that no au
 
 - **Every School-owned row is reached under RLS.** A new table carries `school_id`, `enable_tenant_rls`, and composite FKs via `composite_fk`; a global table is added to `GLOBAL_TABLES` with the narrowest grant (column-level `UPDATE` when only some columns change).
 - **Work outside a request scopes itself.** Tasks, management commands and data migrations enter `school_scope(school_id)` per School; nothing streams DB rows after the response; `school_scope` is never nested.
+- **Grants are as narrow as the API.** When the API changes only some columns of a table, the app role gets column-level `UPDATE` on those; a limit the API enforces (a window, a range) is also a check constraint.
 - **A School never writes another person's Account.** Views reach `Account` through `Membership`; credentials and identifiers change only through the person's own flows or invites.
 
 ## History
@@ -36,5 +37,5 @@ Read during review, not implementation. Each rule is a judgement call that no au
 
 ## Tests
 
-- **Every new rule has a test that goes red without it.** For a guard or constraint, show it in the review notes (remove the guard, the test fails).
+- **Every new rule has a test that goes red without it.** For a guard or constraint, show it in the review notes: `make red FILE=... OLD=... NEW=... K=...` swaps the guard out, runs the matching tests and restores the file.
 - **Requests are tested as the app role** (`as_app_role`); data set-up that needs the owner uses the owner helpers.

@@ -13,10 +13,9 @@ from django.utils import timezone
 from accounts.models import Membership, RoleAssignment
 from audit.models import AuditEvent, SupportGrant
 from schools.models import Student
-from schools.tests.conftest import A, B, activate, make_account, member, post, sign_in
 from schools.tests.factories import make_student
 from tenancy.rls import school_scope
-from tenancy.tests.conftest import owner_role
+from testing import A, B, activate, make_account, member, owner_role, post, sign_in
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 
@@ -179,22 +178,6 @@ def test_support_session_refuses_the_owner_role(admin, schools):
     grant(admin)
     with owner_role(), pytest.raises(CommandError, match="app role"):
         support("print(1)")
-
-
-def test_no_temp_table_can_shadow_the_log(app_conn, schools):
-    """A temp table named audit_auditevent would capture the definer functions' writes (and run
-    the app role's triggers as the owner): the app role may not create one, and the functions
-    look in pg_temp last."""
-    with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        app_conn.execute("CREATE TEMP TABLE audit_auditevent (id int)")
-    paths = app_conn.execute(
-        "SELECT proname, proconfig FROM pg_proc WHERE proname IN"
-        " ('audit_row_change', 'audit_record') ORDER BY proname"
-    ).fetchall()
-    assert paths == [
-        (n, ["search_path=pg_catalog, public, pg_temp"])
-        for n in ("audit_record", "audit_row_change")
-    ]
 
 
 def test_the_app_cannot_forge_a_row_change_or_stretch_a_grant(app_conn, admin, schools):

@@ -2,7 +2,7 @@ import pytest
 from django.conf import settings
 from django.test import Client
 
-from .conftest import PASSWORD, make_account
+from testing import PASSWORD, make_account
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 

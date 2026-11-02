@@ -7,7 +7,6 @@ import pytest
 from django.db import IntegrityError, ProgrammingError, connection
 
 from accounts.models import RoleAssignment
-from accounts.tests.conftest import make_account
 from schools.models import (
     Enrollment,
     Grade,
@@ -24,6 +23,7 @@ from schools.models import (
     status_as_of,
 )
 from tenancy.rls import school_scope
+from testing import make_account
 
 from .factories import (
     make_class,

@@ -22,8 +22,8 @@ from schools.models import (
     Subject,
 )
 from tenancy.rls import school_scope
+from testing import PASSWORD, make_account, member, owner_role
 
-from .conftest import PASSWORD, make_account, member, owner_role
 from .factories import (
     make_class,
     make_group,

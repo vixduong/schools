@@ -19,6 +19,9 @@ extend-exclude = ["*/migrations/*"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "DJ"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["testing"]  # backend/testing.py, the shared test helpers
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.test_settings"
 python_files = ["test_*.py"]

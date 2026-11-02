@@ -39,7 +39,7 @@ frontend-check:
 .PHONY: check
 check: backend-check frontend-check
 
-.PHONY: hooks review-diff
+.PHONY: hooks review-diff red
 # Once per clone: use the versioned git hooks in .githooks/.
 hooks:
 	git config core.hooksPath .githooks
@@ -49,3 +49,12 @@ review-diff:
 	@mkdir -p .scratch/review
 	git diff $(BASE)..HEAD > .scratch/review/$(NAME).diff
 	@echo ".scratch/review/$(NAME).diff"
+
+# Prove a test goes red without a guard (CODING_STANDARDS.md "Tests"): replace OLD with NEW in
+# FILE once, run the tests matching K, restore FILE from git (commit or stage FILE first).
+# make red FILE=backend/audit/views.py OLD='if grant is None:' NEW='if False:' K=needs_a_grant
+red:
+	@git diff --quiet -- $(FILE) || { echo "$(FILE) has unstaged changes: stage them first"; exit 1; }
+	@python3 -c "import sys; p, a, b = sys.argv[1:]; s = open(p).read(); assert a in s, 'OLD not found'; open(p, 'w').write(s.replace(a, b, 1))" "$(FILE)" "$(OLD)" "$(NEW)"
+	-cd backend && uv run pytest -q -k "$(K)" 2>&1 | tail -1
+	@git checkout -- $(FILE)

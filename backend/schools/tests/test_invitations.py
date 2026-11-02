@@ -11,8 +11,7 @@ from django.utils import timezone
 from accounts.models import Account, Invitation, Membership, RoleAssignment
 from schools.models import GuardianLink, Student, Subject
 from tenancy.rls import school_scope
-
-from .conftest import (
+from testing import (
     INVALID,
     PASSWORD,
     A,
@@ -24,6 +23,7 @@ from .conftest import (
     post,
     sign_in,
 )
+
 from .factories import make_subject
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
@@ -330,6 +330,8 @@ def test_only_activation_and_the_dev_command_create_accounts():
     for path in root.rglob("*.py"):
         rel = path.relative_to(root).as_posix()
         if "/tests/" in rel or "/migrations/" in rel or rel.startswith(".venv"):
+            continue
+        if rel in ("testing.py", "conftest.py"):  # test helpers, run as the owner
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if not isinstance(node, ast.Call):

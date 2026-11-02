@@ -10,8 +10,7 @@ from accounts.models import Membership, RoleAssignment
 from schools.models import SchoolYear
 from schools.tests.factories import make_class, make_group, make_subject, make_year
 from tenancy.rls import school_scope
-
-from .conftest import make_account
+from testing import make_account
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 

@@ -13,8 +13,8 @@ from accounts.models import Invitation, RoleAssignment
 from schools import imports
 from schools.models import Enrollment, GuardianLink, ImportBatch, Student, SubjectGroup
 from tenancy.rls import school_scope
+from testing import A, B, activate, enroll, make_account, member, post, sign_in
 
-from .conftest import A, B, activate, enroll, make_account, member, post, sign_in
 from .factories import make_group, make_student, make_subject
 
 pytestmark = pytest.mark.usefixtures("as_app_role")

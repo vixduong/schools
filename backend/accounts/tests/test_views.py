@@ -8,9 +8,7 @@ from django.utils import timezone
 
 from accounts.models import Account, Membership, RoleAssignment
 from tenancy.rls import school_scope
-from tenancy.tests.conftest import owner_role
-
-from .conftest import PASSWORD
+from testing import PASSWORD, owner_role
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 

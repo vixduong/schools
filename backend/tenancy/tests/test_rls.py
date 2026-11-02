@@ -217,3 +217,20 @@ def test_every_tenant_foreign_key_declared_without_a_db_constraint_has_a_composi
         table, target = f.model._meta.db_table, f.related_model._meta.db_table
         expected = f"FOREIGN KEY (school_id, {f.attname}) REFERENCES {target}(school_id, id)"
         assert (table, expected) in definitions, f"{table}.{f.attname}: no composite FK"
+
+
+def test_definer_functions_cannot_be_hijacked_through_pg_temp(app_conn):
+    """A SECURITY DEFINER function runs as its owner: with pg_temp searched early, a temp table
+    or function the app role creates could stand in for a real one (slice 7 review). Every such
+    function pins pg_temp last, and the app role may not create temp objects at all."""
+    unpinned = app_conn.execute(
+        "SELECT p.proname, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+        " WHERE p.prosecdef AND n.nspname = 'public'"
+        " AND NOT COALESCE(p.proconfig, '{}') @> ARRAY['search_path=pg_catalog, public, pg_temp']"
+    ).fetchall()
+    assert unpinned == []
+    assert app_conn.execute("SELECT count(*) FROM pg_proc WHERE prosecdef").fetchone()[0] >= 2
+    can_temp = app_conn.execute(
+        "SELECT has_database_privilege(current_user, current_database(), 'TEMP')"
+    ).fetchone()[0]
+    assert not can_temp
