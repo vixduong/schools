@@ -1,0 +1,1476 @@
+diff --git a/GLOSSARY.md b/GLOSSARY.md
+index 4615442..6f2f5e1 100644
+--- a/GLOSSARY.md
++++ b/GLOSSARY.md
+@@ -40,6 +40,10 @@ _Avoid_: Account type, user type, role (alone, when the scoped assignment is mea
+ A School's statement that a person is expected, and as what (staff with their Role Assignments, Guardian of a student, or the student themself), carried by a one-time code. The person activates it on the School's host, creating their Account or proving they own one; a School never creates an Account itself.
+ _Avoid_: Invite code (for the whole record; the code is one part of it), account creation
+ 
++**Import batch**:
++One uploaded Excel file of staff, students or Guardians: its rows as checked at the preview, applied all together or not at all at the commit. Imports create students, Enrollments and Invitations, never Accounts.
++_Avoid_: Upload (for the record), sync
++
+ **Guardian**:
+ An adult who answers for a student to the School: a parent, grandparent or other carer, linked to one or more students.
+ _Avoid_: Parent (in English text, as a type), phụ huynh (in English text)
+diff --git a/backend/config/settings.py b/backend/config/settings.py
+index e1b9745..c98b512 100644
+--- a/backend/config/settings.py
++++ b/backend/config/settings.py
+@@ -103,6 +103,8 @@ SPECTACULAR_SETTINGS = {
+         "LevelKindEnum": "schools.models.Level.Kind",
+         "StudentStatusEnum": "schools.models.Student.Status",
+         "RoleAssignmentStatusEnum": "accounts.models.RoleAssignment.Status",
++        "InvitationKindEnum": "accounts.models.Invitation.Kind",
++        "ImportBatchKindEnum": "schools.models.ImportBatch.Kind",
+     },
+ }
+ 
+diff --git a/backend/pyproject.toml b/backend/pyproject.toml
+index 6d6e862..075a72f 100644
+--- a/backend/pyproject.toml
++++ b/backend/pyproject.toml
+@@ -3,9 +3,11 @@ name = "schools-backend"
+ version = "0.0.0"
+ requires-python = ">=3.13,<3.14"
+ dependencies = [
++    "defusedxml>=0.7.1",
+     "django>=5.2,<5.3",
+     "djangorestframework>=3.18.3",
+     "drf-spectacular>=0.30.0",
++    "openpyxl>=3.1.5",
+     "psycopg[binary]>=3.3.6",
+ ]
+ 
+diff --git a/backend/schools/imports.py b/backend/schools/imports.py
+new file mode 100644
+index 0000000..a76326d
+--- /dev/null
++++ b/backend/schools/imports.py
+@@ -0,0 +1,584 @@
++"""Excel import of staff, students and Guardians (docs/slices/slice-6.md, 6b).
++
++`parse` reads an uploaded .xlsx into cleaned rows and per-cell errors; `apply` writes the rows
++(students and enrollments; invitations, never Accounts) one row (or staff member) per savepoint,
++so a bad row is reported and the others still run. The preview runs `apply` and rolls it all
++back, the commit runs it again for real, so both check exactly the same rules."""
++
++import datetime
++import hashlib
++import io
++import re
++import unicodedata
++import zipfile
++from dataclasses import dataclass
++from typing import Any
++
++from django.db import IntegrityError, transaction
++from django.db.models import Q
++from django.utils import timezone
++from openpyxl import Workbook, load_workbook
++from openpyxl.styles import Font, Protection
++from rest_framework.exceptions import ValidationError
++
++from accounts.models import PHONE_PATTERN, Invitation, RoleAssignment, normalize_phone
++from accounts.serializers import IdentifierField
++
++from .models import (
++    Enrollment,
++    GuardianLink,
++    ImportBatch,
++    SchoolClass,
++    Student,
++    Subject,
++    SubjectGroup,
++    status_as_of,
++)
++from .serializers import InvitationSerializer
++
++MAX_BYTES = 5 * 1024 * 1024
++MAX_UNZIPPED_BYTES = 50 * 1024 * 1024  # a 5 MB zip can hide a far larger XML (zip bomb)
++MAX_ROWS = 3000
++XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
++
++
++class CellError(Exception):
++    def __init__(self, code: str, column: str | None = None, row: dict | None = None):
++        super().__init__(code)
++        self.code, self.column, self.row = code, column, row
++
++
++# Cell parsers: an openpyxl value in, a JSON value out (None when blank), or CellError.
++
++
++def _text(value) -> str | None:
++    if value is None:
++        return None
++    if isinstance(value, float) and value.is_integer():
++        value = int(value)  # a number typed into a General cell
++    text = unicodedata.normalize("NFC", str(value)).strip()
++    return text or None
++
++
++def _bounded(length):
++    def parse(value):
++        text = _text(value)
++        if text is not None and len(text) > length:
++            raise CellError("too_long")
++        return text
++
++    return parse
++
++
++def _date(value):
++    if isinstance(value, datetime.datetime):
++        return value.date().isoformat()
++    if isinstance(value, datetime.date):
++        return value.isoformat()
++    text = _text(value)
++    if text is None:
++        return None
++    try:
++        return datetime.datetime.strptime(text, "%d/%m/%Y").date().isoformat()
++    except ValueError:
++        raise CellError("invalid_date") from None
++
++
++def _national_id(value):
++    text = _text(value)
++    if text is not None and not re.fullmatch(r"[0-9]{12}", text):
++        raise CellError("invalid_national_id")  # also a number that lost its leading zeros
++    return text
++
++
++def _phone(value):
++    text = _text(value)
++    if text is None:
++        return None
++    if not re.fullmatch(PHONE_PATTERN, phone := normalize_phone(text)):
++        raise CellError("invalid_phone")
++    return phone
++
++
++def _identifier(value):
++    text = _text(value)
++    if text is None:
++        return None
++    try:
++        return IdentifierField().run_validation(text)
++    except ValidationError:
++        raise CellError("invalid_identifier") from None
++
++
++def _choice(labels: dict[str, str]):
++    def parse(value):
++        text = _text(value)
++        if text is None:
++            return None
++        try:
++            return labels[text.casefold()]
++        except KeyError:
++            raise CellError("invalid_choice") from None
++
++    return parse
++
++
++GENDERS = {"nam": Student.Gender.MALE, "nữ": Student.Gender.FEMALE}
++RELATIONS = {
++    "mẹ": GuardianLink.Relation.MOTHER,
++    "bố": GuardianLink.Relation.FATHER,
++    "cha": GuardianLink.Relation.FATHER,
++    "ông bà": GuardianLink.Relation.GRANDPARENT,
++    "ông": GuardianLink.Relation.GRANDPARENT,
++    "bà": GuardianLink.Relation.GRANDPARENT,
++    "khác": GuardianLink.Relation.OTHER,
++}
++ROLES = {
++    "quản trị trường": RoleAssignment.Role.SCHOOL_ADMIN,
++    "ban giám hiệu": RoleAssignment.Role.PRINCIPAL_BOARD,
++    "tổ trưởng chuyên môn": RoleAssignment.Role.GROUP_LEADER,
++    "giáo viên chủ nhiệm": RoleAssignment.Role.HOMEROOM_TEACHER,
++    "giáo viên bộ môn": RoleAssignment.Role.SUBJECT_TEACHER,
++}
++# The scope columns each role needs; the others must stay blank (invitationrole_scope_matches_role).
++ROLE_SCOPE = {
++    RoleAssignment.Role.SCHOOL_ADMIN: (),
++    RoleAssignment.Role.PRINCIPAL_BOARD: (),
++    RoleAssignment.Role.GROUP_LEADER: ("subject_group",),
++    RoleAssignment.Role.HOMEROOM_TEACHER: ("school_class",),
++    RoleAssignment.Role.SUBJECT_TEACHER: ("school_class", "subject"),
++}
++
++
++@dataclass(frozen=True)
++class Column:
++    key: str
++    header: str
++    parse: Any
++    help: str
++    example: str
++    required: bool = False
++    text: bool = False  # formatted as text in the template (IDs and phones keep leading zeros)
++
++
++def _labels(choices: dict[str, str]) -> str:
++    return ", ".join(label.capitalize() for label in choices)
++
++
++NAME = _bounded(200)
++STUDENT_IDS = (
++    Column(
++        "ministry_student_id",
++        "Mã học sinh",
++        _bounded(30),
++        "Mã học sinh trên CSDL ngành. Cần mã học sinh hoặc số định danh.",
++        "7901234567",
++        text=True,
++    ),
++    Column(
++        "national_id",
++        "Số định danh cá nhân",
++        _national_id,
++        "12 chữ số, giữ số 0 ở đầu.",
++        "079212000123",
++        text=True,
++    ),
++)
++COLUMNS: dict[str, tuple[Column, ...]] = {
++    ImportBatch.Kind.STUDENTS: (
++        *STUDENT_IDS,
++        Column("full_name", "Họ và tên", NAME, "Họ và tên học sinh.", "Nguyễn Văn An", True),
++        Column("date_of_birth", "Ngày sinh", _date, "dd/mm/yyyy.", "05/09/2013", True),
++        Column("gender", "Giới tính", _choice(GENDERS), _labels(GENDERS) + ".", "Nam", True),
++        Column("school_class", "Lớp", _text, "Tên lớp trong năm học đã chọn.", "7A", True),
++        Column(
++            "valid_from",
++            "Ngày vào lớp",
++            _date,
++            "dd/mm/yyyy. Để trống: ngày đầu năm học (học sinh mới) hoặc hôm nay (chuyển lớp).",
++            "",
++        ),
++    ),
++    ImportBatch.Kind.GUARDIANS: (
++        *STUDENT_IDS,
++        Column(
++            "student_name",
++            "Họ và tên học sinh",
++            NAME,
++            "Để đối chiếu: phải trùng với tên học sinh có mã trên.",
++            "Nguyễn Văn An",
++        ),
++        Column("display_name", "Họ và tên phụ huynh", NAME, "", "Trần Thị Bình", True),
++        Column("relation", "Quan hệ", _choice(RELATIONS), _labels(RELATIONS) + ".", "Mẹ", True),
++        Column(
++            "identifier",
++            "Số điện thoại",
++            _phone,
++            "Số di động Việt Nam. Để trống: mã kích hoạt in ra dùng được với số bất kỳ.",
++            "0912345678",
++            text=True,
++        ),
++    ),
++    ImportBatch.Kind.STAFF: (
++        Column("display_name", "Họ và tên", NAME, "", "Lê Văn Cường", True),
++        Column(
++            "identifier",
++            "Email hoặc số điện thoại",
++            _identifier,
++            "Dùng để kích hoạt tài khoản.",
++            "cuong@example.com",
++            True,
++            text=True,
++        ),
++        Column(
++            "role",
++            "Vai trò",
++            _choice(ROLES),
++            _labels(ROLES) + ". Mỗi dòng một vai trò; nhiều vai trò thì nhiều dòng.",
++            "Giáo viên bộ môn",
++            True,
++        ),
++        Column("school_class", "Lớp", _text, "Giáo viên chủ nhiệm, bộ môn.", "7A"),
++        Column("subject", "Mã môn", _text, "Giáo viên bộ môn.", "TOAN"),
++        Column("subject_group", "Tổ chuyên môn", _text, "Tổ trưởng chuyên môn.", ""),
++        Column("valid_from", "Từ ngày", _date, "dd/mm/yyyy. Để trống: hôm nay.", ""),
++    ),
++}
++
++
++def template(kind: str) -> bytes:
++    """The blank workbook for `kind`: a data sheet with a locked header row and text-formatted
++    ID and phone columns, and a sheet explaining each column with an example."""
++    workbook = Workbook()
++    data = workbook.active
++    data.title = "Dữ liệu"
++    guide = workbook.create_sheet("Hướng dẫn")
++    guide.append(["Cột", "Bắt buộc", "Cách ghi", "Ví dụ"])
++    for index, column in enumerate(COLUMNS[kind], start=1):
++        cell = data.cell(row=1, column=index, value=column.header)
++        cell.font = Font(bold=True)
++        letter = cell.column_letter
++        data.column_dimensions[letter].width = max(14, len(column.header) + 4)
++        data.column_dimensions[letter].protection = Protection(locked=False)
++        if column.text:
++            data.column_dimensions[letter].number_format = "@"
++        guide.append([column.header, "Có" if column.required else "", column.help, column.example])
++    for cell in guide[1]:
++        cell.font = Font(bold=True)
++    data.freeze_panes = "A2"
++    data.protection.sheet = True  # only the header row is locked; data cells are not
++    buffer = io.BytesIO()
++    workbook.save(buffer)
++    return buffer.getvalue()
++
++
++def _file_error(code):
++    return ValidationError({"file": [code]})
++
++
++def parse(kind: str, upload) -> tuple[list[dict], list[dict], str]:
++    """Rows (`{"row": n, <key>: value}`) of the first sheet, the cell errors as
++    `{row, column, code}`, and the file's SHA-256. A file that is no .xlsx of this template is
++    refused whole (400 `file`)."""
++    if not upload.name.lower().endswith(".xlsx"):
++        raise _file_error("not_xlsx")
++    if upload.size > MAX_BYTES:
++        raise _file_error("too_large")
++    content = upload.read()
++    try:
++        with zipfile.ZipFile(io.BytesIO(content)) as archive:
++            parts = archive.infolist()
++        if sum(part.file_size for part in parts) > MAX_UNZIPPED_BYTES:
++            raise _file_error("too_large")
++        if any(part.filename.lower().endswith("vbaproject.bin") for part in parts):
++            raise _file_error("not_xlsx")  # an .xlsm renamed
++        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
++    except ValidationError:
++        raise
++    except Exception:  # openpyxl raises many types on a malformed file
++        raise _file_error("not_xlsx") from None
++    try:
++        rows, errors = _read(COLUMNS[kind], workbook.worksheets[0])
++    finally:
++        workbook.close()
++    return rows, errors, hashlib.sha256(content).hexdigest()
++
++
++def _read(columns, sheet):
++    sheet.reset_dimensions()  # some writers store wrong dimensions; read every row
++    lines = sheet.iter_rows(values_only=True)
++    header = [_text(v) for v in next(lines, ())]
++    while header and header[-1] is None:
++        header.pop()
++    if header != [c.header for c in columns]:
++        raise _file_error("wrong_template")
++    rows, errors = [], []
++    for number, values in enumerate(lines, start=2):
++        if all(_text(v) is None for v in values):
++            continue
++        if len(rows) == MAX_ROWS:
++            raise _file_error("too_many_rows")
++        values = (*values, *[None] * len(columns))
++        row, found = {"row": number}, len(errors)
++        for column, value in zip(columns, values, strict=False):
++            try:
++                row[column.key] = column.parse(value)
++                if column.required and row[column.key] is None:
++                    raise CellError("required")
++            except CellError as error:
++                row[column.key] = None
++                errors.append({"row": number, "column": column.header, "code": error.code})
++        for error in _row_rules(row) if len(errors) == found else ():  # cells first
++            header = {c.key: c.header for c in columns}.get(error.column)
++            errors.append({"row": number, "column": header, "code": error.code})
++        rows.append(row)
++    return rows, errors
++
++
++def _row_rules(row) -> list[CellError]:
++    """Rules across the cells of one row."""
++    found = []
++    if "national_id" in row and not (row["ministry_student_id"] or row["national_id"]):
++        found.append(CellError("student_id_required", "ministry_student_id"))
++    if row.get("role"):
++        needed = ROLE_SCOPE[row["role"]]
++        for key in ("school_class", "subject", "subject_group"):
++            if key in needed and not row[key]:
++                found.append(CellError("required", key))
++            elif key not in needed and row[key]:
++                found.append(CellError("not_for_role", key))
++    return found
++
++
++class _Run:
++    """One pass over a batch's rows. Writes go through the request's School (RLS) and, for
++    invitations, through InvitationSerializer, so its rules and the permission engine apply."""
++
++    def __init__(self, batch: ImportBatch, request):
++        self.batch, self.request = batch, request
++        self.today = timezone.localdate()
++        self.headers = {c.key: c.header for c in COLUMNS[batch.kind]}
++        self.results, self.errors = [], []
++        year = batch.school_year
++        self.classes = {c.name: c for c in SchoolClass.objects.filter(school_year=year)}
++
++    def error(self, row, code, column=None):
++        self.errors.append({"row": row["row"], "column": self.headers.get(column), "code": code})
++
++    def each(self, rows, write):
++        """`write(rows)` in a savepoint; any error is reported on these rows and undone."""
++        try:
++            with transaction.atomic():
++                write(rows)
++        except CellError as error:
++            self.error(error.row or rows[0], error.code, error.column)
++        except IntegrityError as error:
++            name = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
++            self.error(rows[0], name or "unknown", None)
++        except ValidationError as error:
++            self.serializer_errors(rows, error.detail)
++
++    def serializer_errors(self, rows, detail):
++        detail = detail if isinstance(detail, dict) else {"non_field_errors": detail}
++        for field, messages in detail.items():
++            if field == "roles" and isinstance(messages, list) and len(messages) == len(rows):
++                for row, role_errors in zip(rows, messages, strict=True):
++                    self.serializer_errors([row], role_errors or {})
++                continue
++            column = "ministry_student_id" if field == "student" else field
++            for message in messages if isinstance(messages, list) else [messages]:
++                # Our rules raise codes ("subject_inactive"); DRF's own carry a `code`.
++                code = message if re.fullmatch(r"[a-z_]+", str(message)) else message.code
++                self.error(rows[0], str(code), column)
++
++    def student(self, row) -> Student | None:
++        for key in ("ministry_student_id", "national_id"):
++            if row[key] and (
++                found := Student.objects.select_for_update().filter(**{key: row[key]})
++            ):
++                return found.get()
++        return None
++
++    def school_class(self, row) -> SchoolClass:
++        if (klass := self.classes.get(row["school_class"])) is None:
++            raise CellError("unknown_class", "school_class")
++        return klass
++
++    def invite(self, data) -> Invitation:
++        serializer = InvitationSerializer(data=data, context={"request": self.request})
++        serializer.is_valid(raise_exception=True)
++        return serializer.save(created_by=self.request.membership)
++
++    # One writer per kind.
++
++    def students(self, rows):
++        (row,) = rows
++        klass = self.school_class(row)
++        fields = {k: row[k] for k in ("full_name", "date_of_birth", "gender")}
++        student = self.student(row)
++        if student is None:
++            student = Student.objects.create(
++                school=self.request.school,
++                ministry_student_id=row["ministry_student_id"],
++                national_id=row["national_id"],
++                **fields,
++            )
++            result = {"result": "created"}
++        else:
++            for name, value in fields.items():
++                setattr(student, name, value)
++            student.save(update_fields=list(fields))
++            result = {"result": "updated"}
++        result["enrollment"] = self.enroll(student, klass, row["valid_from"])
++        self.results.append({"row": row["row"], "student": student.pk, **result})
++
++    def enroll(self, student, klass, given) -> str:
++        """Start the student in `klass` unless their open period of the year is already there:
++        a new period, a move from `given` (default today), or, for a period that has not
++        started yet, the class changed in place."""
++        year = self.batch.school_year
++        current = (
++            Enrollment.objects.select_for_update()
++            .filter(student=student, school_year=year, valid_to__isnull=True)
++            .first()
++        )
++        if current is not None and current.school_class_id == klass.pk:
++            return "unchanged"
++        on = datetime.date.fromisoformat(given) if given else None
++        on = on or (self.today if current else year.starts_on)
++        events = student.studentstatusevent_set.all()
++        if any(status_as_of(events, day) != Student.Status.STUDYING for day in (on, self.today)):
++            raise CellError("student_not_studying")
++        if current is not None and on <= current.valid_from:
++            current.school_class = klass
++            current.save(update_fields=["school_class"])
++            return "moved"
++        reason = Enrollment.ReasonStarted.NEW_YEAR
++        if current is not None:
++            current.valid_to = on - datetime.timedelta(days=1)
++            current.reason_ended = Enrollment.ReasonEnded.CLASS_CHANGE
++            current.save(update_fields=["valid_to", "reason_ended"])
++            reason = Enrollment.ReasonStarted.CLASS_CHANGE
++        Enrollment.objects.create(
++            school=self.request.school,
++            student=student,
++            school_year=year,
++            school_class=klass,
++            valid_from=on,
++            reason_started=reason,
++        )
++        return "moved" if current else "started"
++
++    def guardians(self, rows):
++        (row,) = rows
++        student = self.student(row)
++        if student is None:
++            raise CellError("student_not_found", "ministry_student_id")
++        if row["student_name"] and _same(row["student_name"]) != _same(student.full_name):
++            raise CellError("student_name_mismatch", "student_name")
++        running = Q(valid_to__isnull=True) | Q(valid_to__gte=self.today)
++        phone = row["identifier"]
++        if (
++            phone
++            and GuardianLink.objects.filter(
++                running, student=student, membership__account__phone=phone
++            ).exists()
++        ):
++            return self.skip(rows, "already_linked")
++        pending = self.pending(Invitation.Kind.GUARDIAN).filter(
++            student=student, relation=row["relation"]
++        )
++        if pending.exists():
++            return self.skip(rows, "pending_invitation")
++        invitation = self.invite(
++            {
++                "kind": Invitation.Kind.GUARDIAN,
++                "identifier": phone,
++                "display_name": row["display_name"],
++                "student": student.pk,
++                "relation": row["relation"],
++            }
++        )
++        self.invited(rows, invitation)
++
++    def staff(self, rows):
++        """One staff member: every row with their identifier is one role of one invitation."""
++        first = rows[0]
++        if self.pending(Invitation.Kind.STAFF).filter(identifier=first["identifier"]).exists():
++            return self.skip(rows, "pending_invitation")
++        roles = []
++        for row in rows:
++            try:
++                roles.append(self.role(row))
++            except CellError as error:
++                error.row = row
++                raise
++        invitation = self.invite(
++            {
++                "kind": Invitation.Kind.STAFF,
++                "identifier": first["identifier"],
++                "display_name": first["display_name"],
++                "roles": roles,
++            }
++        )
++        self.invited(rows, invitation)
++
++    def role(self, row) -> dict:
++        role = {"role": row["role"], "valid_from": row["valid_from"] or self.today}
++        if row["school_class"]:
++            klass = self.school_class(row)
++            role |= {"school_class": klass.pk, "school_year": klass.school_year_id}
++        if row["subject"]:
++            if (subject := Subject.objects.filter(code=row["subject"]).first()) is None:
++                raise CellError("unknown_subject", "subject")
++            role["subject"] = subject.pk
++        if row["subject_group"]:
++            groups = list(SubjectGroup.objects.filter(name=row["subject_group"])[:2])
++            if len(groups) != 1:
++                code = "ambiguous_subject_group" if groups else "unknown_subject_group"
++                raise CellError(code, "subject_group")
++            role["subject_group"] = groups[0].pk
++        return role
++
++    def pending(self, kind):
++        return Invitation.objects.filter(
++            kind=kind, status=Invitation.Status.PENDING, expires_at__gt=timezone.now()
++        )
++
++    def skip(self, rows, reason):
++        self.results += [{"row": r["row"], "result": "skipped", "reason": reason} for r in rows]
++
++    def invited(self, rows, invitation):
++        self.results += [
++            {
++                "row": r["row"],
++                "result": "invited",
++                "invitation": invitation.pk,
++                "code": invitation.code,
++            }
++            for r in rows
++        ]
++
++
++def _same(name: str) -> str:
++    return " ".join(name.split()).casefold()
++
++
++def apply(batch: ImportBatch, request) -> tuple[list[dict], list[dict]]:
++    """Write `batch.rows`, skipping those with cell errors. Returns the per-row results and
++    errors; the caller commits or rolls back. Results of invitations carry their plain `code`:
++    show it once, never store it."""
++    run = _Run(batch, request)
++    failed = {e["row"] for e in batch.errors}
++    rows = [r for r in batch.rows if r["row"] not in failed]
++    if batch.kind == ImportBatch.Kind.STAFF:
++        people: dict[str, list[dict]] = {}
++        for row in rows:
++            people.setdefault(row["identifier"], []).append(row)
++        groups = list(people.values())
++    else:
++        groups = [[row] for row in rows]
++    writer = getattr(run, batch.kind)
++    for group in groups:
++        run.each(group, writer)
++    return run.results, run.errors
+diff --git a/backend/schools/migrations/0009_import_batch.py b/backend/schools/migrations/0009_import_batch.py
+new file mode 100644
+index 0000000..eab6652
+--- /dev/null
++++ b/backend/schools/migrations/0009_import_batch.py
+@@ -0,0 +1,41 @@
++# Generated by Django 5.2.18 on 2026-11-02 14:25
++
++import django.db.models.deletion
++import django.utils.timezone
++from django.db import migrations, models
++
++from tenancy.rls import composite_fk, enable_tenant_rls
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ('accounts', '0010_invitations'),
++        ('schools', '0008_membership_is_staff_guardian_or_student'),
++        ('tenancy', '0001_initial'),
++    ]
++
++    operations = [
++        migrations.CreateModel(
++            name='ImportBatch',
++            fields=[
++                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
++                ('kind', models.CharField(choices=[('staff', 'Staff'), ('students', 'Students'), ('guardians', 'Guardians')], max_length=20)),
++                ('file_sha256', models.CharField(max_length=64)),
++                ('status', models.CharField(choices=[('previewed', 'Previewed'), ('committed', 'Committed')], default='previewed', max_length=20)),
++                ('created_at', models.DateTimeField(default=django.utils.timezone.now)),
++                ('rows', models.JSONField()),
++                ('results', models.JSONField()),
++                ('errors', models.JSONField()),
++                ('school', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='tenancy.school')),
++                ('school_year', models.ForeignKey(blank=True, db_constraint=False, null=True, on_delete=django.db.models.deletion.PROTECT, to='schools.schoolyear')),
++                ('uploaded_by', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='accounts.membership')),
++            ],
++            options={
++                'constraints': [models.UniqueConstraint(fields=('school', 'id'), name='importbatch_school_id_key')],
++            },
++        ),
++        enable_tenant_rls("schools_importbatch"),
++        composite_fk("schools_importbatch", "school_year_id", "schools_schoolyear"),
++        composite_fk("schools_importbatch", "uploaded_by_id", "accounts_membership"),
++    ]
+diff --git a/backend/schools/models.py b/backend/schools/models.py
+index 4647e5f..d78b52f 100644
+--- a/backend/schools/models.py
++++ b/backend/schools/models.py
+@@ -477,3 +477,41 @@ class AssessmentProfileVersion(models.Model):
+ 
+     def __str__(self):
+         return f"{self.level_kind} from {self.effective_from}"
++
++
++class ImportBatch(TenantModel):
++    """One uploaded Excel file (docs/slices/slice-6.md, 6b): its parsed rows and the per-row
++    outcome of the preview, kept so `commit` applies exactly what was previewed. The file itself
++    is not kept. A batch commits once, within 24 hours of its upload."""
++
++    class Kind(models.TextChoices):
++        STAFF = "staff"
++        STUDENTS = "students"
++        GUARDIANS = "guardians"
++
++    class Status(models.TextChoices):
++        PREVIEWED = "previewed"
++        COMMITTED = "committed"
++
++    kind = models.CharField(max_length=20, choices=Kind)
++    # The year whose classes the rows name (staff and students); NULL for guardians.
++    school_year = models.ForeignKey(
++        SchoolYear, null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
++    )
++    file_sha256 = models.CharField(max_length=64)
++    uploaded_by = models.ForeignKey(
++        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
++    )
++    status = models.CharField(max_length=20, choices=Status, default=Status.PREVIEWED)
++    created_at = models.DateTimeField(default=timezone.now)
++    rows = models.JSONField()  # [{"row": n, <field>: <cleaned value>, ...}]
++    results = models.JSONField()  # [{"row": n, "result": "created" | "updated" | ...}]
++    errors = models.JSONField()  # [{"row": n, "column": <header> | null, "code": ...}]
++
++    class Meta:
++        constraints = [
++            models.UniqueConstraint(fields=["school", "id"], name="importbatch_school_id_key"),
++        ]
++
++    def __str__(self):
++        return f"{self.kind} import {self.pk}"
+diff --git a/backend/schools/serializers.py b/backend/schools/serializers.py
+index 2d61579..f499742 100644
+--- a/backend/schools/serializers.py
++++ b/backend/schools/serializers.py
+@@ -17,6 +17,7 @@ from .models import (
+     Enrollment,
+     Grade,
+     GuardianLink,
++    ImportBatch,
+     Level,
+     Room,
+     SchoolClass,
+@@ -617,6 +618,51 @@ class InvitationPrintSerializer(serializers.Serializer):
+     school_class = serializers.PrimaryKeyRelatedField(queryset=SchoolClass.objects.all())
+ 
+ 
++class ImportUploadSerializer(serializers.Serializer):
++    """`school_year` is the year whose classes the rows name: required for staff and students."""
++
++    kind = serializers.ChoiceField(ImportBatch.Kind.choices)
++    school_year = serializers.PrimaryKeyRelatedField(
++        queryset=SchoolYear.objects.all(), required=False, allow_null=True
++    )
++    file = serializers.FileField()
++
++    def validate(self, attrs):
++        if attrs["kind"] != ImportBatch.Kind.GUARDIANS and attrs.get("school_year") is None:
++            raise serializers.ValidationError({"school_year": ["required"]})
++        return attrs
++
++
++class ImportBatchSerializer(serializers.ModelSerializer):
++    """A previewed (or committed) upload: `counts` of rows by result, every error as
++    `{row, column, code}` (`column` is the template's header, null for a whole-row rule), and
++    each row's result."""
++
++    counts = serializers.SerializerMethodField()
++
++    class Meta:
++        model = ImportBatch
++        fields = [
++            "id",
++            "kind",
++            "school_year",
++            "status",
++            "created_at",
++            "uploaded_by",
++            "counts",
++            "errors",
++            "results",
++        ]
++        read_only_fields = fields
++
++    @extend_schema_field(serializers.DictField(child=serializers.IntegerField()))
++    def get_counts(self, batch):
++        counts = {"rows": len(batch.rows), "errors": len({e["row"] for e in batch.errors})}
++        for result in batch.results:
++            counts[result["result"]] = counts.get(result["result"], 0) + 1
++        return counts
++
++
+ class AssessmentProfileVersionSerializer(serializers.ModelSerializer):
+     class Meta:
+         model = AssessmentProfileVersion
+diff --git a/backend/schools/tests/conftest.py b/backend/schools/tests/conftest.py
+index c945204..95e4909 100644
+--- a/backend/schools/tests/conftest.py
++++ b/backend/schools/tests/conftest.py
+@@ -1,4 +1,5 @@
+ import pytest
++from django.test import Client
+ 
+ from accounts.models import RoleAssignment
+ from accounts.tests.conftest import (  # noqa: F401
+@@ -10,6 +11,10 @@ from accounts.tests.conftest import (  # noqa: F401
+     owner_role,
+     schools,
+ )
++from schools.models import Enrollment
++from tenancy.rls import school_scope
++
++from .factories import make_class, make_primary_class, make_student, make_subject, make_year
+ 
+ 
+ @pytest.fixture
+@@ -25,3 +30,60 @@ def admin_b(schools):  # noqa: F811
+     account = make_account("admin-b@example.com", display_name="Admin B")
+     member(schools[1], account, RoleAssignment.Role.SCHOOL_ADMIN)
+     return account
++
++
++A, B = "a.localhost", "b.localhost"
++INVALID = {"non_field_errors": ["Invalid or expired invitation."]}
++
++
++def sign_in(host, email):
++    client = Client()
++    response = client.post(
++        "/api/auth/login/", {"identifier": email, "password": PASSWORD}, HTTP_HOST=host
++    )
++    assert response.status_code == 200, response.json()
++    return client
++
++
++def post(client, host, path, body=None):
++    return client.post(f"/api/{path}", body or {}, content_type="application/json", HTTP_HOST=host)
++
++
++def activate(host, code, identifier, password="new password 1", **extra):
++    client = Client()
++    body = {"code": code, "identifier": identifier, "password": password, **extra}
++    return client, post(client, host, "auth/activate/", body)
++
++
++def enroll(school, student, klass):
++    return Enrollment.objects.create(
++        school=school,
++        student=student,
++        school_year=klass.school_year,
++        school_class=klass,
++        valid_from=klass.school_year.starts_on,
++        reason_started=Enrollment.ReasonStarted.NEW_YEAR,
++    )
++
++
++@pytest.fixture
++def admin(admin_a):  # noqa: F811
++    return sign_in(A, "admin-a@example.com")
++
++
++@pytest.fixture
++def setup(schools, alice):  # noqa: F811
++    """School A: class 7A (alice is its homeroom teacher) with student An, class 7B with Binh,
++    primary class 3A with Chi, and an inactive subject."""
++    a = schools[0]
++    with school_scope(a.pk):
++        year = make_year(a)
++        k7a, k7b = make_class(a, year, "7A"), make_class(a, year, "7B")
++        an, binh, chi = (make_student(a, n) for n in ("An", "Binh", "Chi"))
++        enroll(a, an, k7a)
++        enroll(a, binh, k7b)
++        enroll(a, chi, make_primary_class(a, year))
++        retired = make_subject(a, "OLD")
++        retired.is_active = False
++        retired.save()
++    return {"year": year, "7A": k7a, "7B": k7b, "an": an, "binh": binh, "chi": chi}
+diff --git a/backend/schools/tests/test_imports.py b/backend/schools/tests/test_imports.py
+new file mode 100644
+index 0000000..bf0900a
+--- /dev/null
++++ b/backend/schools/tests/test_imports.py
+@@ -0,0 +1,266 @@
++"""Slice 6b: Excel import of staff, students and Guardians."""
++
++import io
++import zipfile
++from datetime import timedelta
++
++import pytest
++from django.core.files.uploadedfile import SimpleUploadedFile
++from django.utils import timezone
++from openpyxl import load_workbook
++
++from accounts.models import Invitation, RoleAssignment
++from schools import imports
++from schools.models import Enrollment, GuardianLink, ImportBatch, Student
++from tenancy.rls import school_scope
++
++from .conftest import A, B, activate, enroll, make_account, member, post, sign_in
++from .factories import make_student, make_subject
++
++pytestmark = pytest.mark.usefixtures("as_app_role")
++
++
++def xlsx(kind, rows, name=None):
++    """The real template with `rows` appended to its data sheet."""
++    workbook = load_workbook(io.BytesIO(imports.template(kind)))
++    for row in rows:
++        workbook.worksheets[0].append(row)
++    buffer = io.BytesIO()
++    workbook.save(buffer)
++    return SimpleUploadedFile(name or f"{kind}.xlsx", buffer.getvalue())
++
++
++def upload(client, kind, file, year=None, host=A):
++    body = {"kind": kind, "file": file} | ({"school_year": year.pk} if year else {})
++    return client.post("/api/setup/imports/", body, HTTP_HOST=host)
++
++
++def commit(client, batch_id):
++    return post(client, A, f"setup/imports/{batch_id}/commit/")
++
++
++@pytest.fixture
++def roster(setup, schools):
++    """Setup plus Dung (ministry ID HS1) in 7B."""
++    a = schools[0]
++    with school_scope(a.pk):
++        dung = make_student(a, "Dung", ministry_student_id="HS1", national_id="079212000001")
++        enroll(a, dung, setup["7B"])
++    return setup | {"dung": dung}
++
++
++def count(model, school, **filters):
++    with school_scope(school.pk):
++        return model.objects.filter(**filters).count()
++
++
++def test_template_has_headers_a_guide_and_text_id_columns(admin):
++    response = admin.get("/api/setup/imports/templates/students.xlsx", HTTP_HOST=A)
++    assert response.status_code == 200
++    assert response["Content-Type"] == imports.XLSX
++    workbook = load_workbook(io.BytesIO(response.content))
++    data, guide = workbook.worksheets
++    assert [c.value for c in data[1]] == [c.header for c in imports.COLUMNS["students"]]
++    assert data.protection.sheet and data["A1"].protection.locked
++    assert data.column_dimensions["B"].number_format == "@"  # national ID keeps leading zeros
++    assert guide.max_row == 1 + len(imports.COLUMNS["students"])
++    assert admin.get("/api/setup/imports/templates/x.xlsx", HTTP_HOST=A).status_code == 404
++
++
++def test_students_preview_reports_every_bad_cell_and_writes_nothing(admin, roster, schools):
++    year = roster["year"]
++    file = xlsx(
++        "students",
++        [
++            ["HS2", "079212000002", "Em", "01/02/2013", "Nữ", "7A", None],
++            [None, "79212000003", "Giang", "31/02/2013", "X", "9Z", None],  # lost its leading 0
++            [None, None, "Ha", "01/02/2013", "Nam", "7A", None],
++        ],
++    )
++    response = upload(admin, "students", file, year)
++    assert response.status_code == 201, response.json()
++    body = response.json()
++    codes = {(e["row"], e["column"], e["code"]) for e in body["errors"]}
++    assert codes == {
++        (3, "Số định danh cá nhân", "invalid_national_id"),
++        (3, "Ngày sinh", "invalid_date"),
++        (3, "Giới tính", "invalid_choice"),
++        (4, "Mã học sinh", "student_id_required"),
++    }
++    assert body["counts"] == {"rows": 3, "errors": 2, "created": 1}
++    assert count(Student, schools[0], full_name="Em") == 0  # preview wrote nothing
++    assert commit(admin, body["id"]).json() == {"errors": ["has_errors"]}
++
++
++def test_students_commit_creates_updates_and_moves(admin, roster, schools):
++    year = roster["year"]
++    rows = [
++        ["HS2", "079212000002", "Em", "01/02/2013", "Nữ", "7A", None],
++        ["HS1", None, "Dung Nguyen", "02/03/2013", "Nam", "7A", None],  # moves from 7B
++        ["HS9", "079212000002", "Em again", "01/02/2013", "Nữ", "7A", None],  # matches Em
++        ["HS3", None, "Unknown class", "01/02/2013", "Nam", "9Z", None],
++    ]
++    batch = upload(admin, "students", xlsx("students", rows), year).json()
++    assert batch["errors"] == [{"row": 5, "column": "Lớp", "code": "unknown_class"}]
++    batch = upload(admin, "students", xlsx("students", rows[:3]), year).json()
++    assert batch["errors"] == [] and batch["counts"]["created"] == 1
++    response = commit(admin, batch["id"])
++    assert response.status_code == 200, response.json()
++    assert [r["enrollment"] for r in response.json()["results"]] == [
++        "started",
++        "moved",
++        "unchanged",
++    ]
++    today = timezone.localdate()
++    with school_scope(schools[0].pk):
++        em = Student.objects.get(ministry_student_id="HS2")
++        assert em.full_name == "Em again"  # the later row updated the name, not the IDs
++        assert Enrollment.objects.get(student=em).valid_from == year.starts_on
++        dung = Student.objects.get(pk=roster["dung"].pk)
++        assert (dung.full_name, str(dung.date_of_birth)) == ("Dung Nguyen", "2013-03-02")
++        old, new = Enrollment.objects.filter(student=dung).order_by("valid_from")
++        assert (old.valid_to, old.reason_ended) == (today - timedelta(days=1), "class_change")
++        assert (new.school_class_id, new.valid_from) == (roster["7A"].pk, today)
++    assert commit(admin, batch["id"]).json() == {"status": ["already_committed"]}
++
++
++def test_a_row_failing_at_commit_rolls_the_whole_batch_back(admin, roster, schools):
++    file = xlsx(
++        "students",
++        [
++            ["HS2", None, "Em", "01/02/2013", "Nữ", "7A", None],
++            ["HS1", None, "Dung", "02/03/2013", "Nam", "7A", None],
++        ],
++    )
++    batch = upload(admin, "students", file, roster["year"]).json()
++    assert batch["errors"] == []
++    today = timezone.localdate().isoformat()
++    leave = {"reason": "dropped_out", "on": today}
++    assert post(admin, A, f"setup/students/{roster['dung'].pk}/leave/", leave).status_code == 200
++    response = commit(admin, batch["id"])
++    assert response.status_code == 400
++    assert response.json()["errors"] == [{"row": 3, "column": None, "code": "student_not_studying"}]
++    assert count(Student, schools[0], ministry_student_id="HS2") == 0
++    with school_scope(schools[0].pk):
++        assert ImportBatch.objects.get(pk=batch["id"]).status == "previewed"
++
++
++def test_a_preview_older_than_a_day_needs_a_new_upload(admin, roster, schools):
++    file = xlsx("students", [["HS2", None, "Em", "01/02/2013", "Nữ", "7A", None]])
++    batch = upload(admin, "students", file, roster["year"]).json()
++    with school_scope(schools[0].pk):
++        ImportBatch.objects.filter(pk=batch["id"]).update(
++            created_at=timezone.now() - timedelta(hours=25)
++        )
++    assert commit(admin, batch["id"]).json() == {"status": ["preview_expired"]}
++
++
++def test_guardians_get_invitations_that_activate_into_links(admin, roster, schools):
++    rows = [
++        ["HS1", None, "Dung", "Trần Thị Bình", "Mẹ", "091 234 5679"],
++        [None, "079212000001", "Someone else", "Lê Văn", "Bố", None],
++        ["NOPE", None, None, "X", "Bố", None],
++    ]
++    batch = upload(admin, "guardians", xlsx("guardians", rows)).json()
++    assert {(e["row"], e["column"], e["code"]) for e in batch["errors"]} == {
++        (3, "Họ và tên học sinh", "student_name_mismatch"),
++        (4, "Mã học sinh", "student_not_found"),
++    }
++    batch = upload(admin, "guardians", xlsx("guardians", rows[:1])).json()
++    results = commit(admin, batch["id"]).json()["results"]
++    assert results[0]["result"] == "invited" and results[0]["code"]
++    with school_scope(schools[0].pk):
++        stored = ImportBatch.objects.get(pk=batch["id"]).results
++        invitation = Invitation.objects.get()
++    assert "code" not in stored[0]  # the plain code is shown once, never kept
++    assert (invitation.identifier, invitation.relation) == ("0912345679", "mother")
++    _, response = activate(A, results[0]["code"], "0912345679")
++    assert response.status_code == 200, response.json()
++    assert count(GuardianLink, schools[0], student=roster["dung"]) == 1
++    # Imported again: the phone is linked now, so the row is skipped.
++    again = upload(admin, "guardians", xlsx("guardians", rows[:1])).json()
++    assert again["results"] == [{"row": 2, "result": "skipped", "reason": "already_linked"}]
++
++
++def test_a_pending_guardian_invitation_is_not_issued_twice(admin, roster):
++    rows = [["HS1", None, None, "Bình", "Mẹ", None]]
++    commit(admin, upload(admin, "guardians", xlsx("guardians", rows)).json()["id"])
++    again = upload(admin, "guardians", xlsx("guardians", rows)).json()
++    assert again["results"] == [{"row": 2, "result": "skipped", "reason": "pending_invitation"}]
++
++
++def test_staff_rows_of_one_person_are_one_invitation(admin, roster, schools):
++    with school_scope(schools[0].pk):
++        make_subject(schools[0], "TOAN")
++    rows = [
++        ["Cường", "Cuong@Example.com", "Giáo viên bộ môn", "7A", "TOAN", None, None],
++        ["Cường", "cuong@example.com", "Giáo viên chủ nhiệm", "7B", None, None, None],
++        ["Dao", "dao@example.com", "Giáo viên bộ môn", "7A", "NOPE", None, None],
++        ["Dao", "dao@example.com", "Giáo viên chủ nhiệm", None, None, None, None],
++        ["Em", "em@example.com", "Quản trị trường", "7A", None, None, None],
++    ]
++    batch = upload(admin, "staff", xlsx("staff", rows), roster["year"]).json()
++    assert {(e["row"], e["column"], e["code"]) for e in batch["errors"]} == {
++        (4, "Mã môn", "unknown_subject"),
++        (5, "Lớp", "required"),
++        (6, "Lớp", "not_for_role"),
++    }
++    batch = upload(admin, "staff", xlsx("staff", rows[:2]), roster["year"]).json()
++    results = commit(admin, batch["id"]).json()["results"]
++    assert results[0]["invitation"] == results[1]["invitation"]
++    _, response = activate(A, results[0]["code"], "cuong@example.com")
++    assert response.status_code == 200, response.json()
++    with school_scope(schools[0].pk):
++        roles = RoleAssignment.objects.filter(membership__account__email="cuong@example.com")
++        assert sorted(roles.values_list("role", "school_class_id")) == [
++            ("homeroom_teacher", roster["7B"].pk),
++            ("subject_teacher", roster["7A"].pk),
++        ]
++
++
++@pytest.mark.parametrize(
++    ("name", "content", "code"),
++    [
++        ("roster.xlsm", None, "not_xlsx"),
++        ("roster.xlsx", b"not a zip", "not_xlsx"),
++    ],
++)
++def test_files_that_are_not_xlsx_are_refused(admin, name, content, code):
++    file = SimpleUploadedFile(name, content or xlsx("guardians", []).read())
++    assert upload(admin, "guardians", file).json() == {"file": [code]}
++
++
++def test_a_renamed_macro_workbook_and_a_wrong_template_are_refused(admin):
++    buffer = io.BytesIO(xlsx("guardians", []).read())
++    with zipfile.ZipFile(buffer, "a") as archive:
++        archive.writestr("xl/vbaProject.bin", b"macro")
++    file = SimpleUploadedFile("roster.xlsx", buffer.getvalue())
++    assert upload(admin, "guardians", file).json() == {"file": ["not_xlsx"]}
++    assert upload(admin, "guardians", xlsx("staff", [])).json() == {"file": ["wrong_template"]}
++
++
++def test_more_than_3000_rows_are_refused(admin):
++    rows = [["HS1", None, None, "X", "Mẹ", None]] * (imports.MAX_ROWS + 1)
++    assert upload(admin, "guardians", xlsx("guardians", rows)).json() == {"file": ["too_many_rows"]}
++
++
++def test_staff_and_students_need_a_school_year(admin):
++    response = upload(admin, "students", xlsx("students", []))
++    assert response.json() == {"school_year": ["required"]}
++
++
++def test_only_the_school_admin_imports_and_only_in_their_school(admin, alice, roster, schools):
++    board = make_account("board@example.com", display_name="Board")
++    member(schools[0], board, RoleAssignment.Role.PRINCIPAL_BOARD)
++    file = xlsx("guardians", [["HS1", None, None, "Bình", "Mẹ", None]])
++    batch = upload(admin, "guardians", file).json()
++    board_client = sign_in(A, "board@example.com")
++    assert board_client.get(f"/api/setup/imports/{batch['id']}/", HTTP_HOST=A).status_code == 200
++    assert upload(board_client, "guardians", file).status_code == 403
++    assert commit(board_client, batch["id"]).status_code == 403
++    teacher = sign_in(A, "alice@example.com")
++    assert teacher.get("/api/setup/imports/templates/staff.xlsx", HTTP_HOST=A).status_code == 403
++    other = make_account("admin-b2@example.com", display_name="Admin B")
++    member(schools[1], other, RoleAssignment.Role.SCHOOL_ADMIN)
++    client_b = sign_in(B, "admin-b2@example.com")
++    assert client_b.get(f"/api/setup/imports/{batch['id']}/", HTTP_HOST=B).status_code == 404
+diff --git a/backend/schools/tests/test_invitations.py b/backend/schools/tests/test_invitations.py
+index 4160f62..6d34da9 100644
+--- a/backend/schools/tests/test_invitations.py
++++ b/backend/schools/tests/test_invitations.py
+@@ -6,74 +6,28 @@ from pathlib import Path
+ 
+ import pytest
+ from django.conf import settings
+-from django.test import Client
+ from django.utils import timezone
+ 
+ from accounts.models import Account, Invitation, Membership, RoleAssignment
+-from schools.models import Enrollment, GuardianLink, Student, Subject
++from schools.models import GuardianLink, Student, Subject
+ from tenancy.rls import school_scope
+ 
+-from .conftest import PASSWORD, make_account, member, owner_role
+-from .factories import make_class, make_primary_class, make_student, make_subject, make_year
++from .conftest import (
++    INVALID,
++    PASSWORD,
++    A,
++    B,
++    activate,
++    make_account,
++    member,
++    owner_role,
++    post,
++    sign_in,
++)
++from .factories import make_subject
+ 
+ pytestmark = pytest.mark.usefixtures("as_app_role")
+ 
+-A, B = "a.localhost", "b.localhost"
+-INVALID = {"non_field_errors": ["Invalid or expired invitation."]}
+-
+-
+-def sign_in(host, email):
+-    client = Client()
+-    response = client.post(
+-        "/api/auth/login/", {"identifier": email, "password": PASSWORD}, HTTP_HOST=host
+-    )
+-    assert response.status_code == 200, response.json()
+-    return client
+-
+-
+-def post(client, host, path, body=None):
+-    return client.post(f"/api/{path}", body or {}, content_type="application/json", HTTP_HOST=host)
+-
+-
+-def activate(host, code, identifier, password="new password 1", **extra):
+-    client = Client()
+-    body = {"code": code, "identifier": identifier, "password": password, **extra}
+-    return client, post(client, host, "auth/activate/", body)
+-
+-
+-def enroll(school, student, klass):
+-    return Enrollment.objects.create(
+-        school=school,
+-        student=student,
+-        school_year=klass.school_year,
+-        school_class=klass,
+-        valid_from=klass.school_year.starts_on,
+-        reason_started=Enrollment.ReasonStarted.NEW_YEAR,
+-    )
+-
+-
+-@pytest.fixture
+-def admin(admin_a):
+-    return sign_in(A, "admin-a@example.com")
+-
+-
+-@pytest.fixture
+-def setup(schools, alice):
+-    """School A: class 7A (alice is its homeroom teacher) with student An, class 7B with Binh,
+-    primary class 3A with Chi, and an inactive subject."""
+-    a = schools[0]
+-    with school_scope(a.pk):
+-        year = make_year(a)
+-        k7a, k7b = make_class(a, year, "7A"), make_class(a, year, "7B")
+-        an, binh, chi = (make_student(a, n) for n in ("An", "Binh", "Chi"))
+-        enroll(a, an, k7a)
+-        enroll(a, binh, k7b)
+-        enroll(a, chi, make_primary_class(a, year))
+-        retired = make_subject(a, "OLD")
+-        retired.is_active = False
+-        retired.save()
+-    return {"year": year, "7A": k7a, "7B": k7b, "an": an, "binh": binh, "chi": chi}
+-
+ 
+ def staff_invitation(admin, setup, identifier="teacher@example.com", **role):
+     role = role or {
+diff --git a/backend/schools/urls.py b/backend/schools/urls.py
+index 199dd08..393996f 100644
+--- a/backend/schools/urls.py
++++ b/backend/schools/urls.py
+@@ -1,3 +1,4 @@
++from django.urls import re_path
+ from rest_framework.routers import SimpleRouter
+ 
+ from . import views
+@@ -19,7 +20,15 @@ for prefix, viewset in {
+     "assessment-profiles": views.AssessmentProfileViewSet,
+     "memberships": views.MembershipViewSet,
+     "invitations": views.InvitationViewSet,
++    "imports": views.ImportViewSet,
+ }.items():
+     router.register(prefix, viewset, basename=prefix)
+ 
+-urlpatterns = router.urls
++urlpatterns = [
++    re_path(
++        r"^imports/templates/(?P<kind>staff|students|guardians)\.xlsx$",
++        views.ImportViewSet.as_view({"get": "template"}),
++        name="import-template",
++    ),
++    *router.urls,
++]
+diff --git a/backend/schools/views.py b/backend/schools/views.py
+index 34f861d..2977d35 100644
+--- a/backend/schools/views.py
++++ b/backend/schools/views.py
+@@ -4,6 +4,7 @@ from datetime import timedelta
+ from django.db import IntegrityError, models, transaction
+ from django.db.models import F, Q, Value
+ from django.db.models.functions import Greatest
++from django.http import HttpResponse
+ from django.utils import timezone
+ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+ from rest_framework import mixins, status, viewsets
+@@ -19,12 +20,13 @@ from permissions.actor import Actor
+ from permissions.drf import Can
+ from permissions.engine import can, visible_students
+ 
+-from . import serializers
++from . import imports, serializers
+ from .models import (
+     AssessmentProfileVersion,
+     Enrollment,
+     Grade,
+     GuardianLink,
++    ImportBatch,
+     Level,
+     Room,
+     SchoolClass,
+@@ -517,6 +519,83 @@ class InvitationViewSet(
+         return Response(self.get_serializer(invitations, many=True).data)
+ 
+ 
++class _RolledBack(Exception):
++    """Raised inside a savepoint to undo it."""
++
++
++class ImportViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
++    """Excel import of staff, students and Guardians (`accounts.manage`: the School admin; the
++    principal board reads). Upload previews: every row is checked, nothing but the batch is
++    written. `commit/` applies the previewed rows in one transaction: students and enrollments,
++    and invitations (never Accounts), whose codes are in the commit response only."""
++
++    permission_classes = [HasMembership, Can("accounts.manage", read=True)]
++    queryset = ImportBatch.objects.order_by("id")
++    serializer_class = serializers.ImportBatchSerializer
++    COMMIT_WITHIN = timedelta(hours=24)
++
++    @extend_schema(responses={(200, imports.XLSX): bytes})
++    def template(self, request, kind):  # routed in urls.py: no trailing slash after .xlsx
++        """The blank template: headers in Vietnamese, a sheet explaining each column."""
++        return HttpResponse(
++            imports.template(kind),
++            content_type=imports.XLSX,
++            headers={"Content-Disposition": f'attachment; filename="{kind}.xlsx"'},
++        )
++
++    @extend_schema(
++        request={"multipart/form-data": serializers.ImportUploadSerializer},
++        responses={201: serializers.ImportBatchSerializer},
++    )
++    def create(self, request):
++        """Upload one .xlsx (at most 5 MB and 3,000 rows) and preview it."""
++        upload = serializers.ImportUploadSerializer(data=request.data)
++        upload.is_valid(raise_exception=True)
++        data = upload.validated_data
++        rows, errors, sha256 = imports.parse(data["kind"], data["file"])
++        batch = ImportBatch(
++            school=request.school,
++            kind=data["kind"],
++            school_year=data.get("school_year"),
++            file_sha256=sha256,
++            uploaded_by=request.membership,
++            rows=rows,
++            errors=errors,
++        )
++        preview = transaction.savepoint()
++        results, row_errors = imports.apply(batch, request)
++        transaction.savepoint_rollback(preview)
++        batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
++        batch.errors = sorted(errors + row_errors, key=lambda e: e["row"])
++        batch.save()
++        return Response(self.get_serializer(batch).data, status=status.HTTP_201_CREATED)
++
++    @extend_schema(request=None)
++    @action(detail=True, methods=["post"])
++    def commit(self, request, pk=None):
++        """Apply a previewed batch without errors, once, within 24 hours of its upload; a row
++        failing now rolls the whole batch back (400 with every error). Each invitation's code
++        is in this response only."""
++        batch = ImportBatch.objects.select_for_update().get(pk=self.get_object().pk)
++        if batch.status != ImportBatch.Status.PREVIEWED:
++            raise ValidationError({"status": ["already_committed"]})
++        if batch.errors:
++            raise ValidationError({"errors": ["has_errors"]})
++        if timezone.now() - batch.created_at > self.COMMIT_WITHIN:
++            raise ValidationError({"status": ["preview_expired"]})
++        try:
++            with transaction.atomic():
++                results, errors = imports.apply(batch, request)
++                if errors:
++                    raise _RolledBack
++        except _RolledBack:
++            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
++        batch.status = ImportBatch.Status.COMMITTED
++        batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
++        batch.save(update_fields=["status", "results"])
++        return Response(self.get_serializer(batch).data | {"results": results})
++
++
+ class AssessmentProfileViewSet(viewsets.ReadOnlyModelViewSet):
+     """Any member of the School may read the rules; they are global and arrive by migration."""
+ 
+diff --git a/backend/uv.lock b/backend/uv.lock
+index 3aac937..3c67c63 100644
+--- a/backend/uv.lock
++++ b/backend/uv.lock
+@@ -29,6 +29,15 @@ wheels = [
+     { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335, upload-time = "2022-10-25T02:36:20.889Z" },
+ ]
+ 
++[[package]]
++name = "defusedxml"
++version = "0.7.1"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
++]
++
+ [[package]]
+ name = "django"
+ version = "5.2.18"
+@@ -72,6 +81,15 @@ wheels = [
+     { url = "https://files.pythonhosted.org/packages/c3/56/74dd7b45bbde6d24494220b98d6961cb1200b63a1800332b430daa2c4551/drf_spectacular-0.30.0-py3-none-any.whl", hash = "sha256:006cf5921ebe20a9bd24f7c846261ebbf78780be5961b0d6e87afaa82afd62ff", size = 111150, upload-time = "2026-07-06T11:29:45.12Z" },
+ ]
+ 
++[[package]]
++name = "et-xmlfile"
++version = "2.0.0"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/d3/38/af70d7ab1ae9d4da450eeec1fa3918940a5fafb9055e934af8d6eb0c2313/et_xmlfile-2.0.0.tar.gz", hash = "sha256:dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54", size = 17234, upload-time = "2024-10-25T17:25:40.039Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa", size = 18059, upload-time = "2024-10-25T17:25:39.051Z" },
++]
++
+ [[package]]
+ name = "inflection"
+ version = "0.5.1"
+@@ -117,6 +135,18 @@ wheels = [
+     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+ ]
+ 
++[[package]]
++name = "openpyxl"
++version = "3.1.5"
++source = { registry = "https://pypi.org/simple" }
++dependencies = [
++    { name = "et-xmlfile" },
++]
++sdist = { url = "https://files.pythonhosted.org/packages/3d/f9/88d94a75de065ea32619465d2f77b29a0469500e99012523b91cc4141cd1/openpyxl-3.1.5.tar.gz", hash = "sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050", size = 186464, upload-time = "2024-06-28T14:03:44.161Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl", hash = "sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2", size = 250910, upload-time = "2024-06-28T14:03:41.161Z" },
++]
++
+ [[package]]
+ name = "packaging"
+ version = "26.3"
+@@ -291,9 +321,11 @@ name = "schools-backend"
+ version = "0.0.0"
+ source = { virtual = "." }
+ dependencies = [
++    { name = "defusedxml" },
+     { name = "django" },
+     { name = "djangorestframework" },
+     { name = "drf-spectacular" },
++    { name = "openpyxl" },
+     { name = "psycopg", extra = ["binary"] },
+ ]
+ 
+@@ -306,9 +338,11 @@ dev = [
+ 
+ [package.metadata]
+ requires-dist = [
++    { name = "defusedxml", specifier = ">=0.7.1" },
+     { name = "django", specifier = ">=5.2,<5.3" },
+     { name = "djangorestframework", specifier = ">=3.18.3" },
+     { name = "drf-spectacular", specifier = ">=0.30.0" },
++    { name = "openpyxl", specifier = ">=3.1.5" },
+     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
+ ]
+ 
+diff --git a/docs/slices/slice-6.md b/docs/slices/slice-6.md
+index 9afef35..02f5007 100644
+--- a/docs/slices/slice-6.md
++++ b/docs/slices/slice-6.md
+@@ -44,4 +44,17 @@ These refine the bullets above where they differ.
+   - Staff create staff invitations with their Role Assignments.
+ - The import runs synchronously (a class or a School of up to 3,000 rows); if it nears Cloudflare's 125 s limit in tests, move commit to a task and poll.
+ 
++### How 6b implements it
++
++These refine the bullets above where they differ.
++
++- **One rule set for preview and commit**: the preview runs the same writes as the commit, one savepoint per row (per person for staff), and rolls them all back; only the batch is kept. A row that previewed clean can still fail at commit (data changed since); then nothing is written and the commit answers 400 with every error.
++- **Upload**: `kind`, `file`, and `school_year` (required for staff and students: the year whose classes the rows name). File-level refusals answer `{"file": [code]}`: `not_xlsx` (wrong extension, not a zip, a `vbaProject.bin` inside), `too_large` (over 5 MB, or over 50 MB unzipped), `wrong_template` (headers differ from the template's), `too_many_rows`. Errors are `{row, column, code}` with `column` the template's Vietnamese header, null for a whole-row rule (a database constraint name, `student_not_studying`).
++- **Templates**: the sample row lives in the guide sheet, not the data sheet, so it is never imported by mistake. Choices (gender, relation, role) are the Vietnamese labels the guide lists.
++- **Students** need a ministry student ID or a national ID (so a re-import matches instead of duplicating). A move is dated `Ngày vào lớp` or today; a period that has not started yet changes class in place. The student must be studying on that day and today.
++- **Guardians** find the student by ID; the optional student-name column must match the student (a check against a wrong ID). Phone optional (blank: a printed code). Skipped: a phone already linked to the student, or a pending invitation for the same student and relation.
++- **Staff**: one row per role; rows with the same identifier are one invitation. Skipped: an identifier with a pending staff invitation. Invitations go through the invitation serializer, so 6a's rules and the permission engine apply.
++- **Codes** are in the commit response only; the stored results drop them. Guardians' codes can be reprinted with `invitations/print/`.
++- **Known limits**: the ministry staff ID is not imported yet (an invitation has nowhere to carry it to the Membership); a 3,000-row batch uses one savepoint per row, which is fine for an admin import but heavy for a hot table.
++
+ Done when a School can be set up from templates end to end: staff and Guardians receive codes, activate on their School's host, and land in the right roles, links and classes; a bad row is reported with its row and column and nothing is half-written.

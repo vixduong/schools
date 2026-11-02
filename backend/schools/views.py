@@ -565,7 +565,9 @@ class ImportViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
         preview = transaction.savepoint()
         results, row_errors = imports.apply(batch, request)
         transaction.savepoint_rollback(preview)
-        batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
+        # The preview's students and invitations were rolled back: no ids, no codes.
+        dropped = {"code", "student", "invitation"}
+        batch.results = [{k: v for k, v in r.items() if k not in dropped} for r in results]
         batch.errors = sorted(errors + row_errors, key=lambda e: e["row"])
         batch.save()
         return Response(self.get_serializer(batch).data, status=status.HTTP_201_CREATED)
@@ -592,7 +594,8 @@ class ImportViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
         batch.status = ImportBatch.Status.COMMITTED
         batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
-        batch.save(update_fields=["status", "results"])
+        batch.rows = []  # the parsed file (IDs, phones) is not kept once applied
+        batch.save(update_fields=["status", "results", "rows"])
         return Response(self.get_serializer(batch).data | {"results": results})
 
 

@@ -657,7 +657,10 @@ class ImportBatchSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField(child=serializers.IntegerField()))
     def get_counts(self, batch):
-        counts = {"rows": len(batch.rows), "errors": len({e["row"] for e in batch.errors})}
+        rows = (
+            len(batch.rows) if batch.status == ImportBatch.Status.PREVIEWED else len(batch.results)
+        )
+        counts = {"rows": rows, "errors": len({e["row"] for e in batch.errors})}
         for result in batch.results:
             counts[result["result"]] = counts.get(result["result"], 0) + 1
         return counts

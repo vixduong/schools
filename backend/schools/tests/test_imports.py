@@ -11,11 +11,11 @@ from openpyxl import load_workbook
 
 from accounts.models import Invitation, RoleAssignment
 from schools import imports
-from schools.models import Enrollment, GuardianLink, ImportBatch, Student
+from schools.models import Enrollment, GuardianLink, ImportBatch, Student, SubjectGroup
 from tenancy.rls import school_scope
 
 from .conftest import A, B, activate, enroll, make_account, member, post, sign_in
-from .factories import make_student, make_subject
+from .factories import make_group, make_student, make_subject
 
 pytestmark = pytest.mark.usefixtures("as_app_role")
 
@@ -97,7 +97,7 @@ def test_students_commit_creates_updates_and_moves(admin, roster, schools):
     rows = [
         ["HS2", "079212000002", "Em", "01/02/2013", "Nữ", "7A", None],
         ["HS1", None, "Dung Nguyen", "02/03/2013", "Nam", "7A", None],  # moves from 7B
-        ["HS9", "079212000002", "Em again", "01/02/2013", "Nữ", "7A", None],  # matches Em
+        [None, "079212000002", "Em again", "01/02/2013", "Nữ", "7A", None],  # matches Em
         ["HS3", None, "Unknown class", "01/02/2013", "Nam", "9Z", None],
     ]
     batch = upload(admin, "students", xlsx("students", rows), year).json()
@@ -264,3 +264,116 @@ def test_only_the_school_admin_imports_and_only_in_their_school(admin, alice, ro
     member(schools[1], other, RoleAssignment.Role.SCHOOL_ADMIN)
     client_b = sign_in(B, "admin-b2@example.com")
     assert client_b.get(f"/api/setup/imports/{batch['id']}/", HTTP_HOST=B).status_code == 404
+
+
+def test_conflicting_ids_never_overwrite_another_student(admin, roster):
+    rows = [
+        ["HS1", "079212000009", "Dung", "02/03/2013", "Nam", "7A", None],  # Dung has ...001
+        ["HS9", "079212000001", "Dung", "02/03/2013", "Nam", "7A", None],  # Dung is HS1
+    ]
+    batch = upload(admin, "students", xlsx("students", rows), roster["year"]).json()
+    assert {(e["row"], e["code"]) for e in batch["errors"]} == {
+        (2, "student_ids_conflict"),
+        (3, "student_ids_conflict"),
+    }
+
+
+def test_a_started_period_is_never_rewritten_in_place(admin, roster, schools):
+    start = roster["year"].starts_on.strftime("%d/%m/%Y")
+    rows = [["HS1", None, "Dung", "02/03/2013", "Nam", "7A", start]]
+    batch = upload(admin, "students", xlsx("students", rows), roster["year"]).json()
+    assert batch["errors"] == [
+        {"row": 2, "column": "Ngày vào lớp", "code": "must_be_after_valid_from"}
+    ]
+
+
+def test_a_period_not_started_yet_changes_class_in_place(admin, roster, schools):
+    a, later = schools[0], timezone.localdate() + timedelta(days=10)
+    with school_scope(a.pk):
+        Enrollment.objects.filter(student=roster["dung"]).update(valid_from=later)
+    rows = [["HS1", None, "Dung", "02/03/2013", "Nam", "7A", None]]
+    batch = upload(admin, "students", xlsx("students", rows), roster["year"]).json()
+    assert commit(admin, batch["id"]).json()["results"][0]["enrollment"] == "moved"
+    with school_scope(a.pk):
+        (row,) = Enrollment.objects.filter(student=roster["dung"])
+        assert (row.school_class_id, row.valid_from) == (roster["7A"].pk, later)
+
+
+def test_preview_results_name_no_rolled_back_rows_and_commit_drops_the_rows(admin, roster, schools):
+    rows = [["HS2", None, "Em", "01/02/2013", "Nữ", "7A", None]]
+    batch = upload(admin, "students", xlsx("students", rows), roster["year"]).json()
+    assert batch["results"] == [{"row": 2, "result": "created", "enrollment": "started"}]
+    assert commit(admin, batch["id"]).json()["counts"] == {"rows": 1, "errors": 0, "created": 1}
+    with school_scope(schools[0].pk):
+        assert ImportBatch.objects.get(pk=batch["id"]).rows == []
+
+
+def test_a_database_rule_is_reported_by_constraint_name(admin, roster):
+    outside = (roster["year"].ends_on + timedelta(days=5)).strftime("%d/%m/%Y")
+    rows = [["HS2", None, "Em", "01/02/2013", "Nữ", "7A", outside]]
+    batch = upload(admin, "students", xlsx("students", rows), roster["year"]).json()
+    assert batch["errors"] == [{"row": 2, "column": None, "code": "enrollment_inside_school_year"}]
+
+
+def test_staff_rules_per_row(admin, roster, schools):
+    with school_scope(schools[0].pk):
+        make_group(schools[0], "Toán")
+        make_group(schools[0], "Văn")
+        SubjectGroup.objects.create(school=schools[0], name="Văn")  # a second, same name
+    rows = [
+        ["Cường", "c@example.com", "Giáo viên chủ nhiệm", "7A", None, None, None],
+        ["Cường", "c@example.com", "Giáo viên bộ môn", "7A", "OLD", None, None],  # inactive
+        ["Dao", "d@example.com", "Tổ trưởng chuyên môn", None, None, "Sử", None],
+        ["Em", "e@example.com", "Tổ trưởng chuyên môn", None, None, "Văn", None],
+        ["Gia", "g@example.com", "Quản trị trường", None, None, None, None],
+        ["Gia Khác", "g@example.com", "Ban giám hiệu", None, None, None, None],
+        ["Ha", "not-an-identifier", "Quản trị trường", None, None, None, None],
+    ]
+    batch = upload(admin, "staff", xlsx("staff", rows), roster["year"]).json()
+    assert {(e["row"], e["column"], e["code"]) for e in batch["errors"]} == {
+        (3, "Mã môn", "subject_inactive"),
+        (4, "Tổ chuyên môn", "unknown_subject_group"),
+        (5, "Tổ chuyên môn", "ambiguous_subject_group"),
+        (7, "Họ và tên", "display_name_conflict"),
+        (8, "Email hoặc số điện thoại", "invalid_identifier"),
+    }
+
+
+def test_a_pending_staff_invitation_is_not_issued_twice(admin, roster):
+    rows = [["Gia", "g@example.com", "Quản trị trường", None, None, None, None]]
+    commit(admin, upload(admin, "staff", xlsx("staff", rows), roster["year"]).json()["id"])
+    again = upload(admin, "staff", xlsx("staff", rows), roster["year"]).json()
+    assert again["results"] == [{"row": 2, "result": "skipped", "reason": "pending_invitation"}]
+
+
+def test_a_bad_phone_is_a_cell_error(admin, roster):
+    rows = [["HS1", None, None, "Bình", "Mẹ", "0123"]]
+    batch = upload(admin, "guardians", xlsx("guardians", rows)).json()
+    assert batch["errors"] == [{"row": 2, "column": "Số điện thoại", "code": "invalid_phone"}]
+
+
+def test_size_limits_and_a_broken_sheet_are_refused(admin, monkeypatch):
+    monkeypatch.setattr(imports, "MAX_UNZIPPED_BYTES", 1000)
+    assert upload(admin, "guardians", xlsx("guardians", [])).json() == {"file": ["too_large"]}
+    monkeypatch.setattr(imports, "MAX_BYTES", 10)
+    assert upload(admin, "guardians", xlsx("guardians", [])).json() == {"file": ["too_large"]}
+    monkeypatch.undo()
+    source = zipfile.ZipFile(io.BytesIO(xlsx("guardians", []).read()))
+    broken = io.BytesIO()
+    with zipfile.ZipFile(broken, "w") as archive:
+        for part in source.infolist():
+            data = source.read(part)
+            archive.writestr(
+                part, b"<worksheet><broken" if "worksheets/" in part.filename else data
+            )
+    file = SimpleUploadedFile("roster.xlsx", broken.getvalue())
+    assert upload(admin, "guardians", file).json() == {"file": ["not_xlsx"]}
+
+
+def test_another_schools_batch_cannot_be_committed(admin, roster, schools):
+    batch = upload(admin, "guardians", xlsx("guardians", [["HS1", None, None, "B", "Mẹ", None]]))
+    other = make_account("admin-b2@example.com", display_name="Admin B")
+    member(schools[1], other, RoleAssignment.Role.SCHOOL_ADMIN)
+    client_b = sign_in(B, "admin-b2@example.com")
+    path = f"setup/imports/{batch.json()['id']}/commit/"
+    assert post(client_b, B, path).status_code == 404

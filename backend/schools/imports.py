@@ -299,6 +299,10 @@ def parse(kind: str, upload) -> tuple[list[dict], list[dict], str]:
         raise _file_error("not_xlsx") from None
     try:
         rows, errors = _read(COLUMNS[kind], workbook.worksheets[0])
+    except ValidationError:
+        raise
+    except Exception:  # read-only mode parses the sheet XML lazily, here
+        raise _file_error("not_xlsx") from None
     finally:
         workbook.close()
     return rows, errors, hashlib.sha256(content).hexdigest()
@@ -381,9 +385,9 @@ class _Run:
     def serializer_errors(self, rows, detail):
         detail = detail if isinstance(detail, dict) else {"non_field_errors": detail}
         for field, messages in detail.items():
-            if field == "roles" and isinstance(messages, list) and len(messages) == len(rows):
-                for row, role_errors in zip(rows, messages, strict=True):
-                    self.serializer_errors([row], role_errors or {})
+            if field == "roles" and isinstance(messages, dict):  # DRF: {index: errors}
+                for index, role_errors in messages.items():
+                    self.serializer_errors([rows[index]], role_errors)
                 continue
             column = "ministry_student_id" if field == "student" else field
             for message in messages if isinstance(messages, list) else [messages]:
@@ -392,12 +396,21 @@ class _Run:
                 self.error(rows[0], str(code), column)
 
     def student(self, row) -> Student | None:
-        for key in ("ministry_student_id", "national_id"):
-            if row[key] and (
-                found := Student.objects.select_for_update().filter(**{key: row[key]})
-            ):
-                return found.get()
-        return None
+        """The student either ID names. Both given must name the same student, and an ID the
+        row gives must not differ from one the student already has (a typo would otherwise
+        overwrite another student)."""
+        keys = [k for k in ("ministry_student_id", "national_id") if row[k]]
+        found = {
+            s.pk: s
+            for k in keys
+            if (s := Student.objects.select_for_update().filter(**{k: row[k]}).first())
+        }
+        student = next(iter(found.values()), None)
+        if len(found) > 1 or (
+            student and any(getattr(student, k) not in (None, row[k]) for k in keys)
+        ):
+            raise CellError("student_ids_conflict", "national_id")
+        return student
 
     def school_class(self, row) -> SchoolClass:
         if (klass := self.classes.get(row["school_class"])) is None:
@@ -450,6 +463,8 @@ class _Run:
         if any(status_as_of(events, day) != Student.Status.STUDYING for day in (on, self.today)):
             raise CellError("student_not_studying")
         if current is not None and on <= current.valid_from:
+            if current.valid_from <= self.today:  # started: history stays, end and create
+                raise CellError("must_be_after_valid_from", "valid_from")
             current.school_class = klass
             current.save(update_fields=["school_class"])
             return "moved"
@@ -504,6 +519,9 @@ class _Run:
     def staff(self, rows):
         """One staff member: every row with their identifier is one role of one invitation."""
         first = rows[0]
+        for row in rows[1:]:
+            if row["display_name"] != first["display_name"]:
+                raise CellError("display_name_conflict", "display_name", row)
         if self.pending(Invitation.Kind.STAFF).filter(identifier=first["identifier"]).exists():
             return self.skip(rows, "pending_invitation")
         roles = []
