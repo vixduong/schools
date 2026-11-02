@@ -4,6 +4,7 @@ import type { FieldErrors } from "@/api/client";
 export const NETWORK = "Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại sau ít phút.";
 export const INVALID_LOGIN = "Sai số điện thoại, email hoặc mật khẩu.";
 export const INVALID_INVITATION = "Mã mời không đúng hoặc đã hết hạn.";
+export const TOO_MANY = "Bạn đã thử quá nhiều lần. Đợi 15 phút rồi thử lại.";
 export const CANNOT_APPLY = "Không dùng được mã mời này. Hãy liên hệ nhà trường.";
 
 const FIELD: Record<string, string> = {
@@ -40,7 +41,9 @@ export function readErrors(body: FieldErrors | undefined, generic: string): Form
 /** The refusal of a form submit: the API's 400 in Vietnamese; anything else (a 5xx, a CSRF 403,
  * a proxy's HTML page) is no verdict on what the person typed, so it reads as a server problem. */
 export function refusal(status: number, body: unknown, generic: string): Error {
-  return status === 400 ? readErrors(body as FieldErrors, generic) : new Error(`HTTP ${status}`);
+  if (status === 400) return readErrors(body as FieldErrors, generic);
+  if (status === 429) return new FormFailure(TOO_MANY, {});
+  return new Error(`HTTP ${status}`);
 }
 
 /** `redirect` from the URL, only a path on this site (never `//other.host` or `/\other.host`). */

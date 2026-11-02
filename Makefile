@@ -66,7 +66,24 @@ review-diff:
 # FILE once, run the tests matching K, restore FILE from git (commit or stage FILE first).
 # make red FILE=backend/audit/views.py OLD='if grant is None:' NEW='if False:' K=needs_a_grant
 red:
-	@git diff --quiet -- $(FILE) || { echo "$(FILE) has unstaged changes: stage them first"; exit 1; }
-	@python3 -c "import sys; p, a, b = sys.argv[1:]; s = open(p).read(); assert a in s, 'OLD not found'; open(p, 'w').write(s.replace(a, b, 1))" "$(FILE)" "$(OLD)" "$(NEW)"
+	@git diff --quiet -- "$$FILE" || { echo "$$FILE has unstaged changes: stage them first"; exit 1; }
+	@# FILE, OLD and NEW come from the environment (the top-level export), so quotes in them are safe.
+	@python3 -c "import os; p, a, b = (os.environ[k] for k in ('FILE', 'OLD', 'NEW')); s = open(p).read(); assert a in s, 'OLD not found'; open(p, 'w').write(s.replace(a, b, 1))"
 	-cd backend && uv run pytest -q -k "$(K)" 2>&1 | tail -1
-	@git checkout -- $(FILE)
+	@git checkout -- "$$FILE"
+
+.PHONY: backup restore-drill
+# Backups of the compose database (docs/slices/slice-9.md); the scripts run inside its container
+# as the superuser (a backup must bypass RLS) and the files land in ./backups.
+backup:
+	docker compose exec -T -u postgres -e PGDATABASE=$(DB_NAME) db sh -s -- /tmp/backup < scripts/backup.sh
+	mkdir -p backups && docker compose cp db:/tmp/backup/. backups/
+	docker compose exec -T db rm -rf /tmp/backup
+
+# make restore-drill DUMP=backups/<name>.dump
+restore-drill:
+	docker compose exec -T db mkdir -p /tmp/drill
+	docker compose cp "$$DUMP" db:/tmp/drill/
+	docker compose cp "$${DUMP%.dump}.manifest" db:/tmp/drill/
+	docker compose exec -T -u postgres -e PGDATABASE=$(DB_NAME) -e DB_APP_USER=$(DB_APP_USER) db sh -s -- "/tmp/drill/$$(basename "$$DUMP")" < scripts/restore-drill.sh; \
+	  status=$$?; docker compose exec -T db rm -rf /tmp/drill; exit $$status

@@ -130,6 +130,19 @@ test("a server failure is no wrong password", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Không kết nối được máy chủ");
 });
 
+test("too many attempts says to wait", async () => {
+  await renderApp("/login", (r) =>
+    r.url.endsWith("/api/auth/login/")
+      ? { status: 429, body: { detail: "too_many_attempts" } }
+      : undefined,
+  );
+  await screen.findByRole("heading", { name: "THCS Mẫu" });
+  fill("Số điện thoại hoặc email", "0912000111");
+  fill("Mật khẩu", "x");
+  fireEvent.click(screen.getByRole("button", { name: "Đăng nhập" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Đợi 15 phút");
+});
+
 test("a session that ends while signed in goes back to the login screen", async () => {
   let live = true;
   const { history, queryClient } = await renderApp("/gradebook", (r) =>

@@ -319,7 +319,12 @@ def test_the_board_reads_memberships_but_cannot_deactivate(admin, alice, schools
     assert post(client, A, f"setup/memberships/{alice_id}/deactivate/").status_code == 403
 
 
-ACCOUNT_CREATORS = {"accounts/views.py", "accounts/management/commands/create_dev_school.py"}
+# Activation, and the two DEV ONLY commands (both refuse to run without DJANGO_DEBUG=1).
+ACCOUNT_CREATORS = {
+    "accounts/views.py",
+    "accounts/management/commands/create_dev_school.py",
+    "accounts/management/commands/seed_dev_roles.py",
+}
 
 
 def test_only_activation_and_the_dev_command_create_accounts():

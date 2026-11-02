@@ -4452,7 +4452,8 @@
                     },
                     "created_by": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "accepted_membership": {
                         "type": "integer",

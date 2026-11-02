@@ -30,10 +30,14 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Outermost: one JSON line per request (config/observability.py).
+    "config.observability.RequestLogMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Tenant first: sessions are read and saved inside the School's transaction.
     "tenancy.middleware.TenantMiddleware",
+    # Inside the School's transaction, outside the view's savepoint: failed sign-ins still count.
+    "accounts.ratelimit.SignInRateLimitMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Right after it: Django's request.user must not outlive a School mismatch.
@@ -56,6 +60,13 @@ _cookie_prefix = "__Host-" if SECURE_COOKIES else ""
 SESSION_COOKIE_NAME = f"{_cookie_prefix}sessionid"
 CSRF_COOKIE_NAME = f"{_cookie_prefix}csrftoken"
 SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = SECURE_COOKIES
+
+# Behind Cloudflare (docs/slices/slice-9.md). TRUST_PROXY_HTTPS: the proxy sets X-Forwarded-Proto
+# and strips a client's copy. CLIENT_IP_HEADER: the header holding the real client address
+# ("HTTP_CF_CONNECTING_IP"), only where the proxy overwrites it; empty uses REMOTE_ADDR.
+if os.environ.get("TRUST_PROXY_HTTPS", "").lower() in {"1", "true"}:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "")
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = CSRF_COOKIE_SAMESITE = "Lax"
 
@@ -111,3 +122,12 @@ SPECTACULAR_SETTINGS = {
 
 USE_TZ = True
 TIME_ZONE = "Asia/Ho_Chi_Minh"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"json": {"()": "config.observability.JsonFormatter"}},
+    "handlers": {"stdout": {"class": "logging.StreamHandler", "formatter": "json"}},
+    "root": {"handlers": ["stdout"], "level": "INFO"},
+    "loggers": {"django.server": {"handlers": [], "propagate": False}},  # our line replaces it
+}

@@ -107,6 +107,7 @@ GLOBAL_TABLES = {
     "accounts_account",
     "django_session",
     "schools_assessmentprofileversion",  # SELECT only; no school_id
+    "accounts_attempt",  # sign-in rate limits: HMAC keys and counts, no School data
 }
 
 
@@ -234,3 +235,38 @@ def test_definer_functions_cannot_be_hijacked_through_pg_temp(app_conn):
         "SELECT has_database_privilege(current_user, current_database(), 'TEMP')"
     ).fetchone()[0]
     assert not can_temp
+
+
+def test_app_role_connections_bound_idle_transactions(as_app_role):
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW idle_in_transaction_session_timeout")
+        assert cursor.fetchone()[0] == "30s"
+
+
+def test_an_app_role_that_bypasses_rls_is_refused(monkeypatch, db):
+    """Simulated: the owner role stands in for an app role granted BYPASSRLS (a real grant needs a
+    superuser the tests do not have)."""
+    from django.core.exceptions import ImproperlyConfigured
+    from django.db import connection
+
+    from tenancy.apps import guard_app_role
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params):
+            pass
+
+        def fetchone(self):
+            return (True, "30s")
+
+    monkeypatch.setattr(connection, "cursor", Cursor)
+    monkeypatch.setitem(connection.settings_dict, "USER", settings.APP_DB_USER)
+    with pytest.raises(ImproperlyConfigured, match="bypasses RLS"):
+        guard_app_role(None, connection)

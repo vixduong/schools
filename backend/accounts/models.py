@@ -334,8 +334,14 @@ class Invitation(models.Model):
     code_digest = models.CharField(max_length=64)
     expires_at = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
+    # Empty for the first School admin's invitation, issued by the operator (create_school).
     created_by = models.ForeignKey(
-        Membership, on_delete=models.PROTECT, db_constraint=False, related_name="+"
+        Membership,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="+",
     )
     accepted_membership = models.ForeignKey(
         Membership,
@@ -413,3 +419,21 @@ class InvitationRole(models.Model):
 
     def __str__(self):
         return f"{self.role} for invitation {self.invitation_id}"
+
+
+class Attempt(models.Model):
+    """Sign-in attempts per key in fixed windows, for rate limiting (accounts.ratelimit). Global
+    table holding no School data: `key` is an HMAC of the identifier or client address."""
+
+    key = models.CharField(max_length=64)
+    window_start = models.DateTimeField()
+    count = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["key", "window_start"], name="attempt_key_window_key")
+        ]
+        indexes = [models.Index(fields=["window_start"])]
+
+    def __str__(self):
+        return f"{self.key[:8]} x{self.count}"

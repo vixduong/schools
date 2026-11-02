@@ -8,3 +8,4 @@ __pycache__/
 # Scratch space: only the planning map is versioned (review diffs come from `make review-diff`).
 .scratch/*
 !.scratch/school-platform/
+backups/

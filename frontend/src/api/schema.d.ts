@@ -1600,7 +1600,7 @@ export interface components {
             readonly status: components["schemas"]["InvitationStatusEnum"];
             /** Format: date-time */
             readonly expires_at: string;
-            readonly created_by: number;
+            readonly created_by: number | null;
             readonly accepted_membership: number | null;
             readonly code: string;
         };
