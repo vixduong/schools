@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -77,6 +79,10 @@ class SupportGrant(TenantModel):
                 condition=Q(revoked_at__isnull=True, revoked_by__isnull=True)
                 | Q(revoked_at__isnull=False, revoked_by__isnull=False),
                 name="supportgrant_revoked_by_whom",
+            ),
+            models.CheckConstraint(
+                condition=Q(ends_at__lte=models.F("starts_at") + timedelta(hours=72)),
+                name="supportgrant_at_most_72_hours",
             ),
         ]
 

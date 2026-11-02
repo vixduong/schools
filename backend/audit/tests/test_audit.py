@@ -148,7 +148,7 @@ def test_support_session_needs_a_grant_in_force(admin, schools):
     with pytest.raises(CommandError, match="No support grant"):
         support("print(1)")
     grant(admin, hours=1)
-    with school_scope(schools[0].pk):
+    with owner_role(), school_scope(schools[0].pk):  # the app role may only revoke
         now = timezone.now()
         SupportGrant.objects.update(starts_at=now - timedelta(hours=2), ends_at=now)
     with pytest.raises(CommandError, match="No support grant"):
@@ -179,3 +179,90 @@ def test_support_session_refuses_the_owner_role(admin, schools):
     grant(admin)
     with owner_role(), pytest.raises(CommandError, match="app role"):
         support("print(1)")
+
+
+def test_no_temp_table_can_shadow_the_log(app_conn, schools):
+    """A temp table named audit_auditevent would capture the definer functions' writes (and run
+    the app role's triggers as the owner): the app role may not create one, and the functions
+    look in pg_temp last."""
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        app_conn.execute("CREATE TEMP TABLE audit_auditevent (id int)")
+    paths = app_conn.execute(
+        "SELECT proname, proconfig FROM pg_proc WHERE proname IN"
+        " ('audit_row_change', 'audit_record') ORDER BY proname"
+    ).fetchall()
+    assert paths == [
+        (n, ["search_path=pg_catalog, public, pg_temp"])
+        for n in ("audit_record", "audit_row_change")
+    ]
+
+
+def test_the_app_cannot_forge_a_row_change_or_stretch_a_grant(app_conn, admin, schools):
+    grant(admin)
+    app_conn.execute("BEGIN")
+    app_conn.execute("SELECT set_config('app.school_id', %s, true)", [str(schools[0].pk)])
+    for sql, error in (
+        (
+            "SELECT audit_record('update', 'accounts_roleassignment', 1, '{}')",
+            psycopg.errors.RaiseException,
+        ),
+        (
+            "UPDATE audit_supportgrant SET ends_at = ends_at + interval '1 year'",
+            psycopg.errors.InsufficientPrivilege,
+        ),
+    ):
+        app_conn.execute("SAVEPOINT s")
+        with pytest.raises(error):
+            app_conn.execute(sql)
+        app_conn.execute("ROLLBACK TO SAVEPOINT s")
+    app_conn.execute("ROLLBACK")
+
+
+def test_the_console_logs_each_statement_and_stops_when_the_grant_is_revoked(
+    admin, schools, monkeypatch
+):
+    grant_id = grant(admin).json()["id"]
+    lines = iter(["x = 1", "if x:", "    y = 2", "", "REVOKE", "print('after revoke')"])
+
+    def next_line(prompt=""):
+        line = next(lines, None)
+        if line is None:
+            raise EOFError
+        if line == "REVOKE":  # the School revokes between two statements
+            assert post(admin, A, f"setup/support-grants/{grant_id}/revoke/").status_code == 200
+            return next_line()
+        return line
+
+    monkeypatch.setattr("builtins.input", next_line)
+    out = StringIO()
+    with pytest.raises(SystemExit):
+        call_command("support_session", school="a", operator="Op", stdout=out)
+    commands = [e.details["source"] for e in events(schools[0], action="support.command")]
+    assert commands == ["x = 1", "if x:\n    y = 2\n"]
+    assert events(schools[0], action="support.session_end")
+
+
+def test_a_bulk_update_is_logged(admin, alice, schools):
+    with school_scope(schools[0].pk):
+        membership = Membership.objects.get(account=alice)
+    post(admin, A, f"setup/memberships/{membership.pk}/deactivate/")
+    (event,) = events(schools[0], target_table="accounts_membership", action="update")
+    assert event.details == {"status": ["active", "inactive"]}
+    assert events(schools[0], target_table="accounts_roleassignment", action="update")
+
+
+def test_the_log_filters(admin, admin_a, alice, schools):
+    with school_scope(schools[0].pk):
+        me = Membership.objects.get(account=admin_a)
+        other = Membership.objects.get(account=alice)
+    post(admin, A, f"setup/memberships/{other.pk}/deactivate/")
+    since = timezone.now() - timedelta(minutes=1)
+
+    def ids(query):
+        response = admin.get(f"/api/setup/audit-events/?{query}", HTTP_HOST=A)
+        return [(r["target_table"], r["target_id"]) for r in response.json()["results"]]
+
+    query = f"target_table=accounts_membership&target_id={other.pk}&actor_membership={me.pk}"
+    assert ids(query) == [("accounts_membership", other.pk)]
+    assert ids(f"{query}&since={since.isoformat().replace('+', '%2B')}") == ids(query)
+    assert ids(f"{query}&until={since.isoformat().replace('+', '%2B')}") == []
