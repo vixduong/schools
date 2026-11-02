@@ -13,6 +13,22 @@ make backend-check  # ruff + pytest (real Postgres, so db-up first)
   `DB_ROLE=owner uv run python manage.py create_dev_school a admin@a.test [--password dev-password]`,
   then `POST a.localhost:8000/api/auth/login/` with `{"identifier": "admin@a.test", "password": "..."}`.
   It is idempotent and gives the Account an active Membership with a School-wide `school_admin` assignment.
+- Dev accounts for every role (DEV ONLY, same guard, owner role): `DB_ROLE=owner uv run python manage.py seed_dev_roles a`.
+  It runs `create_dev_school` first, then creates one sign-in per role, all with password `dev-password`, and prints the list:
+
+  | Role | Sign in with | Scope it gets |
+  |---|---|---|
+  | `school_admin` | `admin@a.test` | whole School |
+  | `principal_board` | `board@a.test` | whole School; named as principal, may reopen gradebooks, signs for the principal |
+  | `group_leader` | `group@a.test` | subject group Toán |
+  | `homeroom_teacher` | `homeroom@a.test` | class 7A |
+  | `subject_teacher` | `subject@a.test` | Toán × class 7A |
+  | `student` | `student@a.test` | enrolled in 7A (own record only) |
+  | `guardian` | `0912000001` (phone) | linked to the student above |
+
+  The fixtures are school year (current), Grade 7 (lower secondary), class 7A, subject group and subject Toán (`MATH`),
+  one student and one guardian link. Idempotent; the guardian's phone is fixed, so it is the same Account on every run.
+  Operator staff have no dev account: they see no School data.
 - Auth (ADR 0003), all under `/api/auth/` on a School host: `GET csrf/` (sets the CSRF cookie), `POST login/`,
   `POST logout/`, `GET me/`. Send the CSRF cookie's value as `X-CSRFToken` on every POST. A session is bound to
   the School it was created on, and the default permission is an active Membership in the host's School.
