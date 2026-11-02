@@ -1,3 +1,4 @@
+from django.urls import re_path
 from rest_framework.routers import SimpleRouter
 
 from . import views
@@ -19,7 +20,15 @@ for prefix, viewset in {
     "assessment-profiles": views.AssessmentProfileViewSet,
     "memberships": views.MembershipViewSet,
     "invitations": views.InvitationViewSet,
+    "imports": views.ImportViewSet,
 }.items():
     router.register(prefix, viewset, basename=prefix)
 
-urlpatterns = router.urls
+urlpatterns = [
+    re_path(
+        r"^imports/templates/(?P<kind>staff|students|guardians)\.xlsx$",
+        views.ImportViewSet.as_view({"get": "template"}),
+        name="import-template",
+    ),
+    *router.urls,
+]

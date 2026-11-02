@@ -40,6 +40,10 @@ _Avoid_: Account type, user type, role (alone, when the scoped assignment is mea
 A School's statement that a person is expected, and as what (staff with their Role Assignments, Guardian of a student, or the student themself), carried by a one-time code. The person activates it on the School's host, creating their Account or proving they own one; a School never creates an Account itself.
 _Avoid_: Invite code (for the whole record; the code is one part of it), account creation
 
+**Import batch**:
+One uploaded Excel file of staff, students or Guardians: its rows as checked at the preview, applied all together or not at all at the commit. Imports create students, Enrollments and Invitations, never Accounts.
+_Avoid_: Upload (for the record), sync
+
 **Guardian**:
 An adult who answers for a student to the School: a parent, grandparent or other carer, linked to one or more students.
 _Avoid_: Parent (in English text, as a type), phụ huynh (in English text)

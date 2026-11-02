@@ -103,6 +103,8 @@ SPECTACULAR_SETTINGS = {
         "LevelKindEnum": "schools.models.Level.Kind",
         "StudentStatusEnum": "schools.models.Student.Status",
         "RoleAssignmentStatusEnum": "accounts.models.RoleAssignment.Status",
+        "InvitationKindEnum": "accounts.models.Invitation.Kind",
+        "ImportBatchKindEnum": "schools.models.ImportBatch.Kind",
     },
 }
 

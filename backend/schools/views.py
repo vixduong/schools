@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q, Value
 from django.db.models.functions import Greatest
+from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
@@ -19,12 +20,13 @@ from permissions.actor import Actor
 from permissions.drf import Can
 from permissions.engine import can, visible_students
 
-from . import serializers
+from . import imports, serializers
 from .models import (
     AssessmentProfileVersion,
     Enrollment,
     Grade,
     GuardianLink,
+    ImportBatch,
     Level,
     Room,
     SchoolClass,
@@ -515,6 +517,83 @@ class InvitationViewSet(
             invitation.code = issue_code(invitation)
             invitation.save(update_fields=["code_digest", "expires_at"])
         return Response(self.get_serializer(invitations, many=True).data)
+
+
+class _RolledBack(Exception):
+    """Raised inside a savepoint to undo it."""
+
+
+class ImportViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Excel import of staff, students and Guardians (`accounts.manage`: the School admin; the
+    principal board reads). Upload previews: every row is checked, nothing but the batch is
+    written. `commit/` applies the previewed rows in one transaction: students and enrollments,
+    and invitations (never Accounts), whose codes are in the commit response only."""
+
+    permission_classes = [HasMembership, Can("accounts.manage", read=True)]
+    queryset = ImportBatch.objects.order_by("id")
+    serializer_class = serializers.ImportBatchSerializer
+    COMMIT_WITHIN = timedelta(hours=24)
+
+    @extend_schema(responses={(200, imports.XLSX): bytes})
+    def template(self, request, kind):  # routed in urls.py: no trailing slash after .xlsx
+        """The blank template: headers in Vietnamese, a sheet explaining each column."""
+        return HttpResponse(
+            imports.template(kind),
+            content_type=imports.XLSX,
+            headers={"Content-Disposition": f'attachment; filename="{kind}.xlsx"'},
+        )
+
+    @extend_schema(
+        request={"multipart/form-data": serializers.ImportUploadSerializer},
+        responses={201: serializers.ImportBatchSerializer},
+    )
+    def create(self, request):
+        """Upload one .xlsx (at most 5 MB and 3,000 rows) and preview it."""
+        upload = serializers.ImportUploadSerializer(data=request.data)
+        upload.is_valid(raise_exception=True)
+        data = upload.validated_data
+        rows, errors, sha256 = imports.parse(data["kind"], data["file"])
+        batch = ImportBatch(
+            school=request.school,
+            kind=data["kind"],
+            school_year=data.get("school_year"),
+            file_sha256=sha256,
+            uploaded_by=request.membership,
+            rows=rows,
+            errors=errors,
+        )
+        preview = transaction.savepoint()
+        results, row_errors = imports.apply(batch, request)
+        transaction.savepoint_rollback(preview)
+        batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
+        batch.errors = sorted(errors + row_errors, key=lambda e: e["row"])
+        batch.save()
+        return Response(self.get_serializer(batch).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=None)
+    @action(detail=True, methods=["post"])
+    def commit(self, request, pk=None):
+        """Apply a previewed batch without errors, once, within 24 hours of its upload; a row
+        failing now rolls the whole batch back (400 with every error). Each invitation's code
+        is in this response only."""
+        batch = ImportBatch.objects.select_for_update().get(pk=self.get_object().pk)
+        if batch.status != ImportBatch.Status.PREVIEWED:
+            raise ValidationError({"status": ["already_committed"]})
+        if batch.errors:
+            raise ValidationError({"errors": ["has_errors"]})
+        if timezone.now() - batch.created_at > self.COMMIT_WITHIN:
+            raise ValidationError({"status": ["preview_expired"]})
+        try:
+            with transaction.atomic():
+                results, errors = imports.apply(batch, request)
+                if errors:
+                    raise _RolledBack
+        except _RolledBack:
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+        batch.status = ImportBatch.Status.COMMITTED
+        batch.results = [{k: v for k, v in r.items() if k != "code"} for r in results]
+        batch.save(update_fields=["status", "results"])
+        return Response(self.get_serializer(batch).data | {"results": results})
 
 
 class AssessmentProfileViewSet(viewsets.ReadOnlyModelViewSet):

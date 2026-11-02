@@ -477,3 +477,41 @@ class AssessmentProfileVersion(models.Model):
 
     def __str__(self):
         return f"{self.level_kind} from {self.effective_from}"
+
+
+class ImportBatch(TenantModel):
+    """One uploaded Excel file (docs/slices/slice-6.md, 6b): its parsed rows and the per-row
+    outcome of the preview, kept so `commit` applies exactly what was previewed. The file itself
+    is not kept. A batch commits once, within 24 hours of its upload."""
+
+    class Kind(models.TextChoices):
+        STAFF = "staff"
+        STUDENTS = "students"
+        GUARDIANS = "guardians"
+
+    class Status(models.TextChoices):
+        PREVIEWED = "previewed"
+        COMMITTED = "committed"
+
+    kind = models.CharField(max_length=20, choices=Kind)
+    # The year whose classes the rows name (staff and students); NULL for guardians.
+    school_year = models.ForeignKey(
+        SchoolYear, null=True, blank=True, on_delete=models.PROTECT, db_constraint=False
+    )
+    file_sha256 = models.CharField(max_length=64)
+    uploaded_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    status = models.CharField(max_length=20, choices=Status, default=Status.PREVIEWED)
+    created_at = models.DateTimeField(default=timezone.now)
+    rows = models.JSONField()  # [{"row": n, <field>: <cleaned value>, ...}]
+    results = models.JSONField()  # [{"row": n, "result": "created" | "updated" | ...}]
+    errors = models.JSONField()  # [{"row": n, "column": <header> | null, "code": ...}]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="importbatch_school_id_key"),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} import {self.pk}"

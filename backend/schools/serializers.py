@@ -17,6 +17,7 @@ from .models import (
     Enrollment,
     Grade,
     GuardianLink,
+    ImportBatch,
     Level,
     Room,
     SchoolClass,
@@ -615,6 +616,51 @@ class InvitationSerializer(SetupSerializer):
 
 class InvitationPrintSerializer(serializers.Serializer):
     school_class = serializers.PrimaryKeyRelatedField(queryset=SchoolClass.objects.all())
+
+
+class ImportUploadSerializer(serializers.Serializer):
+    """`school_year` is the year whose classes the rows name: required for staff and students."""
+
+    kind = serializers.ChoiceField(ImportBatch.Kind.choices)
+    school_year = serializers.PrimaryKeyRelatedField(
+        queryset=SchoolYear.objects.all(), required=False, allow_null=True
+    )
+    file = serializers.FileField()
+
+    def validate(self, attrs):
+        if attrs["kind"] != ImportBatch.Kind.GUARDIANS and attrs.get("school_year") is None:
+            raise serializers.ValidationError({"school_year": ["required"]})
+        return attrs
+
+
+class ImportBatchSerializer(serializers.ModelSerializer):
+    """A previewed (or committed) upload: `counts` of rows by result, every error as
+    `{row, column, code}` (`column` is the template's header, null for a whole-row rule), and
+    each row's result."""
+
+    counts = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ImportBatch
+        fields = [
+            "id",
+            "kind",
+            "school_year",
+            "status",
+            "created_at",
+            "uploaded_by",
+            "counts",
+            "errors",
+            "results",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.DictField(child=serializers.IntegerField()))
+    def get_counts(self, batch):
+        counts = {"rows": len(batch.rows), "errors": len({e["row"] for e in batch.errors})}
+        for result in batch.results:
+            counts[result["result"]] = counts.get(result["result"], 0) + 1
+        return counts
 
 
 class AssessmentProfileVersionSerializer(serializers.ModelSerializer):
