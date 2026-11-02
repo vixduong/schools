@@ -1,3 +1,7 @@
+/* Hallmark · built: 2026-11-02 · genre: editorial · theme: custom (DESIGN.md, locked) · shape: app screen
+ * critique: sign-in leads with the School's own name, one form each, plain working surface, no brand ornament on auth screens
+ * waive 65: cream paper and slab display come from the reference the owner chose (DESIGN.md)
+ */
 @import "tailwindcss";
 @import "./tokens.css";
 @import "./base.css" layer(base);
@@ -44,4 +48,12 @@
   --radius-lg: calc(var(--radius) + 2px);
   --font-sans: var(--font-body);
   --font-serif: var(--font-display);
+}
+
+/* Button press and disabled states (DESIGN.md, Motion: colour and a 1px press only) */
+@layer components {
+  [data-slot="button"]:active:not(:disabled) { transform: translateY(1px); }
+  [data-slot="button"]:disabled {
+    background: var(--color-paper-3); color: var(--color-muted); border-color: var(--color-rule); cursor: not-allowed;
+  }
 }

@@ -12,7 +12,13 @@ from tenancy.rls import set_actor
 from .authentication import CsrfOnlyAuthentication
 from .invitations import accept
 from .models import Account
-from .serializers import ActivateSerializer, LoginSerializer, MeSerializer, me_data
+from .serializers import (
+    ActivateSerializer,
+    LoginSerializer,
+    MeSerializer,
+    SchoolSerializer,
+    me_data,
+)
 
 
 class LoginView(APIView):
@@ -76,6 +82,18 @@ class MeView(APIView):
         return Response(
             me_data(request.user, request.school, request.membership, Actor.of(request))
         )
+
+
+class SchoolView(APIView):
+    """The School of this host, for the login screen to lead with before anyone signs in. Only
+    the name and subdomain are public."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=SchoolSerializer, auth=[])
+    def get(self, request):
+        return Response(SchoolSerializer(request.school).data)
 
 
 class CsrfView(APIView):

@@ -1,5 +1,7 @@
+import json
 from datetime import date, timedelta
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from django.core.management import call_command
@@ -273,6 +275,15 @@ def test_openapi_schema_is_valid():
     call_command(
         "spectacular", "--validate", "--fail-on-warn", stdout=StringIO(), stderr=StringIO()
     )
+
+
+def test_committed_schema_matches_the_api():
+    """The SPA's contract (frontend/src/api/openapi.json) is regenerated with the API: run
+    `make api-client` and review the diff."""
+    out = StringIO()
+    call_command("spectacular", "--format", "openapi-json", stdout=out, stderr=StringIO())
+    committed = Path(__file__).resolve().parents[3] / "frontend/src/api/openapi.json"
+    assert json.loads(committed.read_text()) == json.loads(out.getvalue()), "run make api-client"
 
 
 # --- Fixes from the slice 4a review -------------------------------------------------------------

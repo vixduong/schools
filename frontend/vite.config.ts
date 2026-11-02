@@ -8,8 +8,9 @@ export default defineConfig({
   plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   server: {
-    // Same origin as the API in dev (ADR 0003): Django answers /api on :8000.
-    proxy: { "/api": "http://localhost:8000" },
+    // Same origin as the API in dev (ADR 0003): Django answers /api on :8000. Django picks the
+    // School from the host (a.localhost), so the proxy keeps the browser's Host header.
+    proxy: { "/api": { target: "http://localhost:8000", changeOrigin: false } },
   },
   test: {
     environment: "jsdom",

@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/latest/schema.json",
   "files": {
-    "includes": ["**", "!dist", "!src/routeTree.gen.ts", "!src/styles"]
+    "includes": [
+      "**",
+      "!dist",
+      "!src/routeTree.gen.ts",
+      "!src/api/openapi.json",
+      "!src/api/schema.d.ts",
+      "!src/styles"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

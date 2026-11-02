@@ -126,3 +126,8 @@ def test_me_lists_the_capabilities_of_the_member(client, alice, schools):
     assert caps["student_profile.view"][0]["access"] == "read"
     assert "school.configure" not in caps and "accounts.manage" not in caps
     assert sign_in(client).json()["capabilities"] == body["capabilities"]
+
+
+def test_the_login_screen_can_name_the_school(schools):
+    response = Client().get("/api/auth/school/", HTTP_HOST="a.localhost")
+    assert response.json() == {"name": "A", "subdomain": "a"}

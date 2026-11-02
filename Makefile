@@ -24,7 +24,16 @@ backend-dev: backend-migrate
 backend-check: .env
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run pytest
 
-.PHONY: frontend-dev frontend-check
+.PHONY: frontend-dev frontend-check api-client
+
+# The SPA's API contract: the schema and its TypeScript types, both committed (review the diff).
+# openapi-typescript drives the TypeScript 5 compiler API (TypeScript 7 ships none), so it runs
+# with its own pinned TypeScript, apart from the app's.
+OPENAPI_TS = cd frontend && pnpm dlx --package openapi-typescript@7.13.0 --package typescript@5.9.3 openapi-typescript src/api/openapi.json
+
+api-client: .env
+	cd backend && uv run python manage.py spectacular --format openapi-json --file ../frontend/src/api/openapi.json
+	$(OPENAPI_TS) -o src/api/schema.d.ts
 
 frontend-dev:
 	pnpm --dir frontend install --frozen-lockfile
@@ -34,6 +43,9 @@ frontend-check:
 	pnpm --dir frontend install --frozen-lockfile
 	pnpm --dir frontend lint
 	pnpm --dir frontend typecheck
+	$(OPENAPI_TS) -o src/api/.schema.check.d.ts >/dev/null
+	diff -q frontend/src/api/schema.d.ts frontend/src/api/.schema.check.d.ts >/dev/null || { rm frontend/src/api/.schema.check.d.ts; echo "frontend/src/api/schema.d.ts is stale: run make api-client"; exit 1; }
+	rm frontend/src/api/.schema.check.d.ts
 	pnpm --dir frontend test
 
 .PHONY: check

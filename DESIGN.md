@@ -42,6 +42,7 @@ Both faces ship a Vietnamese subset; any replacement face must too. Type scale r
 
 ## Controls
 - Height 36px, hit target 44px, radius 6px, one filled primary per screen.
+- Disabled: paper-3 fill, muted ink, rule edge, `not-allowed` cursor (never opacity alone).
 - Primary: pen-blue fill. Secondary: 1.5px ink outline. Quiet: underlined text. Destructive: red-ink outline. Ghost: borderless, hover on `--color-paper-3`, only for grid controls (calendar days, icon buttons), with an `icon` size of 36 × 36.
 - Inputs: 1px muted edge, inset focus ring, error = red edge + red wash + message under the field.
 - Every data region draws four states: loading (skeleton), empty (what goes here, one action), error (what broke, what to do), full.
@@ -65,7 +66,7 @@ Subject blocks inside a lesson or an exam question (libraries per `docs/research
 - **Gradebook**: a mini lifecycle (three state chips, the current one inked) beside the title; the last return comment in a red-ink box until resubmitted; a save status line; after submitting, cells lock and the action becomes Rút lại để sửa.
 - **Student profile**: name in the display face, identifiers (school ID, Ministry ID, masked national ID, date of birth) as a definition row; tabs Tổng quan, Điểm, Chuyên cần, Học bạ, Lịch sử; status history as dated rows, never deleted.
 - **Guardian view**: phone first, one column up to 440px; child switcher as pills; blocks Hôm nay, Điểm mới (released only), Đơn xin nghỉ (a sent request shows as a waiting ticket), Thông báo.
-- **Login**: per School subdomain; the host and the School name lead; one form; a Guardian activation path by invite code.
+- **Login**: per School subdomain; the host and the School name lead; one form; a Guardian activation path by invite code. Built (slice 8): `/login` and `/activate` share one frame (host, School name in the display face, an italic lead, the form under a hairline, the wrong-School note). No password reset exists, so "Quên mật khẩu" is a note ("Hỏi quản trị trường của bạn"), not a link. A refused sign-in is one red-wash message above the form; a field error sits under its field.
 
 ## Dark mode
 - Same hues, re-derived lightness in `tokens.css` (`[data-mode="dark"]` plus `prefers-color-scheme`): paper L 17, raised surfaces lighter (L 21), wells darker (L 14); ink L 93; pen blue lifts to L 72 with dark text on it; red ink to L 69; Level pastels become deep fills with light edges; the hatch drops to 30% ink. No drop shadows.
@@ -93,6 +94,9 @@ Subject blocks inside a lesson or an exam question (libraries per `docs/research
 }
 ```
 shadcn's `--color-accent` and `--color-muted` mean a hover surface and a quiet background. In the app's `@theme`, expose ours as `--color-pen` (accent) and `--color-ink-3` (muted) so the names do not collide. The ticket, pin and Level region become three house components (`<StateTicket>`, `<Pin>`, `<LevelRegion>`) on top of shadcn.
+
+## Picture slots
+A slot for an illustration is `data-picture` (never `data-slot`, which shadcn puts on every component); `base.css` draws the empty slot.
 
 ## Keeping this file current
 Any design decision, whether made in a planning ticket or while building a screen, lands in this file in the same change: a new token, a new component pattern, a changed rule. If a screen needs something this file does not cover, add it here first, then build it. A specimen that no longer matches this file is a bug in one of them.

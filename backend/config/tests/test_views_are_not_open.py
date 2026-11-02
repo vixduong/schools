@@ -15,13 +15,13 @@ from rest_framework.views import APIView
 
 from accounts.authentication import CsrfOnlyAuthentication, SchoolSessionAuthentication
 from accounts.permissions import HasMembership
-from accounts.views import ActivateView, CsrfView, LoginView, LogoutView, MeView
+from accounts.views import ActivateView, CsrfView, LoginView, LogoutView, MeView, SchoolView
 from permissions.drf import Can, CanPermission
 
 ALLOWED_AUTHENTICATION = {SchoolSessionAuthentication, CsrfOnlyAuthentication}
-# Open on purpose: sign-in and activation have no session yet; the schema describes the public
-# API.
-MAY_ALLOW_ANY = {LoginView, LogoutView, ActivateView, CsrfView, SpectacularAPIView}
+# Open on purpose: sign-in and activation have no session yet, the login screen names the School
+# (name and subdomain only); the schema describes the public API.
+MAY_ALLOW_ANY = {LoginView, LogoutView, ActivateView, CsrfView, SchoolView, SpectacularAPIView}
 
 
 @dataclass(frozen=True)
