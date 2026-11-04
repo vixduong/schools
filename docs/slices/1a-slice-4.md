@@ -1,0 +1,51 @@
+# Phase 1a, slice 4: Gradebook entry
+
+Slice 4 of `docs/phase-1a.md`, Circular 22/2021 for Lower and Upper Secondary. Standing rules: `backend/CODING_STANDARDS.md`, `frontend/CODING_STANDARDS.md`, `docs/slices/README.md`, the Constraints sections of `docs/phase-0.md`, `docs/roles.md` (Gradebook rule, Least data), ADR 0006 (`AssessmentProfileVersion.rules`), `DESIGN.md` § Screens (Gradebook). The workflow (submit, approve, return, lock, reopen) is slice 5; this slice leaves every gradebook in `draft`.
+
+Done when a teacher fills a gradebook, a bad score is refused per cell, and the history shows every change. The phase's bar applies here first: **no lost and no wrong scores**.
+
+## Subject load (schools app, School setup)
+
+- **`SubjectLoad`** (tenant): `school_year`, `grade`, `subject`, `periods_per_year` (1–400). Unique `(school, school_year, grade, subject)` (constraint); composite FKs to all three; `school.configure` writes, the principal board reads (API, `setup/subject-loads/`). It decides the count of regular columns, so it is refused while a gradebook of that year, Grade and subject exists (trigger `subjectload_frozen_by_gradebooks`, on UPDATE of `periods_per_year`).
+
+## Model (new app `grades`)
+
+- **`Gradebook`** (tenant): `school_year`, `term`, `subject`, `school_class`, `profile_version` (FK to the global `AssessmentProfileVersion`), `status` (`draft` only in this slice; slice 5 adds the rest), `opened_by`, `opened_at`. Unique `(school, term, subject, school_class)` (constraint). Composite FKs; the term and class belong to the gradebook's year (composite FKs with `school_year`, as slice 1's `year_fk`). The class's Level must be Lower or Upper Secondary (trigger `gradebook_secondary_level`).
+- **Profile version**: the version of the class's Level kind in force on the school year's first day, fixed when the gradebook opens (view, from the global table; a missing version is 400 `no_profile_version`). Never changes afterwards (trigger freezes every column but `status`).
+- **`GradebookColumn`** (tenant): `gradebook`, `kind` (`regular`, `mid_term`, `end_term`), `index` (1…n within the kind), `released_at`, `released_by`. Unique `(school, gradebook, kind, index)` (constraint). Created with the gradebook in one transaction, never added or removed afterwards (trigger `gradebookcolumn_only_at_opening`: an insert is refused unless the gradebook's `opened_at` equals the transaction's `now()`, i.e. it was opened in this same transaction; no DELETE grant).
+  - Counts from the profile version's `rules`: a scored subject gets `regular_assessments.scored_by_periods_per_year` by the class's `SubjectLoad.periods_per_year` (first `up_to` ≥ it, `null` = no limit), a comment-only subject `regular_assessments.comment_only`; both get `periodic.mid_term` and `periodic.end_term`. A missing load is 400 `no_subject_load`.
+  - **Release** (owner decision, `docs/phase-1a.md`): the subject teacher sets `released_at`/`released_by` once; never unset or moved (column-level UPDATE grant on those two; trigger `gradebookcolumn_release_once`). Approval releasing the rest arrives in slice 5.
+- **`ScoreEntry`** (tenant, **append-only**: the app role has INSERT and SELECT only, so the history cannot be rewritten): `column`, `student`, `value` (numeric(3,1), null), `result` (`pass`, `fail`, null), `entered_by`, `entered_at`. The current score of a cell is its latest entry (by `entered_at`, then id); an entry with both null clears the cell.
+  - `value` between 0 and 10 with one decimal (check constraint + numeric(3,1); the API refuses more decimals, it never rounds an input).
+  - A scored subject's entries carry `value` or nothing, a comment-only subject's `result` or nothing (trigger `scoreentry_fits_subject`, reading column → gradebook → subject, `FOR SHARE`).
+  - The student is enrolled in the gradebook's class on the School's today (`(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`) and that Enrollment overlaps the term (trigger `scoreentry_student_in_class`, `FOR SHARE` on the Enrollment, so a concurrent move waits). A student who left keeps their entries; new ones are refused (read only in the grid; slice 6 adds carried results).
+  - The gradebook is `draft` (trigger `scoreentry_gradebook_open`, `FOR SHARE` on the gradebook, so slice 5's submit, which locks it `FOR NO KEY UPDATE`, conflicts with an entry in flight).
+- **Audit**: score entries are their own append-only log (who, when, what), and are **not** copied into the audit log: its readers include the School admin, who sees no scores (roles.md, Least data). Opening a gradebook and releasing a column are audited (`audit_row_change` on `grades_gradebook` and `grades_gradebookcolumn`; no free text in either).
+
+## Saving: no lost and no wrong scores
+
+- `PUT gradebooks/{id}/cells/ {cells: [{column, student, value | result, expected}]}`: `expected` is the id of the cell's current entry as the client last saw it (null for an empty cell). In one transaction, the gradebook locked `FOR NO KEY UPDATE`:
+  - a cell whose current entry is not `expected` is a **conflict** (someone else saved it meanwhile); a cell with an invalid value (out of range, more than one decimal, the wrong form for the subject, a student who may not be scored) is an **error**;
+  - any conflict or error: nothing is saved, 400 `{"cells": [{column, student, code, current}]}` with each failing cell, its code (`conflict`, `out_of_range`, `too_many_decimals`, `wrong_form`, `not_enrolled`) and, for a conflict, the current entry so the screen can show both values;
+  - otherwise an entry is appended for every cell whose value differs from its current one (unchanged cells write nothing), and the response returns each cell's new current entry id.
+- The screen keeps unsaved cells until the server confirms them; a failed save never clears what the teacher typed.
+
+## API (under `/api/setup/`)
+
+- `GET gradebooks/?term=&school_class=&subject=` (`scores.view` read, through `visible_*`); `POST gradebooks/ {term, subject, school_class}` opens one (or returns the existing one, 200), `scores.enter` on the pair.
+- `GET gradebooks/{id}/`: header (class, subject, term, profile version source, status), columns (kind, index, released), and one row per student enrolled in the class at any time during the term (name, still in the class today or not), each cell its current value or result, its entry id, and `changed_after_release` (more than one entry after the column's release). `scores.view` read.
+- `PUT gradebooks/{id}/cells/` as above; `scores.enter` on the pair as of today.
+- `POST gradebooks/{id}/columns/{column}/release/`: `scores.enter`; refused when the column has an enrolled student with no score (400 `incomplete`, listing them).
+- `GET gradebooks/{id}/history/?column=&student=`: every entry of a cell, oldest first, with who entered it. `scores.view` read.
+- `GET gradebooks/mine/`: the signed-in teacher's teaching pairs this year with each term's gradebook (or none yet), for the teacher home's board and the `/gradebook` picker.
+
+## Screens
+
+- **`/gradebook`**: the teacher's pairs × terms; opening one goes to the grid.
+- **`/gradebook/$gradebookId`**: `DESIGN.md` § Screens, Gradebook (the lifecycle chips show Đang nhập only until slice 5). A dense grid: students as rows, columns TX1…TXn, GK, CK (labels from the kind and index), tabular figures; keyboard entry (Enter and arrows move, Tab across); a cell's error or conflict in red ink on that cell with the server's current value; the save status line (Đã lưu, Đang lưu, Chưa lưu n ô, Lỗi n ô); Công bố cột per column with a confirmation; a released column marked quietly; a cell's history in a popover; a student no longer in the class greyed and read only. Read only for readers without `scores.enter`.
+- **Teacher home**: the board's Đang nhập column lists the teacher's open gradebooks.
+- **School setup**: subject loads are entered in a small table per Grade (the setup screens are API-only so far; a table on `/timetable`'s sibling `/setup/subject-loads` is enough).
+
+## Not in this slice
+
+Submit, approve, return, lock, reopen and their tickets (slice 5); averages and ratings (phase 1b); carried results of transferred students (slice 6); students' and Guardians' views of released scores (slice 8); Excel import or export of scores; changing a gradebook's columns after opening.
