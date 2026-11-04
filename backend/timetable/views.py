@@ -14,7 +14,7 @@ from accounts.permissions import HasMembership
 from permissions.actor import Actor, TeachingPair
 from permissions.drf import Can, CanPermission
 from permissions.engine import can
-from schools.models import Enrollment, SchoolClass
+from schools.models import Enrollment, SchoolClass, Student
 from schools.views import SetupViewSet, database_rules
 
 from . import serializers
@@ -245,8 +245,9 @@ class CanUseSheet(CanPermission):
 
 class PeriodAttendanceView(GenericAPIView):
     """The attendance of one held period (a timetable entry on a date): GET the class list as of
-    that date with each student's mark; PUT the whole sheet, in one transaction. A date the entry
-    is not held on is a 404; a PUT for a day after today is a 400."""
+    that date (and anyone marked in it who has left the class since) with each student's mark; PUT
+    the whole sheet, in one transaction. A date the entry is not held on is a 404; a PUT for a day
+    after today is a 400."""
 
     permission_classes = [HasMembership, CanUseSheet]
     serializer_class = serializers.SaveSheetSerializer
@@ -275,13 +276,20 @@ class PeriodAttendanceView(GenericAPIView):
 
     @staticmethod
     def roster(entry, on):
-        """The students enrolled in the entry's class on the date, by name."""
-        enrollments = Enrollment.objects.in_force(on).filter(school_class=entry.school_class)
-        return list(
-            enrollments.select_related("student")
-            .order_by("student__full_name", "student_id")
-            .values_list("student_id", "student__full_name")
+        """(id, name, enrolled) by name: the students enrolled in the entry's class on the date,
+        and those already marked in this period that day who have left the class since (a move or
+        a leave, even backdated), who stay on the sheet so their mark can be corrected."""
+        enrolled = set(
+            Enrollment.objects.in_force(on)
+            .filter(school_class=entry.school_class)
+            .values_list("student_id", flat=True)
         )
+        marked = AttendanceMark.objects.filter(entry=entry, on=on).values("student_id")
+        students = Student.objects.filter(models.Q(pk__in=enrolled) | models.Q(pk__in=marked))
+        return [
+            (pk, name, pk in enrolled)
+            for pk, name in students.order_by("full_name", "id").values_list("id", "full_name")
+        ]
 
     def sheet(self, request, entry, on):
         marks = {m.student_id: m for m in AttendanceMark.objects.filter(entry=entry, on=on)}
@@ -305,7 +313,7 @@ class PeriodAttendanceView(GenericAPIView):
             ),
             "students": [
                 {"id": pk, "name": name, "mark": marks.get(pk)}
-                for pk, name in self.roster(entry, on)
+                for pk, name, _ in self.roster(entry, on)
             ],
         }
 
@@ -324,10 +332,12 @@ class PeriodAttendanceView(GenericAPIView):
         body = self.get_serializer(data=request.data)
         body.is_valid(raise_exception=True)
         given = [mark["student"] for mark in body.validated_data["marks"]]
-        enrolled = [pk for pk, _ in self.roster(entry, on)]
+        roster = self.roster(entry, on)
+        enrolled = {pk for pk, _, here in roster if here}
+        allowed = {pk for pk, _, _ in roster}  # also the marked ones, who need not be listed
         # An id listed twice counts as extra, so each student has exactly one mark.
-        extra = sorted({pk for pk in given if pk not in enrolled or given.count(pk) > 1})
-        missing = sorted(set(enrolled) - set(given))
+        extra = sorted({pk for pk in given if pk not in allowed or given.count(pk) > 1})
+        missing = sorted(enrolled - set(given))
         if extra or missing:
             # Not a ValidationError, which would turn the ids into text.
             return Response(
@@ -392,11 +402,44 @@ def date_range(request):
     return days["from"], days["to"]
 
 
+def held_periods(klass, first, last, taken):
+    """The periods the class held from `first` to `last`, by day and bell period: the entries in
+    force on each day (its weekday, dates and school year), flagged by whether (entry, day) is in
+    `taken`."""
+    entries = (
+        TimetableEntry.objects.filter(
+            models.Q(valid_to__isnull=True) | models.Q(valid_to__gte=first),
+            school_class=klass,
+            valid_from__lte=last,
+        )
+        .select_related("bell_period", "subject", "school_year")
+        .order_by(*MORNING_FIRST)
+    )
+    days = [first + timedelta(days=n) for n in range((last - first).days + 1)]
+    return [
+        {
+            "on": day,
+            "session": e.bell_period.session,
+            "number": e.bell_period.number,
+            "subject_name": e.subject.name,
+            "taken": (e.pk, day) in taken,
+        }
+        for day in days
+        for e in entries
+        if e.weekday == day.isoweekday()
+        and e.valid_from <= day
+        and (e.valid_to is None or day <= e.valid_to)
+        and e.school_year.starts_on <= day <= e.school_year.ends_on
+    ]
+
+
 class ClassAttendanceView(GenericAPIView):
     """The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the
     homeroom teacher and the principal board: every student enrolled in the class during the range
-    (so one without an absence is still listed), each with their late or absent marks, taken in
-    this class's periods, by day and bell period."""
+    or marked in its periods (so one without an absence is still listed, and one who left after a
+    mark stays), each with their late or absent marks, taken in this class's periods, by day and
+    bell period. `periods` are the periods the class held in the range up to today, each flagged
+    `taken`, so "all present" reads apart from "not taken"."""
 
     permission_classes = [HasMembership, Can("attendance.view", class_to_view)]
     serializer_class = serializers.OverviewSerializer
@@ -416,32 +459,36 @@ class ClassAttendanceView(GenericAPIView):
             school_class=klass,
             valid_from__lte=last,
         )
+        in_class = AttendanceMark.objects.filter(entry__school_class=klass, on__range=(first, last))
         students = {
             pk: {"id": pk, "name": name, "marks": []}
-            for pk, name in enrollments.order_by("student__full_name", "student_id")
-            .values_list("student_id", "student__full_name")
-            .distinct()
+            for pk, name in Student.objects.filter(
+                models.Q(pk__in=enrollments.values("student_id"))
+                | models.Q(pk__in=in_class.values("student_id"))
+            )
+            .order_by("full_name", "id")
+            .values_list("id", "full_name")
         }
         marks = (
-            AttendanceMark.objects.filter(entry__school_class=klass, on__range=(first, last))
-            .exclude(status=AttendanceMark.Status.PRESENT)
+            in_class.exclude(status=AttendanceMark.Status.PRESENT)
             .select_related("entry__bell_period", "entry__subject")
             .order_by("on", *MORNING_FIRST_OF_ENTRY)
         )
         for mark in marks:
             period = mark.entry.bell_period
-            if mark.student_id in students:
-                students[mark.student_id]["marks"].append(
-                    {
-                        "on": mark.on,
-                        "session": period.session,
-                        "number": period.number,
-                        "subject_name": mark.entry.subject.name,
-                        "status": mark.status,
-                    }
-                )
+            students[mark.student_id]["marks"].append(
+                {
+                    "on": mark.on,
+                    "session": period.session,
+                    "number": period.number,
+                    "subject_name": mark.entry.subject.name,
+                    "status": mark.status,
+                }
+            )
+        taken = set(in_class.values_list("entry_id", "on").distinct())
+        periods = held_periods(klass, first, min(last, timezone.localdate()), taken)
         return Response(
             serializers.OverviewSerializer(
-                {"class_name": klass.name, "students": list(students.values())}
+                {"class_name": klass.name, "students": list(students.values()), "periods": periods}
             ).data
         )

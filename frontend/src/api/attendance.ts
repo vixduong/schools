@@ -7,6 +7,7 @@ export type Sheet = components["schemas"]["Sheet"];
 export type SheetStudent = components["schemas"]["SheetStudent"];
 export type Status = components["schemas"]["AttendanceStatusEnum"];
 export type ClassAttendance = components["schemas"]["Overview"];
+export type HeldPeriod = components["schemas"]["HeldPeriod"];
 
 /** The class list of a held period on a date, each student with their mark or null. */
 export const sheetQuery = (entry: number, on: string) =>

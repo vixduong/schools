@@ -210,7 +210,7 @@
         "/api/setup/attendance/{entry}/{on}/": {
             "get": {
                 "operationId": "setup_attendance_retrieve",
-                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date with each student's mark; PUT the whole sheet, in one transaction. A date the entry\nis not held on is a 404; a PUT for a day after today is a 400.",
+                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date (and anyone marked in it who has left the class since) with each student's mark; PUT\nthe whole sheet, in one transaction. A date the entry is not held on is a 404; a PUT for a day\nafter today is a 400.",
                 "parameters": [
                     {
                         "in": "path",
@@ -252,7 +252,7 @@
             },
             "put": {
                 "operationId": "setup_attendance_update",
-                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date with each student's mark; PUT the whole sheet, in one transaction. A date the entry\nis not held on is a 404; a PUT for a day after today is a 400.",
+                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date (and anyone marked in it who has left the class since) with each student's mark; PUT\nthe whole sheet, in one transaction. A date the entry is not held on is a 404; a PUT for a day\nafter today is a 400.",
                 "parameters": [
                     {
                         "in": "path",
@@ -841,7 +841,7 @@
         "/api/setup/classes/{id}/attendance/": {
             "get": {
                 "operationId": "setup_classes_attendance_retrieve",
-                "description": "The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the\nhomeroom teacher and the principal board: every student enrolled in the class during the range\n(so one without an absence is still listed), each with their late or absent marks, taken in\nthis class's periods, by day and bell period.",
+                "description": "The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the\nhomeroom teacher and the principal board: every student enrolled in the class during the range\nor marked in its periods (so one without an absence is still listed, and one who left after a\nmark stays), each with their late or absent marks, taken in this class's periods, by day and\nbell period. `periods` are the periods the class held in the range up to today, each flagged\n`taken`, so \"all present\" reads apart from \"not taken\".",
                 "parameters": [
                     {
                         "in": "query",
@@ -4894,6 +4894,35 @@
                     "valid_from"
                 ]
             },
+            "HeldPeriod": {
+                "type": "object",
+                "description": "A period the class held on a day, and whether its sheet was taken.",
+                "properties": {
+                    "on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "session": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "taken": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "number",
+                    "on",
+                    "session",
+                    "subject_name",
+                    "taken"
+                ]
+            },
             "ImportBatch": {
                 "type": "object",
                 "description": "A previewed (or committed) upload: `counts` of rows by result, every error as\n`{row, column, code}` (`column` is the template's header, null for a whole-row rule), and\neach row's result.",
@@ -5400,10 +5429,17 @@
                         "items": {
                             "$ref": "#/components/schemas/OverviewStudent"
                         }
+                    },
+                    "periods": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/HeldPeriod"
+                        }
                     }
                 },
                 "required": [
                     "class_name",
+                    "periods",
                     "students"
                 ]
             },

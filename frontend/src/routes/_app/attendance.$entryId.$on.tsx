@@ -8,7 +8,7 @@ import { FormError, formMessage } from "@/components/auth-page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUSES, viDate } from "@/lib/attendance";
-import { refusal } from "@/lib/messages";
+import { FormFailure, refusal } from "@/lib/messages";
 import { hhmm, periodName } from "@/lib/timetable";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +30,7 @@ function Screen() {
           quyền xem; kiểm tra mạng rồi tải lại trang.
         </p>
       )}
-      {sheet.data && <SheetForm sheet={sheet.data} />}
+      {sheet.data && <SheetForm key={`${entryId}-${on}`} sheet={sheet.data} />}
     </section>
   );
 }
@@ -67,6 +67,9 @@ function SheetForm({ sheet }: { sheet: Sheet }) {
           })),
         },
       });
+      // A rule only the database holds (`constraint`) is no invitation problem: say the generic.
+      if (!data && response.status === 400 && error && "constraint" in error)
+        throw new FormFailure(GENERIC, {});
       if (!data) throw refusal(response.status, error, GENERIC);
       return data;
     },
@@ -117,7 +120,7 @@ function SheetForm({ sheet }: { sheet: Sheet }) {
               </span>
               <div className="flex overflow-hidden rounded-md border-[1.5px] border-foreground">
                 {STATUSES.map((option) => {
-                  const checked = rows[student.id]?.status === option.value;
+                  const checked = (rows[student.id]?.status ?? "present") === option.value;
                   return (
                     <label
                       key={option.value}

@@ -1,4 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { format } from "date-fns";
+import { DAY_FORMAT, mondayOf } from "@/lib/attendance";
 import { ME, renderApp } from "./render-app";
 
 afterEach(() => {
@@ -126,4 +128,40 @@ test("a refused save keeps the sheet and says the class may have changed", async
   fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Danh sách lớp có thể đã thay đổi");
   expect(screen.getByRole("group", { name: "An" })).toBeInTheDocument();
+});
+
+test("a save the database refuses by a rule says the class list may have changed, not the invitation", async () => {
+  await renderApp(`/attendance/1/${TODAY}`, (r) => {
+    if (r.method === "PUT")
+      return { status: 400, body: { constraint: ["attendancemark_student_enrolled"] } };
+    return sheetApi([])(r);
+  });
+  await screen.findByRole("group", { name: "An" });
+  fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Danh sách lớp có thể đã thay đổi");
+  expect(alert).not.toHaveTextContent("mã mời");
+});
+
+test("the class overview marks a held period nobody took, apart from a taken one with no absence", async () => {
+  const monday = mondayOf(format(new Date(), DAY_FORMAT));
+  await renderApp("/classes/5/attendance", (r) => {
+    const { pathname } = new URL(r.url);
+    if (pathname === "/api/setup/classes/5/attendance/")
+      return {
+        status: 200,
+        body: {
+          class_name: "7A",
+          students: [{ id: 11, name: "An", marks: [] }],
+          periods: [
+            { on: monday, session: "morning", number: 1, subject_name: "Toán", taken: true },
+            { on: monday, session: "morning", number: 2, subject_name: "Văn", taken: false },
+          ],
+        },
+      };
+    if (pathname === "/api/auth/me/") return { status: 200, body: ME };
+  });
+  const row = (await screen.findByText("An")).closest("tr") as HTMLElement;
+  expect(within(row).getAllByText("chưa điểm danh")).toHaveLength(1);
+  expect(within(row).getByTitle("Chưa điểm danh: Sáng 2 Văn")).toBeInTheDocument();
 });

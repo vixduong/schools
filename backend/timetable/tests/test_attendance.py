@@ -6,20 +6,22 @@
 from datetime import timedelta
 
 import pytest
-from django.db import DataError, ProgrammingError
+from django.db import DataError, ProgrammingError, connection
 
 from audit.models import AuditEvent
 from schools.models import Enrollment, GuardianLink
 from schools.tests.factories import make_membership, make_student
 from tenancy.rls import school_scope
-from testing import A, enroll, make_account, member, sign_in
+from testing import A, enroll, make_account, member, owner_role, sign_in
 from timetable.models import AttendanceMark, TimetableEntry
 from timetable.tests.test_timetable import (
     TODAY,
     entry,
     refused,
+    save,
     teach,
     teacher,
+    week_7a,
     world,
 )
 
@@ -108,11 +110,24 @@ def test_a_mark_needs_the_period_held_on_its_date(schools, class_7a):
         after_year += DAY
     for bad in (TODAY - DAY, TODAY - 3 * WEEK, after_year):
         refused("attendancemark_fits_entry", a, lambda bad=bad: mark(world, a, world["an"], bad))
-    # Once the entry ended, later days are refused and earlier ones stay possible.
+    # Once an entry ended, later days are refused and earlier ones stay possible (this one has
+    # no marks yet: the one above keeps its own).
     with school_scope(a.pk):
-        TimetableEntry.objects.filter(pk=world["period"].pk).update(valid_to=TODAY - 3 * DAY)
-        mark(world, a, world["bao"], TODAY - WEEK)
-    refused("attendancemark_fits_entry", a, lambda: mark(world, a, world["bao"], TODAY))
+        ended = entry(
+            world,
+            a,
+            weekday=TODAY.isoweekday(),
+            valid_from=TODAY - 2 * WEEK,
+            school_class=world["7A"],
+            bell_period=world["bell"]["morning", 2],
+        )
+        TimetableEntry.objects.filter(pk=ended.pk).update(valid_to=TODAY - 3 * DAY)
+        mark({**world, "period": ended}, a, world["bao"], TODAY - WEEK)
+    refused(
+        "attendancemark_fits_entry",
+        a,
+        lambda: mark({**world, "period": ended}, a, world["bao"], TODAY),
+    )
 
 
 def test_a_student_must_be_enrolled_in_the_class_on_the_date(schools, class_7a):
@@ -169,6 +184,8 @@ def test_the_app_role_corrects_a_mark_but_never_moves_or_deletes_it(schools, cla
 
 
 def test_only_a_correction_after_the_day_is_audited(schools, class_7a):
+    # With the clock in Vietnam and the database session in UTC this only tells the School's day
+    # from the session's between 00:00 and 07:00 local; the test below forces the difference.
     a, _ = schools
     world = class_7a
     with school_scope(a.pk):
@@ -181,6 +198,80 @@ def test_only_a_correction_after_the_day_is_audited(schools, class_7a):
     (event,) = audited(a)
     assert (event.action, event.target_id) == ("update", past.pk)
     assert event.details["status"] == ["present", "absent_excused"]
+
+
+def test_the_audited_day_is_the_schools_not_the_database_sessions(schools, class_7a):
+    a, _ = schools
+    world = class_7a
+    yesterday = TODAY - DAY
+    with school_scope(a.pk):
+        # An entry on yesterday's weekday, so a mark dated the School's yesterday is possible.
+        before = entry(
+            world,
+            a,
+            weekday=yesterday.isoweekday(),
+            bell_period=world["bell"]["morning", 2],
+            valid_from=TODAY - 2 * WEEK,
+        )
+        today_mark = mark(world, a, world["an"], TODAY)
+        yesterday_mark = AttendanceMark.objects.create(
+            school=a,
+            entry=before,
+            on=yesterday,
+            student=world["an"],
+            status=Status.PRESENT,
+            recorded_by=world["t1"],
+        )
+        # Put the session in a zone whose date is not the School's (UTC-12 or UTC+14: at any hour
+        # one of them is a day off), as if the clock had passed midnight in one place only.
+        with connection.cursor() as cursor:
+            for zone in ("Etc/GMT+12", "Etc/GMT-14"):
+                cursor.execute(
+                    "SELECT (now() AT TIME ZONE %s)::date "
+                    "<> (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date",
+                    [zone],
+                )
+                if cursor.fetchone()[0]:
+                    cursor.execute("SELECT set_config('TimeZone', %s, true)", [zone])
+                    break
+        AttendanceMark.objects.filter(pk__in=[today_mark.pk, yesterday_mark.pk]).update(
+            status=Status.LATE
+        )
+    (event,) = audited(a)  # the School's yesterday is a correction, its today is not
+    assert event.target_id == yesterday_mark.pk
+
+
+def test_a_mark_is_never_for_a_day_that_has_not_come(schools, class_7a):
+    a, _ = schools
+    world = class_7a
+    refused(
+        "attendancemark_not_in_the_future", a, lambda: mark(world, a, world["an"], TODAY + WEEK)
+    )
+    with school_scope(a.pk):
+        mark(world, a, world["an"], TODAY)
+
+
+def test_an_entry_keeps_the_marks_taken_in_it(schools, class_7a):
+    a, _ = schools
+    world, period = class_7a, class_7a["period"]
+    with school_scope(a.pk):
+        mark(world, a, world["an"], TODAY - WEEK)
+
+    def end(pk, day):
+        TimetableEntry.objects.filter(pk=pk).update(valid_to=day)
+
+    def delete(pk):
+        # Not the ORM's delete(), which stops at the PROTECT foreign key before the database.
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM timetable_timetableentry WHERE id = %s", [pk])
+
+    refused("timetableentry_keeps_its_attendance", a, lambda: end(period.pk, TODAY - WEEK - DAY))
+    refused("timetableentry_keeps_its_attendance", a, lambda: delete(period.pk))
+    with school_scope(a.pk):
+        end(period.pk, TODAY - WEEK)  # the last mark's own day is still inside it
+        other = entry(world, a, weekday=period.weekday % 7 + 1, valid_from=TODAY - WEEK)
+        end(other.pk, TODAY)  # an entry without marks ends and goes as before
+        delete(other.pk)
 
 
 # --- the API --------------------------------------------------------------------------------
@@ -349,6 +440,98 @@ def test_who_may_take_and_who_may_read_a_period(schools, admin_a, class_7a):
         assert put(client, world, body).status_code == 403
 
 
+def after_a_move(admin, world):
+    """The sheet taken for today; then An moves to 7B from today (his 7A period ended yesterday)."""
+    t1 = sign_in(A, "t1@example.com")
+    members = (world["an"], world["bao"], world["dung"])
+    assert put(t1, world, sheet(*members, An="absent_excused")).status_code == 200
+    with school_scope(world["period"].school_id):
+        row = Enrollment.objects.get(student=world["an"], school_class=world["7A"])
+    moved = admin.post(
+        f"/api/setup/enrollments/{row.pk}/move/",
+        {"school_class": world["7B"].pk, "on": str(TODAY)},
+        content_type="application/json",
+        HTTP_HOST=A,
+    )
+    assert moved.status_code == 201, moved.json()
+    return t1
+
+
+def test_a_student_who_moves_class_after_the_mark_stays_on_the_old_sheet(admin, schools, class_7a):
+    a, _ = schools
+    world = class_7a
+    an, bao, dung = world["an"], world["bao"], world["dung"]
+    with school_scope(a.pk):
+        in_7b = entry(
+            world,
+            a,
+            school_class=world["7B"],
+            bell_period=world["bell"]["morning", 2],
+            weekday=TODAY.isoweekday(),
+            valid_from=TODAY - 2 * WEEK,
+        )
+    t1 = after_a_move(admin, world)
+
+    # 7A's sheet still lists An with his mark, and takes a correction of it without listing him.
+    listed = t1.get(sheet_url(world), HTTP_HOST=A).json()["students"]
+    assert [(s["name"], (s["mark"] or {}).get("status")) for s in listed] == [
+        ("An", "absent_excused"),
+        ("Bao", "present"),
+        ("Dung", "present"),
+    ]
+    assert t1.get("/api/setup/timetable/mine/", {"on": str(TODAY)}, HTTP_HOST=A).json()[0][
+        "attendance"
+    ] == {"absent": 1, "late": 0}  # the count agrees with the sheet
+    kept = put(t1, world, sheet(bao, dung, Bao="late"))  # An is not required
+    assert kept.status_code == 200, kept.json()
+    assert stored(a)[an.pk]["status"] == "absent_excused"
+    corrected = put(t1, world, sheet(an, bao, dung, An="late"))  # and may be listed
+    assert corrected.status_code == 200, corrected.json()
+    assert stored(a)[an.pk]["status"] == "late"
+    # Only the marked: Binh (unmarked, in 7B) is an extra.
+    refused_sheet = put(t1, world, sheet(an, bao, dung, world["binh"]))
+    assert refused_sheet.json() == {"students": {"missing": [], "extra": [world["binh"].pk]}}
+
+    # 7B's sheet requires An on the days he is enrolled there (from today), not before.
+    def put_7b(day, *students):
+        url = f"/api/setup/attendance/{in_7b.pk}/{day}/"
+        body = {"marks": sheet(*students)}
+        return t1.put(url, body, content_type="application/json", HTTP_HOST=A)
+
+    binh = world["binh"]
+    assert put_7b(TODAY, binh).json() == {"students": {"missing": [an.pk], "extra": []}}
+    assert put_7b(TODAY, an, binh).status_code == 200
+    last_week = put_7b(TODAY - WEEK, an, binh)
+    assert last_week.json() == {"students": {"missing": [], "extra": [an.pk]}}
+    assert put_7b(TODAY - WEEK, binh).status_code == 200
+
+
+def test_a_student_who_leaves_after_the_mark_stays_on_the_sheet(admin, schools, class_7a):
+    a, _ = schools
+    world = class_7a
+    an, bao, dung = world["an"], world["bao"], world["dung"]
+    t1 = sign_in(A, "t1@example.com")
+    assert put(t1, world, sheet(an, bao, dung)).status_code == 200
+    # Dung's leave is recorded afterwards and backdated to yesterday: not enrolled today.
+    left = admin.post(
+        f"/api/setup/students/{dung.pk}/leave/",
+        {"reason": "dropped_out", "on": str(TODAY - DAY)},
+        content_type="application/json",
+        HTTP_HOST=A,
+    )
+    assert left.status_code == 200, left.json()
+    listed = t1.get(sheet_url(world), HTTP_HOST=A).json()["students"]
+    assert [s["name"] for s in listed] == ["An", "Bao", "Dung"]
+    assert put(t1, world, sheet(an, bao)).status_code == 200
+    corrected = put(t1, world, sheet(an, bao, dung, Dung="absent_unexcused"))
+    assert corrected.status_code == 200, corrected.json()
+    assert stored(a)[dung.pk]["status"] == "absent_unexcused"
+    # An unmarked day is another matter: the sheet of two weeks ago needs those enrolled then.
+    assert put(t1, world, sheet(an, bao, dung), TODAY - 2 * WEEK).json()["students"]["extra"] == [
+        dung.pk
+    ]
+
+
 def overview_url(klass_id):
     return f"/api/setup/classes/{klass_id}/attendance/"
 
@@ -387,6 +570,76 @@ def test_the_homeroom_overview_lists_every_student_with_their_absences_by_day(sc
         ("Bao", []),
         ("Dung", []),
     ]
+
+
+def test_the_overview_lists_the_held_periods_and_whether_each_was_taken(schools, class_7a):
+    a, _ = schools
+    world = class_7a
+    with school_scope(a.pk):  # a second weekly period, never taken
+        entry(
+            world,
+            a,
+            weekday=TODAY.isoweekday(),
+            bell_period=world["bell"]["morning", 2],
+            subject=world["lit"],
+            valid_from=TODAY - 2 * WEEK,
+        )
+    take(world, a, TODAY)
+    take(world, a, TODAY - 2 * WEEK)
+    homeroom = sign_in(A, "alice@example.com")
+    # A range reaching past today lists only the days that have come.
+    response = overview(homeroom, world["7A"], TODAY - 2 * WEEK, TODAY + WEEK)
+    periods = [
+        (p["on"], p["session"], p["number"], p["subject_name"], p["taken"])
+        for p in response.json()["periods"]
+    ]
+    assert periods == [
+        (str(TODAY - 2 * WEEK), "morning", 1, "MATH", True),
+        (str(TODAY - 2 * WEEK), "morning", 2, "LIT", False),
+        (str(TODAY - WEEK), "morning", 1, "MATH", False),
+        (str(TODAY - WEEK), "morning", 2, "LIT", False),
+        (str(TODAY), "morning", 1, "MATH", True),
+        (str(TODAY), "morning", 2, "LIT", False),
+    ]
+
+
+def test_the_overview_still_lists_a_student_who_left_after_a_mark(admin, class_7a):
+    world = class_7a
+    after_a_move(admin, world)  # An's 7A enrollment ended yesterday, outside a range of today
+    homeroom = sign_in(A, "alice@example.com")
+    students = overview(homeroom, world["7A"], TODAY, TODAY).json()["students"]
+    assert {s["name"]: [m["status"] for m in s["marks"]] for s in students} == {
+        "An": ["absent_excused"],
+        "Bao": [],
+        "Dung": [],
+    }
+
+
+def test_a_replacement_that_would_strand_marks_is_a_400_not_a_500(admin, schools, class_7a):
+    a, _ = schools
+    world, start = class_7a, TODAY + WEEK
+    with school_scope(a.pk):
+        later = entry(
+            world,
+            a,
+            weekday=start.isoweekday(),
+            valid_from=start,
+            school_class=world["7A"],
+            bell_period=world["bell"]["morning", 2],
+        )
+    # A mark on a day that has not come cannot be written (the trigger above): bypass it, as a
+    # hand-written statement or a bug could, to see what the replacement does about it.
+    with owner_role(), connection.cursor() as cursor:
+        cursor.execute("ALTER TABLE timetable_attendancemark DISABLE TRIGGER USER")
+        try:
+            with school_scope(a.pk):
+                mark({**world, "period": later}, a, world["an"], start)
+        finally:
+            cursor.execute("ALTER TABLE timetable_attendancemark ENABLE TRIGGER USER")
+    response = save(admin, world["7A"], start, week_7a(world)[:1])
+    assert (response.status_code, response.json()) == (400, {"constraint": ["unknown"]})
+    with school_scope(a.pk):
+        assert TimetableEntry.objects.filter(pk=later.pk).exists()
 
 
 def test_who_may_read_a_class_overview(schools, admin_a, class_7a):

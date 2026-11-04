@@ -176,6 +176,17 @@ class OverviewStudentSerializer(serializers.Serializer):
     marks = AbsenceSerializer(many=True)
 
 
+class HeldPeriodSerializer(serializers.Serializer):
+    """A period the class held on a day, and whether its sheet was taken."""
+
+    on = serializers.DateField()
+    session = serializers.CharField()
+    number = serializers.IntegerField()
+    subject_name = serializers.CharField()
+    taken = serializers.BooleanField()
+
+
 class OverviewSerializer(serializers.Serializer):
     class_name = serializers.CharField()
     students = OverviewStudentSerializer(many=True)
+    periods = HeldPeriodSerializer(many=True)

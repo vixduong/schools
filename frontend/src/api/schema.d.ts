@@ -152,14 +152,16 @@ export interface paths {
         };
         /**
          * @description The attendance of one held period (a timetable entry on a date): GET the class list as of
-         *     that date with each student's mark; PUT the whole sheet, in one transaction. A date the entry
-         *     is not held on is a 404; a PUT for a day after today is a 400.
+         *     that date (and anyone marked in it who has left the class since) with each student's mark; PUT
+         *     the whole sheet, in one transaction. A date the entry is not held on is a 404; a PUT for a day
+         *     after today is a 400.
          */
         get: operations["setup_attendance_retrieve"];
         /**
          * @description The attendance of one held period (a timetable entry on a date): GET the class list as of
-         *     that date with each student's mark; PUT the whole sheet, in one transaction. A date the entry
-         *     is not held on is a 404; a PUT for a day after today is a 400.
+         *     that date (and anyone marked in it who has left the class since) with each student's mark; PUT
+         *     the whole sheet, in one transaction. A date the entry is not held on is a 404; a PUT for a day
+         *     after today is a 400.
          */
         put: operations["setup_attendance_update"];
         post?: never;
@@ -318,8 +320,10 @@ export interface paths {
         /**
          * @description The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the
          *     homeroom teacher and the principal board: every student enrolled in the class during the range
-         *     (so one without an absence is still listed), each with their late or absent marks, taken in
-         *     this class's periods, by day and bell period.
+         *     or marked in its periods (so one without an absence is still listed, and one who left after a
+         *     mark stays), each with their late or absent marks, taken in this class's periods, by day and
+         *     bell period. `periods` are the periods the class held in the range up to today, each flagged
+         *     `taken`, so "all present" reads apart from "not taken".
          */
         get: operations["setup_classes_attendance_retrieve"];
         put?: never;
@@ -1726,6 +1730,15 @@ export interface components {
             /** Format: date */
             valid_to?: string | null;
         };
+        /** @description A period the class held on a day, and whether its sheet was taken. */
+        HeldPeriod: {
+            /** Format: date */
+            on: string;
+            session: string;
+            number: number;
+            subject_name: string;
+            taken: boolean;
+        };
         /**
          * @description A previewed (or committed) upload: `counts` of rows by result, every error as
          *     `{row, column, code}` (`column` is the template's header, null for a whole-row rule), and
@@ -1906,6 +1919,7 @@ export interface components {
         Overview: {
             class_name: string;
             students: components["schemas"]["OverviewStudent"][];
+            periods: components["schemas"]["HeldPeriod"][];
         };
         OverviewStudent: {
             id: number;

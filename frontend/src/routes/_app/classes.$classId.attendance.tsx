@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { useState } from "react";
-import { classAttendanceQuery } from "@/api/attendance";
+import { classAttendanceQuery, type HeldPeriod } from "@/api/attendance";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -17,6 +17,17 @@ import { periodName, WEEKDAYS } from "@/lib/timetable";
 
 export const Route = createFileRoute("/_app/classes/$classId/attendance")({ component: Screen });
 
+/** The day's held periods nobody took yet, lightly: an empty cell then means "not taken", not "all present". */
+function NotTaken({ periods }: { periods: HeldPeriod[] }) {
+  if (!periods.length) return null;
+  const names = periods.map((p) => `${periodName(p)} ${p.subject_name}`).join(", ");
+  return (
+    <span title={`Chưa điểm danh: ${names}`} className="mr-1 text-xs italic text-ink-3">
+      chưa điểm danh
+    </span>
+  );
+}
+
 function Screen() {
   const { classId } = Route.useParams();
   const today = format(new Date(), DAY_FORMAT);
@@ -25,6 +36,7 @@ function Screen() {
   const days = WEEKDAYS.map((weekday, i) => ({ ...weekday, on: shiftDay(week, i) }));
   const lastDay = shiftDay(week, WEEKDAYS.length - 1);
   const overview = useQuery(classAttendanceQuery(Number(classId), week, lastDay));
+  const notTaken = overview.data?.periods.filter((p) => !p.taken) ?? [];
 
   return (
     <section className="grid gap-6">
@@ -82,6 +94,7 @@ function Screen() {
                 <TableCell className="font-semibold">{student.name}</TableCell>
                 {days.map((day) => (
                   <TableCell key={day.on} className="tabular-nums">
+                    <NotTaken periods={notTaken.filter((p) => p.on === day.on)} />
                     {student.marks
                       .filter((mark) => mark.on === day.on)
                       .map((mark) => {

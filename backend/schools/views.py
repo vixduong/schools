@@ -266,7 +266,9 @@ class StudentViewSet(SetupViewSet):
         reason, on = leaving.validated_data["reason"], leaving.validated_data["on"]
         destination = leaving.validated_data.get("destination", "")
         with self._database_rules():
-            student = Student.objects.select_for_update().get(pk=pk)
+            # NO KEY UPDATE: a row that references the student (a mark) holds a key share on it;
+            # FOR UPDATE would deadlock with it against the enrollment lock below.
+            student = Student.objects.select_for_update(no_key=True).get(pk=pk)
             events = StudentStatusEvent.objects.filter(student=student)
             if status_as_of(events, on) != Student.Status.STUDYING:
                 raise ValidationError({"status": ["not_studying"]})
@@ -308,7 +310,9 @@ class StudentViewSet(SetupViewSet):
         day has come is a fact and is refused. This is the only way a `valid_to` is cleared."""
         self.get_object()  # 404 for another School's row
         with self._database_rules():
-            student = Student.objects.select_for_update().get(pk=pk)
+            # NO KEY UPDATE: a row that references the student (a mark) holds a key share on it;
+            # FOR UPDATE would deadlock with it against the enrollment lock below.
+            student = Student.objects.select_for_update(no_key=True).get(pk=pk)
             last = self._last_enrollment(student)
             if last is not None and last.reason_ended == Enrollment.ReasonEnded.YEAR_END:
                 # A leave recorded between school years has no enrollment to reopen: cancelling

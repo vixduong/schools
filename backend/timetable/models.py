@@ -139,11 +139,13 @@ class TimetableEntry(TenantModel):
 class AttendanceMark(TenantModel):
     """One student's attendance in one held period (a TimetableEntry on a date). A period is taken
     when it has marks; the sheet is saved whole, so a taken period has a mark for every student
-    enrolled in the class that day. The app role may correct a mark's status and note (never its
-    entry, date or student) and never delete one. Triggers `attendancemark_fits_entry` (the entry
-    is in force on `on`, on its weekday) and `attendancemark_student_enrolled` hold the
-    cross-table rules; an update of a mark dated before the day it is made is audited (all in
-    the migration)."""
+    enrolled in the class when it was taken (one who left the class since keeps the mark, and the
+    sheet still lists it). The app role may correct a mark's status and note (never its entry,
+    date or student) and never delete one. Triggers `attendancemark_fits_entry` (the entry is in
+    force on `on`, on its weekday), `attendancemark_student_enrolled` and
+    `attendancemark_not_in_the_future` hold the cross-table rules, and
+    `timetableentry_keeps_its_attendance` stops an entry losing its marks; an update of a mark
+    dated before the day it is made is audited (all in the migrations)."""
 
     class Status(models.TextChoices):
         PRESENT = "present"
