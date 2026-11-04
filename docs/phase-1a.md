@@ -19,9 +19,9 @@ Phase 1a of `docs/roadmap.md` ("ready for the start of term"), cut into slices t
 
 Order follows dependencies: attendance needs the timetable; leave requests pre-fill attendance; the workflow needs entry; transfers need the gradebook; the Guardian and student views assemble what slices 1–7 expose. Slices 4 and 5 carry the most risk (no lost or wrong scores is the phase's acceptance bar), so they get an independent review before slice 6.
 
-## Open decisions (owner)
+## Decisions (owner, 2026-11-04)
 
-- **When is a score released** to the student and their Guardians (the matrix's "once released")? Needed by slice 4.
+- **Score release is per column, by the subject teacher** (slice 4): the teacher publishes a column when it is complete, and only then do the student and their Guardians see it; a later change to a released score shows as changed; approving the gradebook releases every column still unpublished.
 
 ## Not in 1a
 
