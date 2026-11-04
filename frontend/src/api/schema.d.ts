@@ -2066,7 +2066,7 @@ export interface components {
          */
         RelationEnum: "mother" | "father" | "grandparent" | "other";
         /**
-         * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (today or later,
+         * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,
          *     inside the class's year). The class comes from the URL, not from the body.
          */
         ReplaceTimetable: {

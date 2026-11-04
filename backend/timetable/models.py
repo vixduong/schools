@@ -80,8 +80,8 @@ class TimetableEntry(TenantModel):
     (`classes/{id}/timetable/`). The class, the teacher and the room each have at most one entry
     in a slot at a time (exclusion constraints; a NULL room never clashes). The School year of the
     class and of the bell period is the entry's `school_year` (composite foreign keys); the
-    triggers `timetableentry_inside_school_year` and `timetableentry_teacher_teaches` hold the
-    cross-table rules, in the migration."""
+    triggers `timetableentry_inside_school_year`, `timetableentry_teacher_teaches` and
+    `school_year_keeps_its_timetable` hold the cross-table rules, in the migrations."""
 
     school_year = models.ForeignKey(
         "schools.SchoolYear", on_delete=models.PROTECT, db_constraint=False

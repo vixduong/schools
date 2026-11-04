@@ -6,7 +6,8 @@ import pytest
 from django.db import IntegrityError, ProgrammingError
 from django.utils import timezone
 
-from accounts.models import RoleAssignment
+from accounts.models import Membership, RoleAssignment
+from audit.models import AuditEvent
 from schools.models import GuardianLink, Room, SchoolYear
 from schools.tests.factories import make_membership, make_subject
 from tenancy.rls import school_scope
@@ -17,9 +18,12 @@ pytestmark = pytest.mark.usefixtures("as_app_role")
 
 TODAY = timezone.localdate()
 DAY = timedelta(days=1)
+TOMORROW = TODAY + DAY  # a replacement starts after today
 
 
-def teach(school, membership, subject, klass, *, valid_from=TODAY - 30 * DAY, valid_to=None):
+def teach(
+    school, membership, subject, klass, *, valid_from=TODAY - 30 * DAY, valid_to=None, **extra
+):
     return RoleAssignment.objects.create(
         school=school,
         membership=membership,
@@ -29,6 +33,7 @@ def teach(school, membership, subject, klass, *, valid_from=TODAY - 30 * DAY, va
         school_class=klass,
         valid_from=valid_from,
         valid_to=valid_to,
+        **extra,
     )
 
 
@@ -138,7 +143,37 @@ def test_an_entry_lies_inside_its_school_year(schools, world):
     ):
         refused("timetableentry_inside_school_year", a, lambda bad=bad: entry(world, a, **bad))
     with school_scope(a.pk):
-        entry(world, a, valid_from=year.ends_on)  # an open entry only has to start inside it
+        saved = entry(world, a, valid_from=year.ends_on)  # an open one only has to start inside it
+    # Ending an entry past the year is the same refusal (the app role may update valid_to).
+    with pytest.raises(IntegrityError, match="timetableentry_inside_school_year"):
+        with school_scope(a.pk):
+            TimetableEntry.objects.filter(pk=saved.pk).update(valid_to=year.ends_on + DAY)
+
+
+def test_a_school_year_cannot_shrink_past_its_timetable(admin, schools, world):
+    a, _ = schools
+    year = world["year"]
+    with school_scope(a.pk):
+        entry(world, a, valid_from=TODAY + 10 * DAY)
+        entry(world, a, weekday=2, valid_to=TODAY + 20 * DAY)
+
+    def move(**dates):
+        return admin.patch(
+            f"/api/setup/school-years/{year.pk}/",
+            {key: str(day) for key, day in dates.items()},
+            content_type="application/json",
+            HTTP_HOST=A,
+        )
+
+    # An end before the open entry starts, and an end before the other entry ends. (The start
+    # cannot move past an enrollment's, which begins with the year.)
+    for ends_on in (TODAY + 5 * DAY, TODAY + 15 * DAY):
+        response = move(ends_on=ends_on)
+        assert (response.status_code, response.json()) == (
+            400,
+            {"constraint": ["school_year_keeps_its_timetable"]},
+        )
+    assert move(ends_on=TODAY + 30 * DAY).status_code == 200
 
 
 def test_an_entry_ends_on_or_after_it_starts_and_on_a_weekday(schools, world):
@@ -170,6 +205,40 @@ def test_the_teacher_must_hold_the_subject_teacher_role_for_that_class_on_the_fi
     refused("timetableentry_teacher_teaches", a, lambda: entry(world, a, teacher=t2, subject=lit))
     with school_scope(a.pk):
         entry(world, a, teacher=t2, subject=lit, valid_from=assignment.valid_from)
+
+
+def test_a_pending_or_ended_role_or_an_inactive_membership_does_not_let_a_teacher_teach(
+    schools, world
+):
+    a, _ = schools
+    lit, t2 = world["lit"], world["t2"]
+    with school_scope(a.pk):
+        pending = teach(
+            a,
+            t2,
+            lit,
+            world["7A"],
+            status=RoleAssignment.Status.PENDING_CONFIRMATION,
+            requested_by=world["t1"],
+        )
+    refused("timetableentry_teacher_teaches", a, lambda: entry(world, a, teacher=t2, subject=lit))
+    with school_scope(a.pk):
+        RoleAssignment.objects.filter(pk=pending.pk).update(
+            status=RoleAssignment.Status.ACTIVE, requested_by=None
+        )
+        entry(world, a, teacher=t2, subject=lit)  # active: the entry is accepted
+    # The assignment ended before the entry starts.
+    with school_scope(a.pk):
+        RoleAssignment.objects.filter(pk=pending.pk).update(valid_to=TODAY - 2 * DAY)
+    refused(
+        "timetableentry_teacher_teaches",
+        a,
+        lambda: entry(world, a, teacher=t2, subject=lit, weekday=2, valid_from=TODAY - DAY),
+    )
+    # An inactive Membership teaches nothing, whatever its Role Assignments say.
+    with school_scope(a.pk):
+        Membership.objects.filter(pk=world["t1"].pk).update(status=Membership.Status.INACTIVE)
+    refused("timetableentry_teacher_teaches", a, lambda: entry(world, a, weekday=3))
 
 
 def test_a_later_end_of_the_role_assignment_leaves_the_entry_alone(schools, world):
@@ -205,6 +274,14 @@ def test_a_bell_period_and_a_class_of_one_school_year_serve_one_entry(schools, w
         "timetableentry_bell_period_in_school_year",
         a,
         lambda: entry(world, a, bell_period=elsewhere),
+    )
+    # The class belongs to the other school year than the entry's.
+    refused(
+        "timetableentry_class_in_school_year",
+        a,
+        lambda: entry(
+            world, a, school_year=later, bell_period=elsewhere, valid_from=later.starts_on
+        ),
     )
 
 
@@ -303,36 +380,36 @@ def shown(response):
 
 
 def test_the_admin_saves_a_week_for_two_classes(admin, world):
-    first = save(admin, world["7A"], TODAY, week_7a(world))
+    first = save(admin, world["7A"], TOMORROW, week_7a(world))
     assert first.status_code == 201, first.json()
     second = save(
         admin,
         world["7B"],
-        TODAY,
+        TOMORROW,
         [slot(world, 1, ("morning", 2), world["math"], world["t2"], world["rooms"][1])],
     )
     assert second.status_code == 201, second.json()
-    in_7a = get(admin, url(world["7A"]))
+    in_7a = get(admin, url(world["7A"]), on=str(TOMORROW))
     assert in_7a.status_code == 200
     assert [(e["weekday"], e["bell_period"]) for e in in_7a.json()] == [
         (1, world["bell"]["morning", 1].pk),
         (1, world["bell"]["morning", 2].pk),
         (2, world["bell"]["afternoon", 1].pk),
     ]
-    assert len(get(admin, url(world["7B"])).json()) == 1
+    assert len(get(admin, url(world["7B"]), on=str(TOMORROW)).json()) == 1
 
 
 def test_a_new_week_replaces_the_old_from_a_day_and_the_old_one_stays_readable(
     admin, schools, world
 ):
     a, _ = schools
-    save(admin, world["7A"], TODAY, week_7a(world))
+    save(admin, world["7A"], TOMORROW, week_7a(world))
     start = TODAY + 7 * DAY
     replaced = save(admin, world["7A"], start, week_7a(world)[:1])
     assert replaced.status_code == 201, replaced.json()
     assert len(get(admin, url(world["7A"]), on=str(start - DAY)).json()) == 3
     assert len(get(admin, url(world["7A"]), on=str(start)).json()) == 1
-    assert len(get(admin, url(world["7A"])).json()) == 3  # today: the old week
+    assert len(get(admin, url(world["7A"]), on=str(TOMORROW)).json()) == 3  # the old week
 
     # Saving the same day again corrects a draft: the rows not yet in force are deleted and
     # recreated, the in-force ones are not touched twice.
@@ -351,9 +428,12 @@ def test_a_new_week_replaces_the_old_from_a_day_and_the_old_one_stays_readable(
         assert rows.filter(valid_from=TODAY + 3 * DAY, valid_to=None).count() == 1
 
 
-def test_a_week_starts_today_or_later_inside_the_class_year(admin, world):
+def test_a_week_starts_after_today_inside_the_class_year(admin, world):
     year = world["year"]
-    assert save(admin, world["7A"], TODAY - DAY, []).json() == {"valid_from": ["in_the_past"]}
+    # Today's periods are never rewritten (attendance refers to them).
+    for day in (TODAY - DAY, TODAY):
+        assert save(admin, world["7A"], day, []).json() == {"valid_from": ["not_after_today"]}
+    assert save(admin, world["7A"], TOMORROW, []).status_code == 201
     assert save(admin, world["7A"], year.ends_on + DAY, []).json() == {
         "valid_from": ["outside_school_year"]
     }
@@ -364,16 +444,19 @@ def test_a_clash_is_refused_naming_the_other_entry_and_nothing_is_saved(admin, s
     a, _ = schools
     r1, r2 = world["rooms"]
     save(
-        admin, world["7B"], TODAY, [slot(world, 1, ("morning", 1), world["math"], world["t2"], r1)]
+        admin,
+        world["7B"],
+        TOMORROW,
+        [slot(world, 1, ("morning", 1), world["math"], world["t2"], r1)],
     )
     mine = [slot(world, 1, ("morning", 1), world["math"], world["t1"], r2)]
-    assert save(admin, world["7A"], TODAY, mine).status_code == 201
+    assert save(admin, world["7A"], TOMORROW, mine).status_code == 201
 
     # t1 is now in 7A, and the next class asks for t1 at the same time.
     teacher_clash = save(
         admin,
         world["7B"],
-        TODAY + DAY,
+        TOMORROW + DAY,
         [slot(world, 1, ("morning", 1), world["math"], world["t1"], r1)],
     )
     assert teacher_clash.status_code == 400
@@ -392,7 +475,7 @@ def test_a_clash_is_refused_naming_the_other_entry_and_nothing_is_saved(admin, s
     room_clash = save(
         admin,
         world["7A"],
-        TODAY + DAY,
+        TOMORROW + DAY,
         [slot(world, 1, ("morning", 1), world["math"], world["t1"], r1)],
     )
     assert room_clash.json()["constraint"] == ["timetableentry_room_clash"]
@@ -408,7 +491,7 @@ def test_a_class_cannot_have_two_entries_in_one_slot_of_the_week(admin, world):
         slot(world, 1, ("morning", 1), world["math"], world["t1"]),
         slot(world, 1, ("morning", 1), world["lit"], world["t1"]),
     ]
-    refused_body = save(admin, world["7A"], TODAY, twice).json()
+    refused_body = save(admin, world["7A"], TOMORROW, twice).json()
     assert refused_body["constraint"] in (
         ["timetableentry_class_clash"],
         ["timetableentry_teacher_clash"],
@@ -418,7 +501,7 @@ def test_a_class_cannot_have_two_entries_in_one_slot_of_the_week(admin, world):
 
 def test_a_teacher_who_does_not_teach_it_is_refused(admin, world):
     wrong = [slot(world, 1, ("morning", 1), world["lit"], world["t2"])]
-    assert save(admin, world["7A"], TODAY, wrong).json() == {
+    assert save(admin, world["7A"], TOMORROW, wrong).json() == {
         "constraint": ["timetableentry_teacher_teaches"]
     }
 
@@ -440,7 +523,7 @@ def test_a_bell_period_of_another_year_or_school_is_refused(admin, schools, worl
     body = [
         {**slot(world, 1, ("morning", 1), world["math"], world["t1"]), "bell_period": foreign.pk}
     ]
-    assert save(admin, world["7A"], TODAY, body).status_code == 400
+    assert save(admin, world["7A"], TOMORROW, body).status_code == 400
 
 
 def test_a_class_that_does_not_exist_is_not_found(admin, world):
@@ -452,7 +535,7 @@ def test_a_class_that_does_not_exist_is_not_found(admin, world):
 
 def test_who_may_read_and_write_a_class_timetable(admin, schools, world):
     a, _ = schools
-    save(admin, world["7A"], TODAY, week_7a(world)[:1])
+    save(admin, world["7A"], TOMORROW, week_7a(world)[:1])
     member(a, make_account("board@example.com", display_name="Board"), "principal_board")
     parent = make_account(None, "0912000002", "Guardian")
     with school_scope(a.pk):
@@ -467,10 +550,10 @@ def test_who_may_read_and_write_a_class_timetable(admin, schools, world):
     homeroom = sign_in(A, "alice@example.com")
     # The principal board reads every class and writes none.
     assert get(board, url(world["7A"])).status_code == 200
-    assert save(board, world["7A"], TODAY, []).status_code == 403
+    assert save(board, world["7A"], TOMORROW, []).status_code == 403
     # A subject teacher reads the classes they teach, and only those; writes none.
     assert get(t1, url(world["7A"])).status_code == 200
-    assert save(t1, world["7A"], TODAY, []).status_code == 403
+    assert save(t1, world["7A"], TOMORROW, []).status_code == 403
     assert get(t2, url(world["7B"])).status_code == 200
     # The homeroom teacher reads their class (alice: 7A) and no other.
     assert get(homeroom, url(world["7A"])).status_code == 200
@@ -482,9 +565,13 @@ def test_who_may_read_and_write_a_class_timetable(admin, schools, world):
 
 
 def test_my_periods_are_the_signed_in_teachers_on_the_weekday_in_order(admin, world):
-    save(admin, world["7A"], TODAY, week_7a(world))
-    save(admin, world["7B"], TODAY, [slot(world, 1, ("afternoon", 1), world["math"], world["t1"])])
-    monday = TODAY + timedelta(days=(8 - TODAY.isoweekday()) % 7)  # the next Monday (or today)
+    save(admin, world["7A"], TOMORROW, week_7a(world))
+    save(
+        admin, world["7B"], TOMORROW, [slot(world, 1, ("afternoon", 1), world["math"], world["t1"])]
+    )
+    monday = TOMORROW + timedelta(
+        days=(8 - TOMORROW.isoweekday()) % 7
+    )  # the next Monday (or tomorrow)
     teacher_client = sign_in(A, "t1@example.com")
 
     mine = get(teacher_client, "/api/setup/timetable/mine/", on=str(monday))
@@ -514,8 +601,35 @@ def test_my_periods_are_the_signed_in_teachers_on_the_weekday_in_order(admin, wo
     assert get(admin, "/api/setup/timetable/mine/", on=str(monday)).json() == []
 
 
+def test_an_open_entry_is_not_in_force_after_its_school_year(admin, schools, world):
+    a, _ = schools
+    year = world["year"]
+    after = year.ends_on + DAY
+    with school_scope(a.pk):
+        entry(world, a, weekday=after.isoweekday(), valid_from=year.ends_on - 30 * DAY)
+    teacher_client = sign_in(A, "t1@example.com")
+    inside = year.ends_on - 6 * DAY  # the same weekday, the week before
+    assert len(get(admin, url(world["7A"]), on=str(inside)).json()) == 1
+    assert len(get(teacher_client, "/api/setup/timetable/mine/", on=str(inside)).json()) == 1
+    assert get(admin, url(world["7A"]), on=str(after)).json() == []
+    assert get(teacher_client, "/api/setup/timetable/mine/", on=str(after)).json() == []
+
+
+def test_a_replacement_leaves_audit_events_for_the_rows_it_deletes(admin, schools, world):
+    a, _ = schools
+    start = TOMORROW + 7 * DAY
+    save(admin, world["7A"], start, week_7a(world))
+    save(admin, world["7A"], start, week_7a(world)[:1])  # deletes the three not yet in force
+    with school_scope(a.pk):
+        logged = AuditEvent.objects.filter(target_table="timetable_timetableentry")
+        assert logged.filter(action="insert").count() == 4
+        deleted = logged.filter(action="delete")
+        assert deleted.count() == 3
+        assert deleted.first().details["valid_from"] == str(start)
+
+
 def test_an_ended_entry_is_not_among_my_periods(admin, world):
-    save(admin, world["7A"], TODAY, week_7a(world)[:1])
+    save(admin, world["7A"], TOMORROW, week_7a(world)[:1])
     save(admin, world["7A"], TODAY + 7 * DAY, [])
     teacher_client = sign_in(A, "t1@example.com")
     day = TODAY + 7 * DAY

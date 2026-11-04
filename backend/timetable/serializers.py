@@ -52,15 +52,15 @@ class TimetableSlotSerializer(serializers.Serializer):
 
 
 class ReplaceTimetableSerializer(serializers.Serializer):
-    """`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (today or later,
+    """`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,
     inside the class's year). The class comes from the URL, not from the body."""
 
     valid_from = serializers.DateField()
     entries = TimetableSlotSerializer(many=True)
 
     def validate_valid_from(self, valid_from: date) -> date:
-        if valid_from < timezone.localdate():
-            raise serializers.ValidationError("in_the_past")
+        if valid_from <= timezone.localdate():
+            raise serializers.ValidationError("not_after_today")
         return valid_from
 
     def validate(self, attrs):

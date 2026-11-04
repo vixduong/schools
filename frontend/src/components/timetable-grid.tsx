@@ -29,7 +29,7 @@ const keyOf = (weekday: number, bellPeriod: number) => `${weekday}-${bellPeriod}
 
 const GENERIC = "Không lưu được thời khóa biểu. Kiểm tra mạng rồi thử lại.";
 const FROM_DATE: Record<string, string> = {
-  in_the_past: "Ngày áp dụng không được trước hôm nay.",
+  not_after_today: "Ngày áp dụng phải sau hôm nay.",
   outside_school_year: "Ngày áp dụng phải nằm trong năm học của lớp.",
 };
 const CLASH_WHAT: Record<string, string> = {
@@ -73,8 +73,10 @@ function replaceFailure(
   return refusal(status, body, GENERIC);
 }
 
-function today() {
+/** The earliest day a replacement can start: a new week never rewrites today's periods. */
+function tomorrow() {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -119,6 +121,7 @@ export function TimetableGrid({
     ),
   );
   const [incomplete, setIncomplete] = useState(false);
+  const [from, setFrom] = useState(tomorrow);
 
   const personName = (id: number) => people.find((p) => p.id === id)?.display_name ?? `#${id}`;
   const names = (kind: "class" | "subject" | "teacher" | "room" | "slot", id: number) => {
@@ -138,9 +141,9 @@ export function TimetableGrid({
     }
   };
 
-  /** People who hold a subject-teacher role for this subject in this class today. */
+  /** Active members who hold a subject-teacher role for this subject in this class on the day
+   * the grid applies from. */
   const teachersOf = (subject: string) => {
-    const now = today();
     const ids = new Set(
       assignments
         .filter(
@@ -149,12 +152,12 @@ export function TimetableGrid({
             a.status === "active" &&
             a.school_class === schoolClass &&
             String(a.subject) === subject &&
-            a.valid_from <= now &&
-            (!a.valid_to || a.valid_to >= now),
+            a.valid_from <= from &&
+            (!a.valid_to || a.valid_to >= from),
         )
         .map((a) => a.membership),
     );
-    return people.filter((p) => ids.has(p.id));
+    return people.filter((p) => p.status === "active" && ids.has(p.id));
   };
 
   const save = useMutation({
@@ -206,7 +209,7 @@ export function TimetableGrid({
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        save.mutate(String(new FormData(event.currentTarget).get("valid_from")));
+        save.mutate(from);
       }}
     >
       <div className="overflow-x-auto">
@@ -313,8 +316,9 @@ export function TimetableGrid({
               type="date"
               lang="vi"
               required
-              min={today()}
-              defaultValue={today()}
+              min={tomorrow()}
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
               {...invalidProps(save.error, "valid_from")}
             />
           </Field>

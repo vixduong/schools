@@ -5601,7 +5601,7 @@
             },
             "ReplaceTimetable": {
                 "type": "object",
-                "description": "`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (today or later,\ninside the class's year). The class comes from the URL, not from the body.",
+                "description": "`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,\ninside the class's year). The class comes from the URL, not from the body.",
                 "properties": {
                     "valid_from": {
                         "type": "string",

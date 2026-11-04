@@ -60,7 +60,7 @@ test("a day without periods says so", async () => {
 
 test("the admin saves a week and a clash names the other entry in red ink", async () => {
   const posts: unknown[] = [];
-  const today = new Date().toLocaleDateString("sv");
+  const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString("sv");
   await renderApp("/timetable", (r) => {
     const { pathname } = new URL(r.url);
     if (pathname === "/api/setup/classes/5/timetable/" && r.method === "POST") {
@@ -83,19 +83,21 @@ test("the admin saves a week and a clash names the other entry in red ink", asyn
       ],
       "/api/setup/subjects/": [{ id: 2, name: "Toán", code: "MATH", is_active: true }],
       "/api/setup/rooms/": [],
-      "/api/setup/role-assignments/": [
-        {
-          id: 1,
-          membership: 9,
-          role: "subject_teacher",
-          school_class: 5,
-          subject: 2,
-          valid_from: "2000-01-01",
-          valid_to: null,
-          status: "active",
-        },
+      "/api/setup/role-assignments/": [9, 10, 11].map((membership, i) => ({
+        id: i + 1,
+        membership,
+        role: "subject_teacher",
+        school_class: 5,
+        subject: 2,
+        valid_from: membership === 11 ? "2999-01-01" : "2000-01-01",
+        valid_to: null,
+        status: "active",
+      })),
+      "/api/setup/memberships/": [
+        { id: 9, display_name: "Cô Hoa", status: "active" },
+        { id: 10, display_name: "Thầy Nam", status: "inactive" },
+        { id: 11, display_name: "Cô Lan", status: "active" },
       ],
-      "/api/setup/memberships/": [{ id: 9, display_name: "Cô Hoa", status: "active" }],
       "/api/setup/bell-periods/": [
         {
           id: 7,
@@ -113,8 +115,19 @@ test("the admin saves a week and a clash names the other entry in red ink", asyn
   });
 
   fireEvent.change(await screen.findByLabelText("Môn, Thứ 2, Sáng 1"), { target: { value: "2" } });
-  fireEvent.change(screen.getByLabelText("Giáo viên, Thứ 2, Sáng 1"), { target: { value: "9" } });
-  expect(screen.getByLabelText("Áp dụng từ ngày")).toHaveValue(today);
+  // Only active members, and only those whose role has started on the day the week applies from.
+  const picker = screen.getByLabelText("Giáo viên, Thứ 2, Sáng 1");
+  const offered = () =>
+    within(picker)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+  expect(offered()).toEqual(["Giáo viên", "Cô Hoa"]);
+  expect(screen.getByLabelText("Áp dụng từ ngày")).toHaveValue(tomorrow); // never today
+  fireEvent.change(screen.getByLabelText("Áp dụng từ ngày"), { target: { value: "2999-06-01" } });
+  expect(offered()).toEqual(["Giáo viên", "Cô Hoa", "Cô Lan"]);
+  fireEvent.change(screen.getByLabelText("Áp dụng từ ngày"), { target: { value: tomorrow } });
+  fireEvent.change(picker, { target: { value: "9" } });
+  expect(screen.getByLabelText("Áp dụng từ ngày")).toHaveValue(tomorrow);
   fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
 
   const alert = await screen.findByRole("alert");

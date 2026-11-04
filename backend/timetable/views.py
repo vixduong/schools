@@ -41,8 +41,12 @@ ON = OpenApiParameter("on", str, description="A date (YYYY-MM-DD); default today
 
 
 def in_force(entries, on):
+    """Entries covering `on`; an open one only inside its school year."""
     return entries.filter(
-        models.Q(valid_to__isnull=True) | models.Q(valid_to__gte=on), valid_from__lte=on
+        models.Q(valid_to__isnull=True) | models.Q(valid_to__gte=on),
+        valid_from__lte=on,
+        school_year__starts_on__lte=on,
+        school_year__ends_on__gte=on,
     )
 
 
@@ -134,7 +138,7 @@ class ClassTimetableView(GenericAPIView):
 
     def replace(self, request, klass, start, slots):
         # Lock the class: two admins saving at once take turns.
-        SchoolClass.objects.select_for_update().get(pk=klass.pk)
+        SchoolClass.objects.select_for_update(no_key=True).get(pk=klass.pk)
         mine = TimetableEntry.objects.filter(school_class=klass)
         mine.filter(valid_from__gte=start).delete()
         in_force(mine, start).update(valid_to=start - timedelta(days=1))
