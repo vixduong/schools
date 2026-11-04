@@ -51,8 +51,8 @@ async function sent(posts: Request[]) {
   );
 }
 
-/** The leave API on a list the test can change; `posts` keeps each POST. */
-function leaveApi(list: Mutable<LeaveRequest>[], posts: Request[] = []) {
+/** The leave API on a list the test can change; `posts` keeps each POST, `gets` each list's query. */
+function leaveApi(list: Mutable<LeaveRequest>[], posts: Request[] = [], gets: string[] = []) {
   return (r: Request) => {
     const { pathname, searchParams } = new URL(r.url);
     if (pathname === "/api/auth/me/") return { status: 200, body: TEACHER };
@@ -66,6 +66,7 @@ function leaveApi(list: Mutable<LeaveRequest>[], posts: Request[] = []) {
         ],
       };
     if (pathname === "/api/setup/leave-requests/" && r.method === "GET") {
+      gets.push(searchParams.toString());
       const status = searchParams.get("status");
       return { status: 200, body: list.filter((l) => !status || l.status === status) };
     }
@@ -102,6 +103,47 @@ test("the teacher home pins one ticket per waiting request and approving takes i
   );
   await waitFor(() => expect(within(inbox).getAllByRole("article")).toHaveLength(1));
   expect(within(inbox).queryByText("Con ốm")).not.toBeInTheDocument();
+});
+
+test("the inbox asks for what waits on the member, never their own requests", async () => {
+  const gets: string[] = [];
+  await renderApp("/", leaveApi([LEAVE()], [], gets));
+  await screen.findByRole("article");
+  expect(gets).toEqual(["status=waiting&to_decide=1"]);
+});
+
+test("the Guardian block asks for the requests the member sent", async () => {
+  const gets: string[] = [];
+  await renderApp("/guardian", leaveApi([LEAVE()], [], gets));
+  await screen.findByRole("article");
+  expect(gets).toEqual(["sent=1"]);
+});
+
+test("a refused decision says why instead of blaming the network", async () => {
+  const refuse = (status: number, body?: unknown) => (r: Request) =>
+    r.method === "POST" ? { status, body } : leaveApi([LEAVE()])(r);
+  await renderApp("/", refuse(403, { detail: "no" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Duyệt" }));
+  expect(await screen.findByText(/Bạn không còn quyền với đơn này/)).toBeInTheDocument();
+  expect(screen.queryByText(/Không kết nối được máy chủ/)).not.toBeInTheDocument();
+});
+
+test("approving a request of one's own says nobody decides their own", async () => {
+  await renderApp("/", (r) =>
+    r.method === "POST"
+      ? { status: 400, body: { status: ["own_request"] } }
+      : leaveApi([LEAVE()])(r),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Duyệt" }));
+  expect(await screen.findByText(/Đơn do chính bạn gửi/)).toBeInTheDocument();
+});
+
+test("a cancel refused with 403 says the right is gone", async () => {
+  await renderApp("/guardian", (r) =>
+    r.method === "POST" ? { status: 403 } : leaveApi([LEAVE()])(r),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Huỷ đơn" }));
+  expect(await screen.findByText(/Bạn không còn quyền với đơn này/)).toBeInTheDocument();
 });
 
 test("declining a request needs a reason, and says nothing to the server without one", async () => {

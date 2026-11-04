@@ -13,7 +13,7 @@ import {
 import { Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LEAVE_STATES, leaveDays } from "@/lib/leave";
+import { LEAVE_STATES, leaveActionFailure, leaveDays } from "@/lib/leave";
 import { FormFailure, refusal } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +52,7 @@ function sendFailure(status: number, body: unknown) {
 /** "Đơn xin nghỉ" on the Guardian view: the form, then the Guardian's requests as tickets. */
 export function LeaveBlock() {
   const children = useQuery(leaveChildrenQuery);
-  const requests = useQuery(leaveRequestsQuery());
+  const requests = useQuery(leaveRequestsQuery({ sent: 1 }));
   return (
     <section aria-labelledby="leave" className="mt-8 grid max-w-xl gap-6">
       <h2 id="leave" className="font-serif text-2xl font-light">
@@ -206,7 +206,8 @@ function SentTicket({ leave }: { leave: LeaveRequest }) {
       const { data, response, error } = await api.POST("/api/setup/leave-requests/{id}/cancel/", {
         params: { path: { id: leave.id } },
       });
-      if (!data) throw refusal(response.status, error, "Không huỷ được đơn: đơn đã được xử lý.");
+      if (!data)
+        throw leaveActionFailure(response.status, error, "Không huỷ được đơn: đơn đã được xử lý.");
       return data;
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: LEAVE_KEY }),

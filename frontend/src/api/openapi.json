@@ -2083,8 +2083,16 @@
         "/api/setup/leave-requests/": {
             "get": {
                 "operationId": "setup_leave_requests_list",
-                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
+                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`); `?sent=1` keeps the ones the\nmember sent, `?to_decide=1` those they decide, not their own. POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
                 "parameters": [
+                    {
+                        "in": "query",
+                        "name": "sent",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1: only the requests the member sent"
+                    },
                     {
                         "in": "query",
                         "name": "status",
@@ -2100,6 +2108,14 @@
                             "type": "integer"
                         },
                         "description": "Only this student"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to_decide",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1: only the requests of students the member decides for, without the ones the member sent"
                     }
                 ],
                 "tags": [
@@ -2128,7 +2144,7 @@
             },
             "post": {
                 "operationId": "setup_leave_requests_create",
-                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
+                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`); `?sent=1` keeps the ones the\nmember sent, `?to_decide=1` those they decide, not their own. POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
                 "tags": [
                     "setup"
                 ],
@@ -2174,7 +2190,7 @@
         "/api/setup/leave-requests/{id}/approve/": {
             "post": {
                 "operationId": "setup_leave_requests_approve_create",
-                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today.",
+                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today. Nobody decides a request they sent\nthemselves (400 `own_request`), even when they are also the homeroom teacher.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2265,7 +2281,7 @@
         "/api/setup/leave-requests/{id}/decline/": {
             "post": {
                 "operationId": "setup_leave_requests_decline_create",
-                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today.",
+                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today. Nobody decides a request they sent\nthemselves (400 `own_request`), even when they are also the homeroom teacher.",
                 "parameters": [
                     {
                         "in": "path",

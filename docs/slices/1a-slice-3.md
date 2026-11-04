@@ -10,18 +10,19 @@ Done when a Guardian's request reaches the homeroom teacher, approval pre-fills 
 - **Checks**: `to_on >= from_on`; at most 30 days long; `decided_by` and `decided_at` set exactly when the status is `approved` or `declined`; a `declined` request has a comment.
 - **One live request per day**: an exclusion constraint over `(school, student, daterange(from_on, to_on))` where the status is `waiting` or `approved` (`leaverequest_no_overlap`); a declined or cancelled request frees its days.
 - **The lifecycle is a trigger** (`leaverequest_lifecycle`): only `waiting` → `approved`, `declined` or `cancelled`; a decided or cancelled request never changes again, and no column but the status and decision fields ever changes. The app role gets INSERT, SELECT and column-level UPDATE on `status`, `decided_by`, `decided_at`, `decision_comment`; no DELETE.
-- **Audit**: the `audit_row_change` trigger on every insert and update (a request is about a person and is a small volume).
+- **Sending is held by a trigger too** (`leaverequest_on_send`, before insert, migration `0006`): the request is `waiting`, `from_on` is today (the School's day) or later, and the student has an Enrollment covering `from_on` inside its school year. So no writer, the app role included, stores a past-dated or already-decided request.
+- **Audit**: the `audit_row_change` trigger on every insert and update (a request is about a person and is a small volume). `reason` and `decision_comment` are left out of the event details (the School admin reads the log: "Least data", `docs/roles.md`).
 
 ## Rules
 
 - **Send**: `leave_request.send` on the student (a Guardian's own linked student), as of today. `from_on` is today or later and inside the school year of the student's Enrollment on that day; the student is enrolled on `from_on`. Requests for past days are out of scope: the subject teacher marks those as absent with leave when the Guardian tells the School.
-- **Decide**: `leave_request.approve` on the student as of today: the homeroom teacher of the student's class (reached through the student) or the principal board. Approve takes an optional comment; decline needs one. Only a `waiting` request.
+- **Decide**: `leave_request.approve` on the student as of today: the homeroom teacher of the student's class (reached through the student) or the principal board. Approve takes an optional comment; decline needs one. Only a `waiting` request. Nobody decides their own request: a member who sent it (a teacher who is also the Guardian) is answered 400 `{"status": ["own_request"]}`; someone else decides it. When the student moves class, the right moves with the student, as of today: the old homeroom teacher gets 403 and no longer lists the request, and the new one lists and decides it, including the student's earlier requests.
 - **Cancel**: the sender only, while `waiting`.
 - **Pre-fill**: the attendance sheet (`GET attendance/{entry}/{on}/`) gives each row `leave`: the approved request covering that day for that student, or null. An untaken sheet defaults such a student to `absent_excused` with the note "Có đơn xin nghỉ"; a taken sheet keeps its marks and only shows the flag, so the teacher can correct a mark taken before the approval. Nothing writes marks by itself: attendance stays the teacher's act.
 
 ## API (under `/api/setup/` like slices 1–2)
 
-- `GET leave-requests/?status=&student=`: what the member may see — a Guardian their own sent requests; a homeroom teacher the requests of their class's students; the principal board all; newest first. Through the engine (`visible_students` with the matching action).
+- `GET leave-requests/?status=&student=`: what the member may see — a Guardian their own sent requests; a homeroom teacher the requests of their class's students; the principal board all; newest first. Through the engine (`visible_students` with the matching action). `sent=1` keeps the requests the member sent (the Guardian's block); `to_decide=1` keeps those of students the member decides for, without the ones they sent (the inbox).
 - `POST leave-requests/ {student, from_on, to_on, reason}`: the Guardian sends.
 - `POST leave-requests/{id}/approve/ {comment}`, `.../decline/ {comment}`, `.../cancel/`.
 - Each response carries the student's name and class, the sender's name, and the decider's name.

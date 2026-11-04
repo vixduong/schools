@@ -7,13 +7,13 @@ from datetime import timedelta
 from itertools import count
 
 import pytest
-from django.db import DataError, ProgrammingError
+from django.db import DataError, IntegrityError, ProgrammingError
 from django.utils import timezone
 
 from accounts.models import Membership, RoleAssignment
 from audit.models import AuditEvent
-from schools.models import GuardianLink
-from schools.tests.factories import make_membership
+from schools.models import Enrollment, GuardianLink
+from schools.tests.factories import make_membership, make_student
 from tenancy.rls import school_scope
 from testing import A, make_account, member, owner_role, sign_in
 from timetable.models import LeaveRequest
@@ -24,6 +24,7 @@ pytestmark = pytest.mark.usefixtures("as_app_role")
 
 DAY = timedelta(days=1)
 WEEK = 7 * DAY
+DAYS = count(100, 3)  # days far apart: a request of its own, so none holds another's days
 Status = LeaveRequest.Status
 TABLE = "timetable_leaverequest"
 LEAVE_URL = "/api/setup/leave-requests/"
@@ -59,18 +60,22 @@ def homeroom_of_7b(school, world, email):
     return membership
 
 
-def leave(school, sender, student, from_on=TODAY, to_on=None, **fields):
-    """A request as stored (an insert), waiting unless `fields` says otherwise."""
+def leave(school, sender, student, from_on=TODAY, to_on=None, **decision):
+    """A request as sent (an insert: waiting, from today on), then changed by `decision` if given,
+    as the database allows (a decided request is never inserted)."""
     with school_scope(school.pk):
-        return LeaveRequest.objects.create(
+        request = LeaveRequest.objects.create(
             school=school,
             student=student,
             sent_by=sender,
             from_on=from_on,
             to_on=to_on or from_on,
             reason="ốm",
-            **fields,
         )
+        if decision:
+            touch(request.pk, **decision)
+            request.refresh_from_db()
+        return request
 
 
 def audited(school):
@@ -100,9 +105,6 @@ def test_a_request_covers_whole_days_up_to_30_and_has_a_reason(schools, class_7a
         "leaverequest_at_most_30_days": {"from_on": TODAY, "to_on": TODAY + 30 * DAY},
         "leaverequest_reason_not_empty": {"reason": ""},
     }
-    refused(
-        "leaverequest_decision_matches_status", a, lambda: leave_with(a, mother, an, status="lost")
-    )
     for name, fields in cases.items():
         refused(name, a, lambda fields=fields: leave_with(a, mother, an, **fields))
     with pytest.raises(DataError), school_scope(a.pk):
@@ -112,7 +114,7 @@ def test_a_request_covers_whole_days_up_to_30_and_has_a_reason(schools, class_7a
 
 
 def leave_with(school, sender, student, **fields):
-    """Like `leave`, inside the caller's scope, with `fields` replacing the defaults."""
+    """An insert inside the caller's scope, with `fields` replacing the defaults."""
     defaults = {"from_on": TODAY, "to_on": TODAY, "reason": "ốm"}
     return LeaveRequest.objects.create(
         school=school, student=student, sent_by=sender, **{**defaults, **fields}
@@ -126,66 +128,86 @@ def test_a_decision_is_recorded_exactly_when_the_request_is_approved_or_declined
     an, mother, homeroom = class_7a["an"], parents["an_mother"], class_7a["t1"]
     when = timezone.now()
     decision = {"decided_by": homeroom, "decided_at": when}
+    # A request is decided by an update (it is always sent waiting).
+    refused(
+        "leaverequest_decision_matches_status",
+        a,
+        lambda: leave_with(a, mother, an, decision_comment="x", **decision),  # a waiting decision
+    )
     for fields in (
         {"status": Status.APPROVED},  # no decider
         {"status": Status.DECLINED, "decided_by": homeroom},  # no time
-        {"status": Status.WAITING, **decision},  # a decision on a waiting request
-        {"status": Status.CANCELLED, **decision},  # or on a cancelled one
+        {"status": Status.CANCELLED, **decision},  # a decision on a cancelled one
     ):
+        pk = leave(a, mother, an, TODAY + next(DAYS) * DAY).pk
         refused(
             "leaverequest_decision_matches_status",
             a,
-            lambda fields=fields: leave_with(a, mother, an, decision_comment="x", **fields),
+            lambda pk=pk, fields=fields: touch(pk, decision_comment="x", **fields),
         )
+    pk = leave(a, mother, an, TODAY + next(DAYS) * DAY).pk
     refused(
         "leaverequest_declined_has_comment",
         a,
-        lambda: leave_with(a, mother, an, status=Status.DECLINED, **decision),
+        lambda: touch(pk, status=Status.DECLINED, **decision),
     )
+    declined = leave(a, mother, an, TODAY + next(DAYS) * DAY).pk
+    approved = leave(a, mother, an, TODAY + next(DAYS) * DAY).pk
+    change(a, declined, status=Status.DECLINED, decision_comment="không", **decision)
+    change(a, approved, status=Status.APPROVED, **decision)
+
+
+def test_a_request_is_sent_waiting_from_today_for_an_enrolled_student(schools, class_7a, parents):
+    a, _ = schools
+    mother, an, eve = parents["an_mother"], class_7a["an"], class_7a["eve"]
+    decision = {"decided_by": class_7a["t1"], "decided_at": timezone.now()}
+    after_year = class_7a["year"].ends_on + DAY
     with school_scope(a.pk):
-        leave_with(a, mother, an, status=Status.DECLINED, decision_comment="không", **decision)
-        leave_with(
-            a,
-            mother,
-            an,
-            from_on=TODAY + WEEK,
-            to_on=TODAY + WEEK,
-            status=Status.APPROVED,
-            **decision,
-        )
+        gia = make_student(a, "Gia")  # never enrolled
+    cases = {
+        "decided": {"status": Status.APPROVED, **decision},
+        "unknown status": {"status": "lost"},
+        "yesterday": {"from_on": TODAY - DAY, "to_on": TODAY},
+        "after the year": {"from_on": after_year, "to_on": after_year},
+        "enrollment ended": {"student": eve},  # Eve left 7A eight days ago
+        "never enrolled": {"student": gia},
+    }
+    for fields in cases.values():
+        with pytest.raises(IntegrityError, match="leaverequest_on_send"), school_scope(a.pk):
+            leave_with(a, mother, **{"student": an, **fields})
+    with school_scope(a.pk):  # today, the last day of the year, and a waiting request are fine
+        leave_with(a, mother, an)
+        leave_with(a, mother, an, from_on=class_7a["year"].ends_on, to_on=class_7a["year"].ends_on)
+        assert LeaveRequest.objects.count() == 2
 
 
 def test_a_student_has_one_live_request_per_day(schools, class_7a, parents):
     a, _ = schools
     an, binh, mother = class_7a["an"], class_7a["binh"], parents["an_mother"]
     homeroom, when = class_7a["t1"], timezone.now()
-    first = leave(a, mother, an, TODAY, TODAY + 2 * DAY)
-    for start, end in ((TODAY - DAY, TODAY), (TODAY + 2 * DAY, TODAY + 3 * DAY), (TODAY, TODAY)):
+    first = leave(a, mother, an, TODAY + DAY, TODAY + 3 * DAY)
+    for start, end in (
+        (TODAY, TODAY + DAY),
+        (TODAY + 3 * DAY, TODAY + 4 * DAY),
+        (TODAY + DAY, TODAY + DAY),
+    ):
         refused(
             "leaverequest_no_overlap",
             a,
             lambda start=start, end=end: leave_with(a, mother, an, from_on=start, to_on=end),
         )
     with school_scope(a.pk):
-        leave_with(a, mother, an, from_on=TODAY + 3 * DAY, to_on=TODAY + 3 * DAY)  # the next day
-        leave_with(a, mother, binh)  # another student
+        leave_with(a, mother, an, from_on=TODAY + 4 * DAY, to_on=TODAY + 4 * DAY)  # the next day
+        leave_with(a, mother, binh, from_on=TODAY + DAY, to_on=TODAY + DAY)  # another student
         # An approved request holds its days too.
         LeaveRequest.objects.filter(pk=first.pk).update(
             status=Status.APPROVED, decided_by=homeroom, decided_at=when
         )
-    refused("leaverequest_no_overlap", a, lambda: leave_with(a, mother, an))
-    # A declined or cancelled request frees its days: a stored one does not hold them either.
-    with school_scope(a.pk):
-        leave_with(
-            a,
-            mother,
-            an,
-            status=Status.DECLINED,
-            decided_by=homeroom,
-            decided_at=when,
-            decision_comment="không",
-        )
-        leave_with(a, mother, an, status=Status.CANCELLED)
+    refused(
+        "leaverequest_no_overlap",
+        a,
+        lambda: leave_with(a, mother, an, from_on=TODAY + DAY, to_on=TODAY + DAY),
+    )
 
 
 def test_a_declined_or_cancelled_request_frees_its_days(schools, class_7a, parents):
@@ -224,7 +246,7 @@ def test_only_a_waiting_request_changes_and_only_to_a_decision_or_a_cancel(
     approved = {"status": Status.APPROVED, **decision}
     declined = {"status": Status.DECLINED, "decision_comment": "không", **decision}
     cancelled = {"status": Status.CANCELLED}
-    days = count(0, 40)  # a request of its own, so none holds another's days
+    days = count(0, 2)  # a day of its own each, inside the year
 
     def waiting():
         return leave(a, mother, an, TODAY + next(days) * DAY).pk
@@ -281,11 +303,22 @@ def test_a_request_never_changes_what_it_asked_for(schools, class_7a, parents):
 def test_a_request_is_audited_when_sent_and_when_decided(schools, class_7a, parents):
     a, _ = schools
     pk = leave(a, parents["an_mother"], class_7a["an"]).pk
-    change(a, pk, status=Status.CANCELLED)
+    change(
+        a,
+        pk,
+        status=Status.DECLINED,
+        decided_by=class_7a["t1"],
+        decided_at=timezone.now(),
+        decision_comment="không",
+    )
     insert, update = audited(a)
     assert (insert.action, insert.target_id, insert.details["status"]) == ("insert", pk, "waiting")
     assert (update.action, update.target_id) == ("update", pk)
-    assert update.details["status"] == ["waiting", "cancelled"]
+    assert update.details["status"] == ["waiting", "declined"]
+    # Why a child is away and what the teacher answered are not for the School admin's eyes.
+    for event in (insert, update):
+        assert "reason" not in event.details
+        assert "decision_comment" not in event.details
 
 
 # --- the API --------------------------------------------------------------------------------
@@ -526,6 +559,71 @@ def test_each_role_lists_the_requests_it_may_see_newest_first(schools, admin_a, 
     assert (row["student_name"], row["class_name"], row["decided_by_name"]) == ("An", "7A", "Alice")
 
 
+def alice_guardian_of(school, student):
+    """Alice (homeroom teacher of 7A) is also the Guardian of `student`."""
+    with school_scope(school.pk):
+        membership = Membership.objects.get(account__email="alice@example.com")
+        GuardianLink.objects.create(
+            school=school,
+            membership=membership,
+            student=student,
+            relation="aunt",
+            valid_from=TODAY - 30 * DAY,
+        )
+    return membership
+
+
+def test_a_teacher_who_is_also_a_guardian_reads_two_lists_and_decides_none_of_her_own(
+    schools, admin_a, class_7a, parents
+):
+    a, _ = schools
+    member(a, make_account("board@example.com", display_name="Board"), "principal_board")
+    alice_guardian_of(a, class_7a["bao"])
+    alice, board = sign_in(A, "alice@example.com"), sign_in(A, "board@example.com")
+    mine = send(alice, class_7a["bao"]).json()["id"]
+    theirs = send(sign_in(A, "0912000002"), class_7a["an"]).json()["id"]
+    assert listed(alice, sent=1) == [mine]
+    assert listed(alice, to_decide=1) == [theirs]  # not her own, though Bao is in her class
+    assert listed(alice) == [theirs, mine]
+    assert listed(alice, sent=1, to_decide=1) == [theirs, mine]
+    assert listed(board, to_decide=1) == [theirs, mine]
+    assert listed(board, sent=1) == []
+    # She decides her class's other requests, not the one she sent; the board decides hers.
+    for action, body in (("approve", {}), ("decline", {"comment": "không"})):
+        own = act(alice, mine, action, **body)
+        assert (own.status_code, own.json()) == (400, {"status": ["own_request"]})
+    assert act(alice, theirs, "approve").status_code == 200
+    assert act(board, mine, "approve").status_code == 200
+    assert (
+        act(alice, mine, "cancel").status_code == 400
+    )  # decided: she may cancel only a waiting one
+
+
+def test_after_a_move_the_new_homeroom_teacher_decides_and_the_old_one_does_not(
+    schools, admin_a, class_7a, parents
+):
+    a, _ = schools
+    homeroom_of_7b(a, class_7a, "h7b@example.com")
+    old, new = sign_in(A, "alice@example.com"), sign_in(A, "h7b@example.com")
+    an = class_7a["an"]
+    pk = send(sign_in(A, "0912000002"), an, TODAY + DAY).json()["id"]
+    assert listed(old, to_decide=1) == [pk]
+    with school_scope(a.pk):
+        enrollment = Enrollment.objects.get(student=an, valid_to=None)
+    moved = sign_in(A, "admin-a@example.com").post(
+        f"/api/setup/enrollments/{enrollment.pk}/move/",
+        {"school_class": class_7a["7B"].pk, "on": str(TODAY)},
+        content_type="application/json",
+        HTTP_HOST=A,
+    )
+    assert moved.status_code == 201, moved.json()
+    assert act(old, pk, "approve").status_code == 403
+    assert listed(old) == [] and listed(old, to_decide=1) == []
+    # The new one also sees what was sent before the move (as of today, the student is theirs).
+    assert listed(new, to_decide=1) == [pk]
+    assert act(new, pk, "approve").status_code == 200
+
+
 def test_a_guardian_who_is_no_longer_linked_sees_and_sends_nothing(schools, class_7a, parents):
     a, _ = schools
     mother = sign_in(A, "0912000002")
@@ -565,13 +663,13 @@ def approved_leave(school, world, sender, student, from_on, to_on):
         status=Status.APPROVED,
         decided_by=world["t1"],
         decided_at=timezone.now(),
-    )
+    )  # sent waiting, then approved
 
 
 def test_the_sheet_flags_an_approved_leave_and_writes_no_mark(schools, class_7a, parents):
     a, _ = schools
     mother, an, bao, dung = parents["an_mother"], class_7a["an"], class_7a["bao"], class_7a["dung"]
-    approved = approved_leave(a, class_7a, mother, an, TODAY - DAY, TODAY + DAY)
+    approved = approved_leave(a, class_7a, mother, an, TODAY, TODAY + DAY)
     # Waiting and cancelled requests and an approved one for other days do not count.
     leave(a, mother, bao)
     leave(a, mother, dung, status=Status.CANCELLED)
@@ -583,7 +681,7 @@ def test_the_sheet_flags_an_approved_leave_and_writes_no_mark(schools, class_7a,
         return {s["name"]: (s["leave"], s["mark"]) for s in students}
 
     assert leaves() == {
-        "An": ({"id": approved.pk, "from_on": str(TODAY - DAY), "to_on": str(TODAY + DAY)}, None),
+        "An": ({"id": approved.pk, "from_on": str(TODAY), "to_on": str(TODAY + DAY)}, None),
         "Bao": (None, None),
         "Dung": (None, None),
     }
@@ -593,7 +691,7 @@ def test_the_sheet_flags_an_approved_leave_and_writes_no_mark(schools, class_7a,
     later = approved_leave(a, class_7a, mother, dung, TODAY, TODAY)
     taken = leaves()
     assert taken["An"] == (
-        {"id": approved.pk, "from_on": str(TODAY - DAY), "to_on": str(TODAY + DAY)},
+        {"id": approved.pk, "from_on": str(TODAY), "to_on": str(TODAY + DAY)},
         {"status": "late", "note": ""},
     )
     assert taken["Bao"] == (None, {"status": "present", "note": ""})

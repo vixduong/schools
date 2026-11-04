@@ -1,4 +1,7 @@
+from collections import defaultdict
 from datetime import timedelta
+from functools import reduce
+from operator import or_
 
 from django.db import IntegrityError, models, transaction
 from django.utils import timezone
@@ -534,19 +537,17 @@ class CanUseLeaveRequests(CanPermission):
 def with_classes(leaves):
     """The requests as a list, each with `class_name`: the student's class on its first day."""
     leaves = list(leaves)
-    rows = list(
-        Enrollment.objects.filter(
-            student_id__in={leave.student_id for leave in leaves}
-        ).values_list("student_id", "valid_from", "valid_to", "school_class__name")
-    )
+    periods = defaultdict(list)
+    for student, start, end, name in Enrollment.objects.filter(
+        student_id__in={leave.student_id for leave in leaves}
+    ).values_list("student_id", "valid_from", "valid_to", "school_class__name"):
+        periods[student].append((start, end, name))
     for leave in leaves:
         leave.class_name = next(
             (
                 name
-                for student, start, end, name in rows
-                if student == leave.student_id
-                and start <= leave.from_on
-                and (end is None or end >= leave.from_on)
+                for start, end, name in periods[leave.student_id]
+                if start <= leave.from_on and (end is None or end >= leave.from_on)
             ),
             None,
         )
@@ -560,7 +561,8 @@ def leave_requests():
 class LeaveRequestsView(GenericAPIView):
     """Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
     for a linked student, a homeroom teacher those of their class's students, the principal board
-    all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+    all (`visible_students` with `leave_request.send` and `.approve`); `?sent=1` keeps the ones the
+    member sent, `?to_decide=1` those they decide, not their own. POST: a Guardian sends one
     for a linked student, from today, for a student enrolled on the first day; it waits."""
 
     permission_classes = [HasMembership, CanUseLeaveRequests]
@@ -570,18 +572,34 @@ class LeaveRequestsView(GenericAPIView):
         parameters=[
             OpenApiParameter("status", str, description="Only this status"),
             OpenApiParameter("student", int, description="Only this student"),
+            OpenApiParameter("sent", int, description="1: only the requests the member sent"),
+            OpenApiParameter(
+                "to_decide",
+                int,
+                description="1: only the requests of students the member decides for, "
+                "without the ones the member sent",
+            ),
         ],
         responses=serializers.LeaveRequestSerializer(many=True),
     )
     def get(self, request):
         actor = Actor.of(request)
-        leaves = leave_requests().filter(
-            models.Q(
-                sent_by=request.membership,
-                student__in=visible_students(actor, "leave_request.send"),
-            )
-            | models.Q(student__in=visible_students(actor, "leave_request.approve"))
+        sent = models.Q(
+            sent_by=request.membership,
+            student__in=visible_students(actor, "leave_request.send"),
         )
+        decidable = models.Q(student__in=visible_students(actor, "leave_request.approve"))
+        # A person who is a Guardian and a teacher reads two lists: what they sent, and what
+        # waits for them (nobody decides their own request).
+        asked = [
+            q
+            for name, q in (
+                ("sent", sent),
+                ("to_decide", decidable & ~models.Q(sent_by=request.membership)),
+            )
+            if request.query_params.get(name) == "1"
+        ]
+        leaves = leave_requests().filter(reduce(or_, asked) if asked else sent | decidable)
         wanted = request.query_params.get("status")
         if wanted is not None:
             if wanted not in LeaveRequest.Status.values:
@@ -624,11 +642,13 @@ class LeaveChildrenView(GenericAPIView):
 
     @extend_schema(responses=serializers.LeaveChildSerializer(many=True))
     def get(self, request):
-        students = visible_students(Actor.of(request), "leave_request.send").order_by(
-            "full_name", "id"
+        students = list(
+            visible_students(Actor.of(request), "leave_request.send").order_by("full_name", "id")
         )
         classes = dict(
-            Enrollment.objects.in_force().values_list("student_id", "school_class__name")
+            Enrollment.objects.in_force()
+            .filter(student_id__in=[s.pk for s in students])
+            .values_list("student_id", "school_class__name")
         )
         body = [
             {"id": s.pk, "name": s.full_name, "class_name": classes.get(s.pk)} for s in students
@@ -672,7 +692,8 @@ def leave_student(request, view):
 
 class LeaveRequestDecideView(LeaveRequestAction):
     """Approve (the comment is optional) or decline (the comment says why) a waiting request:
-    `leave_request.approve` on its student, as of today."""
+    `leave_request.approve` on its student, as of today. Nobody decides a request they sent
+    themselves (400 `own_request`), even when they are also the homeroom teacher."""
 
     permission_classes = [HasMembership, Can("leave_request.approve", leave_student)]
     serializer_class = serializers.DecideLeaveRequestSerializer
@@ -681,6 +702,8 @@ class LeaveRequestDecideView(LeaveRequestAction):
     def post(self, request, pk):
         body = self.get_serializer(data=request.data)
         body.is_valid(raise_exception=True)
+        if self.get_leave().sent_by_id == request.membership.pk:
+            raise ValidationError({"status": ["own_request"]})
         return self.decide(request, pk, body.validated_data["comment"])
 
 

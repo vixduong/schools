@@ -1,6 +1,22 @@
 import type { LeaveRequest } from "@/api/leave";
 import type { Pin } from "@/components/ticket";
 import { viDate } from "@/lib/attendance";
+import { FormFailure, refusal } from "@/lib/messages";
+
+const NO_RIGHT = "Bạn không còn quyền với đơn này. Tải lại trang để xem.";
+const OWN_REQUEST = "Đơn do chính bạn gửi nên bạn không tự duyệt được. Nhờ người khác duyệt.";
+
+/** A refused approve, decline or cancel in Vietnamese: a 403 (the student moved class, the link
+ * ended) and a request of one's own have words; the rest is `refusal`. */
+export function leaveActionFailure(status: number, body: unknown, generic: string): Error {
+  if (status === 403) return new FormFailure(NO_RIGHT, {});
+  if (
+    status === 400 &&
+    (body as { status?: string[] } | undefined)?.status?.includes("own_request")
+  )
+    return new FormFailure(OWN_REQUEST, {});
+  return refusal(status, body, generic);
+}
 
 /** The state word of a request and the pin beside it (DESIGN.md: gold waits, ink is decided,
  * red needs a person or was refused). */

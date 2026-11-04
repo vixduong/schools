@@ -759,7 +759,8 @@ export interface paths {
         /**
          * @description Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
          *     for a linked student, a homeroom teacher those of their class's students, the principal board
-         *     all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+         *     all (`visible_students` with `leave_request.send` and `.approve`); `?sent=1` keeps the ones the
+         *     member sent, `?to_decide=1` those they decide, not their own. POST: a Guardian sends one
          *     for a linked student, from today, for a student enrolled on the first day; it waits.
          */
         get: operations["setup_leave_requests_list"];
@@ -767,7 +768,8 @@ export interface paths {
         /**
          * @description Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
          *     for a linked student, a homeroom teacher those of their class's students, the principal board
-         *     all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+         *     all (`visible_students` with `leave_request.send` and `.approve`); `?sent=1` keeps the ones the
+         *     member sent, `?to_decide=1` those they decide, not their own. POST: a Guardian sends one
          *     for a linked student, from today, for a student enrolled on the first day; it waits.
          */
         post: operations["setup_leave_requests_create"];
@@ -788,7 +790,8 @@ export interface paths {
         put?: never;
         /**
          * @description Approve (the comment is optional) or decline (the comment says why) a waiting request:
-         *     `leave_request.approve` on its student, as of today.
+         *     `leave_request.approve` on its student, as of today. Nobody decides a request they sent
+         *     themselves (400 `own_request`), even when they are also the homeroom teacher.
          */
         post: operations["setup_leave_requests_approve_create"];
         delete?: never;
@@ -828,7 +831,8 @@ export interface paths {
         put?: never;
         /**
          * @description Approve (the comment is optional) or decline (the comment says why) a waiting request:
-         *     `leave_request.approve` on its student, as of today.
+         *     `leave_request.approve` on its student, as of today. Nobody decides a request they sent
+         *     themselves (400 `own_request`), even when they are also the homeroom teacher.
          */
         post: operations["setup_leave_requests_decline_create"];
         delete?: never;
@@ -3824,10 +3828,14 @@ export interface operations {
     setup_leave_requests_list: {
         parameters: {
             query?: {
+                /** @description 1: only the requests the member sent */
+                sent?: number;
                 /** @description Only this status */
                 status?: string;
                 /** @description Only this student */
                 student?: number;
+                /** @description 1: only the requests of students the member decides for, without the ones the member sent */
+                to_decide?: number;
             };
             header?: never;
             path?: never;
