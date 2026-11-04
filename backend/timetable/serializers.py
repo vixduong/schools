@@ -1,13 +1,14 @@
 from datetime import date
 
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.models import Membership
 from schools.models import Room, SchoolClass, Subject
 from schools.serializers import setup_serializer
 
-from .models import BellPeriod, TimetableEntry
+from .models import AttendanceMark, BellPeriod, TimetableEntry
 
 # Which session a bell period belongs to, and its number, never change (a timetable points at it).
 BellPeriodSerializer = setup_serializer(
@@ -74,6 +75,13 @@ class ReplaceTimetableSerializer(serializers.Serializer):
         return attrs
 
 
+class AttendanceResultSerializer(serializers.Serializer):
+    """What a taken period shows on the teacher's home."""
+
+    absent = serializers.IntegerField()
+    late = serializers.IntegerField()
+
+
 class MyPeriodSerializer(serializers.ModelSerializer):
     """A period of the signed-in teacher's day: times, class, subject and room by name."""
 
@@ -84,6 +92,7 @@ class MyPeriodSerializer(serializers.ModelSerializer):
     class_name = serializers.CharField(source="school_class.name")
     subject_name = serializers.CharField(source="subject.name")
     room_name = serializers.CharField(source="room.name", default=None)
+    attendance = serializers.SerializerMethodField()
 
     class Meta:
         model = TimetableEntry
@@ -99,5 +108,74 @@ class MyPeriodSerializer(serializers.ModelSerializer):
             "subject_name",
             "room",
             "room_name",
+            "attendance",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(AttendanceResultSerializer(allow_null=True))
+    def get_attendance(self, entry):
+        """Null while the period has no marks on the day (the view annotates the counts)."""
+        if not entry.marks:
+            return None
+        return {"absent": entry.absent, "late": entry.late}
+
+
+class MarkSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(AttendanceMark.Status.choices)
+    note = serializers.CharField(max_length=200, allow_blank=True)
+
+
+class SheetStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    mark = MarkSerializer(allow_null=True)
+
+
+class SheetSerializer(serializers.Serializer):
+    """A held period on a date and its class list, each student with their mark or null."""
+
+    entry = serializers.IntegerField()
+    on = serializers.DateField()
+    session = serializers.CharField()
+    number = serializers.IntegerField()
+    starts_at = serializers.TimeField()
+    ends_at = serializers.TimeField()
+    school_class = serializers.IntegerField()
+    class_name = serializers.CharField()
+    subject = serializers.IntegerField()
+    subject_name = serializers.CharField()
+    room_name = serializers.CharField(allow_null=True)
+    can_take = serializers.BooleanField()
+    students = SheetStudentSerializer(many=True)
+
+
+class MarkInputSerializer(MarkSerializer):
+    student = serializers.IntegerField()
+    note = serializers.CharField(max_length=200, allow_blank=True, default="")
+
+
+class SaveSheetSerializer(serializers.Serializer):
+    """`PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more."""
+
+    marks = MarkInputSerializer(many=True)
+
+
+class AbsenceSerializer(serializers.Serializer):
+    """A late or absent mark in the class overview: the day and the period it was taken in."""
+
+    on = serializers.DateField()
+    session = serializers.CharField()
+    number = serializers.IntegerField()
+    subject_name = serializers.CharField()
+    status = serializers.ChoiceField(AttendanceMark.Status.choices)
+
+
+class OverviewStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    marks = AbsenceSerializer(many=True)
+
+
+class OverviewSerializer(serializers.Serializer):
+    class_name = serializers.CharField()
+    students = OverviewStudentSerializer(many=True)

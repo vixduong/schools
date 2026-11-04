@@ -1,5 +1,3 @@
-import type { BellPeriod } from "@/api/timetable";
-
 export const WEEKDAYS = [
   { number: 1, label: "Thứ 2" },
   { number: 2, label: "Thứ 3" },
@@ -25,7 +23,7 @@ export function inSchoolOrder<T extends { session: string; number: number }>(per
   return [...periods].sort((a, b) => rank(a) - rank(b));
 }
 
-export function periodName(period: Pick<BellPeriod, "session" | "number">): string {
+export function periodName(period: { session: string; number: number }): string {
   const session = SESSIONS.find((s) => s.value === period.session)?.label ?? period.session;
   return `${session} ${period.number}`;
 }

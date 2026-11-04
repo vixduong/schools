@@ -143,6 +143,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/attendance/{entry}/{on}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The attendance of one held period (a timetable entry on a date): GET the class list as of
+         *     that date with each student's mark; PUT the whole sheet, in one transaction. A date the entry
+         *     is not held on is a 404; a PUT for a day after today is a 400.
+         */
+        get: operations["setup_attendance_retrieve"];
+        /**
+         * @description The attendance of one held period (a timetable entry on a date): GET the class list as of
+         *     that date with each student's mark; PUT the whole sheet, in one transaction. A date the entry
+         *     is not held on is a 404; a PUT for a day after today is a 400.
+         */
+        put: operations["setup_attendance_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/audit-events/": {
         parameters: {
             query?: never;
@@ -280,6 +306,28 @@ export interface paths {
          *     instead of deletes). Querysets need no School filter: RLS shows only the request's School.
          */
         patch: operations["setup_classes_partial_update"];
+        trace?: never;
+    };
+    "/api/setup/classes/{id}/attendance/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the
+         *     homeroom teacher and the principal board: every student enrolled in the class during the range
+         *     (so one without an absence is still listed), each with their late or absent marks, taken in
+         *     this class's periods, by day and bell period.
+         */
+        get: operations["setup_classes_attendance_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/setup/classes/{id}/timetable/": {
@@ -1512,6 +1560,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A late or absent mark in the class overview: the day and the period it was taken in. */
+        Absence: {
+            /** Format: date */
+            on: string;
+            session: string;
+            number: number;
+            subject_name: string;
+            status: components["schemas"]["AttendanceStatusEnum"];
+        };
         /**
          * @description * `write` - write
          *     * `read` - read
@@ -1551,6 +1608,19 @@ export interface components {
             readonly source: string;
             readonly rules: unknown;
         };
+        /** @description What a taken period shows on the teacher's home. */
+        AttendanceResult: {
+            absent: number;
+            late: number;
+        };
+        /**
+         * @description * `present` - Present
+         *     * `late` - Late
+         *     * `absent_excused` - Absent Excused
+         *     * `absent_unexcused` - Absent Unexcused
+         * @enum {string}
+         */
+        AttendanceStatusEnum: "present" | "late" | "absent_excused" | "absent_unexcused";
         AuditEvent: {
             readonly id: number;
             /** Format: date-time */
@@ -1782,6 +1852,16 @@ export interface components {
             identifier: string;
             password: string;
         };
+        Mark: {
+            status: components["schemas"]["AttendanceStatusEnum"];
+            note: string;
+        };
+        MarkInput: {
+            status: components["schemas"]["AttendanceStatusEnum"];
+            /** @default  */
+            note: string;
+            student: number;
+        };
         Me: {
             account: components["schemas"]["Account"];
             school: components["schemas"]["School"];
@@ -1819,9 +1899,19 @@ export interface components {
             subject_name: string;
             readonly room: number | null;
             room_name?: string;
+            readonly attendance: components["schemas"]["AttendanceResult"] | null;
         };
         /** @enum {unknown} */
         NullEnum: null;
+        Overview: {
+            class_name: string;
+            students: components["schemas"]["OverviewStudent"][];
+        };
+        OverviewStudent: {
+            id: number;
+            name: string;
+            marks: components["schemas"]["Absence"][];
+        };
         PaginatedAuditEventList: {
             /**
              * Format: uri
@@ -2146,6 +2236,10 @@ export interface components {
             name: string;
             is_active?: boolean;
         };
+        /** @description `PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more. */
+        SaveSheet: {
+            marks: components["schemas"]["MarkInput"][];
+        };
         ScheduledChange: {
             status: components["schemas"]["StudentStatusEnum"];
             /** Format: date */
@@ -2186,6 +2280,30 @@ export interface components {
          * @enum {string}
          */
         SessionEnum: "morning" | "afternoon";
+        /** @description A held period on a date and its class list, each student with their mark or null. */
+        Sheet: {
+            entry: number;
+            /** Format: date */
+            on: string;
+            session: string;
+            number: number;
+            /** Format: time */
+            starts_at: string;
+            /** Format: time */
+            ends_at: string;
+            school_class: number;
+            class_name: string;
+            subject: number;
+            subject_name: string;
+            room_name: string | null;
+            can_take: boolean;
+            students: components["schemas"]["SheetStudent"][];
+        };
+        SheetStudent: {
+            id: number;
+            name: string;
+            mark: components["schemas"]["Mark"] | null;
+        };
         /**
          * @description `status` is the status today and `scheduled_change` the next change after today (or null),
          *     both derived from the status events: neither is writable (sending a different `status` on
@@ -2501,6 +2619,56 @@ export interface operations {
             };
         };
     };
+    setup_attendance_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry: number;
+                on: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sheet"];
+                };
+            };
+        };
+    };
+    setup_attendance_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry: number;
+                on: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveSheet"];
+                "application/x-www-form-urlencoded": components["schemas"]["SaveSheet"];
+                "multipart/form-data": components["schemas"]["SaveSheet"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sheet"];
+                };
+            };
+        };
+    };
     setup_audit_events_list: {
         parameters: {
             query?: {
@@ -2776,6 +2944,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SchoolClass"];
+                };
+            };
+        };
+    };
+    setup_classes_attendance_retrieve: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD) */
+                from: string;
+                /** @description Last day, at most 31 days */
+                to: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overview"];
                 };
             };
         };

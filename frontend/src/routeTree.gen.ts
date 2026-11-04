@@ -17,6 +17,8 @@ import { Route as AppGradebookRouteImport } from './routes/_app/gradebook'
 import { Route as AppGuardianRouteImport } from './routes/_app/guardian'
 import { Route as AppTimetableRouteImport } from './routes/_app/timetable'
 import { Route as AppStudentsStudentIdRouteImport } from './routes/_app/students.$studentId'
+import { Route as AppAttendanceEntryIdOnRouteImport } from './routes/_app/attendance.$entryId.$on'
+import { Route as AppClassesClassIdAttendanceRouteImport } from './routes/_app/classes.$classId.attendance'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -57,6 +59,17 @@ const AppStudentsStudentIdRoute = AppStudentsStudentIdRouteImport.update({
   path: '/students/$studentId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAttendanceEntryIdOnRoute = AppAttendanceEntryIdOnRouteImport.update({
+  id: '/attendance/$entryId/$on',
+  path: '/attendance/$entryId/$on',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppClassesClassIdAttendanceRoute =
+  AppClassesClassIdAttendanceRouteImport.update({
+    id: '/classes/$classId/attendance',
+    path: '/classes/$classId/attendance',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -66,6 +79,8 @@ export interface FileRoutesByFullPath {
   '/guardian': typeof AppGuardianRoute
   '/timetable': typeof AppTimetableRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
+  '/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
 export interface FileRoutesByTo {
   '/activate': typeof ActivateRoute
@@ -75,6 +90,8 @@ export interface FileRoutesByTo {
   '/timetable': typeof AppTimetableRoute
   '/': typeof AppIndexRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
+  '/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,6 +103,8 @@ export interface FileRoutesById {
   '/_app/timetable': typeof AppTimetableRoute
   '/_app/': typeof AppIndexRoute
   '/_app/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/_app/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
+  '/_app/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -97,6 +116,8 @@ export interface FileRouteTypes {
     | '/guardian'
     | '/timetable'
     | '/students/$studentId'
+    | '/attendance/$entryId/$on'
+    | '/classes/$classId/attendance'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/activate'
@@ -106,6 +127,8 @@ export interface FileRouteTypes {
     | '/timetable'
     | '/'
     | '/students/$studentId'
+    | '/attendance/$entryId/$on'
+    | '/classes/$classId/attendance'
   id:
     | '__root__'
     | '/_app'
@@ -116,6 +139,8 @@ export interface FileRouteTypes {
     | '/_app/timetable'
     | '/_app/'
     | '/_app/students/$studentId'
+    | '/_app/attendance/$entryId/$on'
+    | '/_app/classes/$classId/attendance'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -182,6 +207,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppStudentsStudentIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/attendance/$entryId/$on': {
+      id: '/_app/attendance/$entryId/$on'
+      path: '/attendance/$entryId/$on'
+      fullPath: '/attendance/$entryId/$on'
+      preLoaderRoute: typeof AppAttendanceEntryIdOnRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/classes/$classId/attendance': {
+      id: '/_app/classes/$classId/attendance'
+      path: '/classes/$classId/attendance'
+      fullPath: '/classes/$classId/attendance'
+      preLoaderRoute: typeof AppClassesClassIdAttendanceRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -191,6 +230,8 @@ interface AppRouteChildren {
   AppTimetableRoute: typeof AppTimetableRoute
   AppIndexRoute: typeof AppIndexRoute
   AppStudentsStudentIdRoute: typeof AppStudentsStudentIdRoute
+  AppAttendanceEntryIdOnRoute: typeof AppAttendanceEntryIdOnRoute
+  AppClassesClassIdAttendanceRoute: typeof AppClassesClassIdAttendanceRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -199,6 +240,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppTimetableRoute: AppTimetableRoute,
   AppIndexRoute: AppIndexRoute,
   AppStudentsStudentIdRoute: AppStudentsStudentIdRoute,
+  AppAttendanceEntryIdOnRoute: AppAttendanceEntryIdOnRoute,
+  AppClassesClassIdAttendanceRoute: AppClassesClassIdAttendanceRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

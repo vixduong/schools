@@ -2,6 +2,7 @@ from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 from django.db import models
 from django.db.models import F, Func, Q
+from django.utils import timezone
 
 from schools.models import TenantModel, _daterange
 
@@ -133,3 +134,45 @@ class TimetableEntry(TenantModel):
 
     def __str__(self):
         return f"{self.school_class_id} day {self.weekday} period {self.bell_period_id}"
+
+
+class AttendanceMark(TenantModel):
+    """One student's attendance in one held period (a TimetableEntry on a date). A period is taken
+    when it has marks; the sheet is saved whole, so a taken period has a mark for every student
+    enrolled in the class that day. The app role may correct a mark's status and note (never its
+    entry, date or student) and never delete one. Triggers `attendancemark_fits_entry` (the entry
+    is in force on `on`, on its weekday) and `attendancemark_student_enrolled` hold the
+    cross-table rules; an update of a mark dated before the day it is made is audited (all in
+    the migration)."""
+
+    class Status(models.TextChoices):
+        PRESENT = "present"
+        LATE = "late"
+        ABSENT_EXCUSED = "absent_excused"
+        ABSENT_UNEXCUSED = "absent_unexcused"
+
+    entry = models.ForeignKey(TimetableEntry, on_delete=models.PROTECT, db_constraint=False)
+    on = models.DateField()
+    student = models.ForeignKey("schools.Student", on_delete=models.PROTECT, db_constraint=False)
+    status = models.CharField(max_length=20, choices=Status)
+    note = models.CharField(max_length=200, blank=True)
+    recorded_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    recorded_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "entry", "on", "student"],
+                name="attendancemark_once_per_student_period_day",
+            ),
+            models.UniqueConstraint(fields=["school", "id"], name="attendancemark_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(status__in=["present", "late", "absent_excused", "absent_unexcused"]),
+                name="attendancemark_status_is_known",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.student_id} {self.on} {self.status}"

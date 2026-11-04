@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { meQuery } from "@/api/queries";
 import { myPeriodsQuery } from "@/api/timetable";
+import { Button } from "@/components/ui/button";
+import { resultLabel } from "@/lib/attendance";
 import { hhmm, isCurrent } from "@/lib/timetable";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +22,10 @@ function useNow() {
 
 function Screen() {
   const periods = useQuery(myPeriodsQuery);
+  const me = useQuery(meQuery);
   const now = useNow();
+  const today = now.toLocaleDateString("sv"); // yyyy-mm-dd, local
+  const homerooms = me.data?.role_assignments.filter((r) => r.role === "homeroom_teacher") ?? [];
   return (
     <section>
       <h1 className="font-serif text-4xl font-light">Hôm nay</h1>
@@ -41,7 +47,7 @@ function Screen() {
                 key={period.id}
                 aria-current={current ? "time" : undefined}
                 className={cn(
-                  "grid grid-cols-[6.5rem_1fr_auto] items-baseline gap-x-4 px-2 py-3",
+                  "grid grid-cols-[6.5rem_1fr_auto] items-center gap-x-4 px-2 py-3",
                   current && "bg-[var(--color-select)]",
                 )}
               >
@@ -51,13 +57,35 @@ function Screen() {
                 <span>
                   <span className="font-semibold">{period.class_name}</span>
                   <span className="text-ink-3"> · {period.subject_name}</span>
+                  <span className="block text-sm text-ink-3">{resultLabel(period.attendance)}</span>
                 </span>
-                <span className="text-sm text-ink-3">{period.room_name ?? ""}</span>
+                <span className="flex items-center gap-4 text-sm text-ink-3">
+                  {period.room_name ?? ""}
+                  <Button asChild variant={current ? "default" : "quiet"}>
+                    <Link
+                      to="/attendance/$entryId/$on"
+                      params={{ entryId: String(period.id), on: today }}
+                    >
+                      Điểm danh
+                    </Link>
+                  </Button>
+                </span>
               </li>
             );
           })}
         </ol>
       )}
+      {homerooms.map((role) => (
+        <p key={role.id} className="mt-6">
+          <Link
+            to="/classes/$classId/attendance"
+            params={{ classId: String(role.school_class) }}
+            className="underline underline-offset-4"
+          >
+            Chuyên cần lớp chủ nhiệm
+          </Link>
+        </p>
+      ))}
     </section>
   );
 }

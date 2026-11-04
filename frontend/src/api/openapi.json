@@ -207,6 +207,112 @@
                 }
             }
         },
+        "/api/setup/attendance/{entry}/{on}/": {
+            "get": {
+                "operationId": "setup_attendance_retrieve",
+                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date with each student's mark; PUT the whole sheet, in one transaction. A date the entry\nis not held on is a 404; a PUT for a day after today is a 400.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "entry",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "on",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sheet"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "setup_attendance_update",
+                "description": "The attendance of one held period (a timetable entry on a date): GET the class list as of\nthat date with each student's mark; PUT the whole sheet, in one transaction. A date the entry\nis not held on is a 404; a PUT for a day after today is a 400.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "entry",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "on",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveSheet"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveSheet"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveSheet"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sheet"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/audit-events/": {
             "get": {
                 "operationId": "setup_audit_events_list",
@@ -724,6 +830,60 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SchoolClass"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/classes/{id}/attendance/": {
+            "get": {
+                "operationId": "setup_classes_attendance_retrieve",
+                "description": "The class's absences and late arrivals from `?from=` to `?to=` (at most 31 days), for the\nhomeroom teacher and the principal board: every student enrolled in the class during the range\n(so one without an absence is still listed), each with their late or absent marks, taken in\nthis class's periods, by day and bell period.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "First day (YYYY-MM-DD)",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Last day, at most 31 days",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Overview"
                                 }
                             }
                         },
@@ -4280,6 +4440,35 @@
     },
     "components": {
         "schemas": {
+            "Absence": {
+                "type": "object",
+                "description": "A late or absent mark in the class overview: the day and the period it was taken in.",
+                "properties": {
+                    "on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "session": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/AttendanceStatusEnum"
+                    }
+                },
+                "required": [
+                    "number",
+                    "on",
+                    "session",
+                    "status",
+                    "subject_name"
+                ]
+            },
             "AccessEnum": {
                 "enum": [
                     "write",
@@ -4383,6 +4572,32 @@
                     "rules",
                     "source"
                 ]
+            },
+            "AttendanceResult": {
+                "type": "object",
+                "description": "What a taken period shows on the teacher's home.",
+                "properties": {
+                    "absent": {
+                        "type": "integer"
+                    },
+                    "late": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "absent",
+                    "late"
+                ]
+            },
+            "AttendanceStatusEnum": {
+                "enum": [
+                    "present",
+                    "late",
+                    "absent_excused",
+                    "absent_unexcused"
+                ],
+                "type": "string",
+                "description": "* `present` - Present\n* `late` - Late\n* `absent_excused` - Absent Excused\n* `absent_unexcused` - Absent Unexcused"
             },
             "AuditEvent": {
                 "type": "object",
@@ -4995,6 +5210,42 @@
                     "password"
                 ]
             },
+            "Mark": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "$ref": "#/components/schemas/AttendanceStatusEnum"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 200
+                    }
+                },
+                "required": [
+                    "note",
+                    "status"
+                ]
+            },
+            "MarkInput": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "$ref": "#/components/schemas/AttendanceStatusEnum"
+                    },
+                    "note": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 200
+                    },
+                    "student": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "status",
+                    "student"
+                ]
+            },
             "Me": {
                 "type": "object",
                 "properties": {
@@ -5108,9 +5359,19 @@
                     },
                     "room_name": {
                         "type": "string"
+                    },
+                    "attendance": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AttendanceResult"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "attendance",
                     "class_name",
                     "ends_at",
                     "id",
@@ -5126,6 +5387,46 @@
             "NullEnum": {
                 "enum": [
                     null
+                ]
+            },
+            "Overview": {
+                "type": "object",
+                "properties": {
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "students": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/OverviewStudent"
+                        }
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "students"
+                ]
+            },
+            "OverviewStudent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "marks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Absence"
+                        }
+                    }
+                },
+                "required": [
+                    "id",
+                    "marks",
+                    "name"
                 ]
             },
             "PaginatedAuditEventList": {
@@ -5796,6 +6097,21 @@
                     "name"
                 ]
             },
+            "SaveSheet": {
+                "type": "object",
+                "description": "`PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more.",
+                "properties": {
+                    "marks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MarkInput"
+                        }
+                    }
+                },
+                "required": [
+                    "marks"
+                ]
+            },
             "ScheduledChange": {
                 "type": "object",
                 "properties": {
@@ -5895,6 +6211,97 @@
                 ],
                 "type": "string",
                 "description": "* `morning` - Morning\n* `afternoon` - Afternoon"
+            },
+            "Sheet": {
+                "type": "object",
+                "description": "A held period on a date and its class list, each student with their mark or null.",
+                "properties": {
+                    "entry": {
+                        "type": "integer"
+                    },
+                    "on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "session": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "ends_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "school_class": {
+                        "type": "integer"
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "room_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "can_take": {
+                        "type": "boolean"
+                    },
+                    "students": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SheetStudent"
+                        }
+                    }
+                },
+                "required": [
+                    "can_take",
+                    "class_name",
+                    "ends_at",
+                    "entry",
+                    "number",
+                    "on",
+                    "room_name",
+                    "school_class",
+                    "session",
+                    "starts_at",
+                    "students",
+                    "subject",
+                    "subject_name"
+                ]
+            },
+            "SheetStudent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "mark": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Mark"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "mark",
+                    "name"
+                ]
             },
             "Student": {
                 "type": "object",

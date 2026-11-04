@@ -6,7 +6,7 @@ export type BellPeriod = components["schemas"]["BellPeriod"];
 export type MyPeriod = components["schemas"]["MyPeriod"];
 export type TimetableEntry = components["schemas"]["TimetableEntry"];
 
-async function ok<T>(request: Promise<{ data?: T }>, what: string): Promise<T> {
+export async function ok<T>(request: Promise<{ data?: T }>, what: string): Promise<T> {
   const { data } = await request;
   if (!data) throw new Error(what);
   return data;
