@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "schools",
     "permissions",
     "audit",
+    "timetable",
 ]
 
 MIDDLEWARE = [

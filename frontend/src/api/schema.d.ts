@@ -163,6 +163,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/bell-periods/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The School's bell schedule (`school.configure`, read-only for the principal board). A
+         *     period's times can change; its year, session and number cannot, and none is deleted.
+         */
+        get: operations["setup_bell_periods_list"];
+        put?: never;
+        /**
+         * @description The School's bell schedule (`school.configure`, read-only for the principal board). A
+         *     period's times can change; its year, session and number cannot, and none is deleted.
+         */
+        post: operations["setup_bell_periods_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/bell-periods/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The School's bell schedule (`school.configure`, read-only for the principal board). A
+         *     period's times can change; its year, session and number cannot, and none is deleted.
+         */
+        get: operations["setup_bell_periods_retrieve"];
+        /**
+         * @description The School's bell schedule (`school.configure`, read-only for the principal board). A
+         *     period's times can change; its year, session and number cannot, and none is deleted.
+         */
+        put: operations["setup_bell_periods_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description The School's bell schedule (`school.configure`, read-only for the principal board). A
+         *     period's times can change; its year, session and number cannot, and none is deleted.
+         */
+        patch: operations["setup_bell_periods_partial_update"];
+        trace?: never;
+    };
     "/api/setup/classes/": {
         parameters: {
             query?: never;
@@ -228,6 +280,34 @@ export interface paths {
          *     instead of deletes). Querysets need no School filter: RLS shows only the request's School.
          */
         patch: operations["setup_classes_partial_update"];
+        trace?: never;
+    };
+    "/api/setup/classes/{id}/timetable/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description A class's timetable. GET: its entries in force on `?on=` (default today). POST: replace it
+         *     from a day, in one transaction (School admin only): entries not yet started by `valid_from`
+         *     are deleted (they never governed a period), entries in force end the day before, and the new
+         *     ones start on `valid_from`. A clash is a 400 naming the constraint and the entry it hit.
+         */
+        get: operations["setup_classes_timetable_list"];
+        put?: never;
+        /**
+         * @description A class's timetable. GET: its entries in force on `?on=` (default today). POST: replace it
+         *     from a day, in one transaction (School admin only): entries not yet started by `valid_from`
+         *     are deleted (they never governed a period), entries in force end the day before, and the new
+         *     ones start on `valid_from`. A clash is a 400 naming the constraint and the entry it hit.
+         */
+        post: operations["setup_classes_timetable_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/setup/enrollments/": {
@@ -1408,6 +1488,26 @@ export interface paths {
         patch: operations["setup_terms_partial_update"];
         trace?: never;
     };
+    "/api/setup/timetable/mine/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The signed-in member's own periods on the weekday of `?on=` (default today), by session
+         *     and number. Empty for anyone who teaches nothing.
+         */
+        get: operations["setup_timetable_mine_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1461,6 +1561,21 @@ export interface components {
             readonly target_table: string;
             readonly target_id: number | null;
             readonly details: unknown;
+        };
+        /**
+         * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
+         *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
+         *     client may PUT the whole row back).
+         */
+        BellPeriod: {
+            readonly id: number;
+            school_year: number;
+            session: components["schemas"]["SessionEnum"];
+            number: number;
+            /** Format: time */
+            starts_at: string;
+            /** Format: time */
+            ends_at: string;
         };
         /** @enum {unknown} */
         BlankEnum: "";
@@ -1689,6 +1804,22 @@ export interface components {
          * @enum {string}
          */
         MembershipStatusEnum: "active" | "inactive";
+        /** @description A period of the signed-in teacher's day: times, class, subject and room by name. */
+        MyPeriod: {
+            readonly id: number;
+            session: string;
+            number: number;
+            /** Format: time */
+            starts_at: string;
+            /** Format: time */
+            ends_at: string;
+            readonly school_class: number;
+            class_name: string;
+            readonly subject: number;
+            subject_name: string;
+            readonly room: number | null;
+            room_name?: string;
+        };
         /** @enum {unknown} */
         NullEnum: null;
         PaginatedAuditEventList: {
@@ -1703,6 +1834,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["AuditEvent"][];
+        };
+        /**
+         * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
+         *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
+         *     client may PUT the whole row back).
+         */
+        PatchedBellPeriod: {
+            readonly id?: number;
+            school_year?: number;
+            session?: components["schemas"]["SessionEnum"];
+            number?: number;
+            /** Format: time */
+            starts_at?: string;
+            /** Format: time */
+            ends_at?: string;
         };
         /**
          * @description A student's period in a class. Student, year, start and `reason_started` never change;
@@ -1919,6 +2065,15 @@ export interface components {
          * @enum {string}
          */
         RelationEnum: "mother" | "father" | "grandparent" | "other";
+        /**
+         * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (today or later,
+         *     inside the class's year). The class comes from the URL, not from the body.
+         */
+        ReplaceTimetable: {
+            /** Format: date */
+            valid_from: string;
+            entries: components["schemas"]["TimetableSlot"][];
+        };
         RoleAssignment: {
             readonly id: number;
             role: components["schemas"]["RoleEnum"];
@@ -2025,6 +2180,12 @@ export interface components {
             /** Format: date */
             ends_on: string;
         };
+        /**
+         * @description * `morning` - Morning
+         *     * `afternoon` - Afternoon
+         * @enum {string}
+         */
+        SessionEnum: "morning" | "afternoon";
         /**
          * @description `status` is the status today and `scheduled_change` the next change after today (or null),
          *     both derived from the status events: neither is writable (sending a different `status` on
@@ -2141,6 +2302,28 @@ export interface components {
             starts_on: string;
             /** Format: date */
             ends_on: string;
+        };
+        TimetableEntry: {
+            readonly id: number;
+            readonly school_year: number;
+            readonly school_class: number;
+            readonly weekday: number;
+            readonly bell_period: number;
+            readonly subject: number;
+            readonly teacher: number;
+            readonly room: number | null;
+            /** Format: date */
+            readonly valid_from: string;
+            /** Format: date */
+            readonly valid_to: string | null;
+        };
+        /** @description One cell of the week the admin saves for a class. */
+        TimetableSlot: {
+            weekday: number;
+            bell_period: number;
+            subject: number;
+            teacher: number;
+            room?: number | null;
         };
         /**
          * @description * `principal` - Principal
@@ -2350,6 +2533,131 @@ export interface operations {
             };
         };
     };
+    setup_bell_periods_list: {
+        parameters: {
+            query?: {
+                /** @description Only this school year */
+                school_year?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BellPeriod"][];
+                };
+            };
+        };
+    };
+    setup_bell_periods_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BellPeriod"];
+                "application/x-www-form-urlencoded": components["schemas"]["BellPeriod"];
+                "multipart/form-data": components["schemas"]["BellPeriod"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BellPeriod"];
+                };
+            };
+        };
+    };
+    setup_bell_periods_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bell period. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BellPeriod"];
+                };
+            };
+        };
+    };
+    setup_bell_periods_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bell period. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BellPeriod"];
+                "application/x-www-form-urlencoded": components["schemas"]["BellPeriod"];
+                "multipart/form-data": components["schemas"]["BellPeriod"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BellPeriod"];
+                };
+            };
+        };
+    };
+    setup_bell_periods_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bell period. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedBellPeriod"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedBellPeriod"];
+                "multipart/form-data": components["schemas"]["PatchedBellPeriod"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BellPeriod"];
+                };
+            };
+        };
+    };
     setup_classes_list: {
         parameters: {
             query?: never;
@@ -2468,6 +2776,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SchoolClass"];
+                };
+            };
+        };
+    };
+    setup_classes_timetable_list: {
+        parameters: {
+            query?: {
+                /** @description A date (YYYY-MM-DD); default today */
+                on?: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimetableEntry"][];
+                };
+            };
+        };
+    };
+    setup_classes_timetable_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceTimetable"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReplaceTimetable"];
+                "multipart/form-data": components["schemas"]["ReplaceTimetable"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimetableEntry"][];
                 };
             };
         };
@@ -4366,6 +4725,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Term"];
+                };
+            };
+        };
+    };
+    setup_timetable_mine_list: {
+        parameters: {
+            query?: {
+                /** @description A date (YYYY-MM-DD); default today */
+                on?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyPeriod"][];
                 };
             };
         };

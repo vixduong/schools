@@ -284,6 +284,235 @@
                 }
             }
         },
+        "/api/setup/bell-periods/": {
+            "get": {
+                "operationId": "setup_bell_periods_list",
+                "description": "The School's bell schedule (`school.configure`, read-only for the principal board). A\nperiod's times can change; its year, session and number cannot, and none is deleted.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "school_year",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this school year"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/BellPeriod"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_bell_periods_create",
+                "description": "The School's bell schedule (`school.configure`, read-only for the principal board). A\nperiod's times can change; its year, session and number cannot, and none is deleted.",
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BellPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/bell-periods/{id}/": {
+            "get": {
+                "operationId": "setup_bell_periods_retrieve",
+                "description": "The School's bell schedule (`school.configure`, read-only for the principal board). A\nperiod's times can change; its year, session and number cannot, and none is deleted.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bell period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BellPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "setup_bell_periods_update",
+                "description": "The School's bell schedule (`school.configure`, read-only for the principal board). A\nperiod's times can change; its year, session and number cannot, and none is deleted.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bell period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BellPeriod"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BellPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "setup_bell_periods_partial_update",
+                "description": "The School's bell schedule (`school.configure`, read-only for the principal board). A\nperiod's times can change; its year, session and number cannot, and none is deleted.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bell period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBellPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBellPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBellPeriod"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BellPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/classes/": {
             "get": {
                 "operationId": "setup_classes_list",
@@ -495,6 +724,110 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SchoolClass"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/classes/{id}/timetable/": {
+            "get": {
+                "operationId": "setup_classes_timetable_list",
+                "description": "A class's timetable. GET: its entries in force on `?on=` (default today). POST: replace it\nfrom a day, in one transaction (School admin only): entries not yet started by `valid_from`\nare deleted (they never governed a period), entries in force end the day before, and the new\nones start on `valid_from`. A clash is a 400 naming the constraint and the entry it hit.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "on",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "A date (YYYY-MM-DD); default today"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TimetableEntry"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_classes_timetable_create",
+                "description": "A class's timetable. GET: its entries in force on `?on=` (default today). POST: replace it\nfrom a day, in one transaction (School admin only): entries not yet started by `valid_from`\nare deleted (they never governed a period), entries in force end the day before, and the new\nones start on `valid_from`. A clash is a 400 naming the constraint and the entry it hit.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceTimetable"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceTimetable"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReplaceTimetable"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TimetableEntry"
+                                    }
                                 }
                             }
                         },
@@ -3904,6 +4237,45 @@
                     }
                 }
             }
+        },
+        "/api/setup/timetable/mine/": {
+            "get": {
+                "operationId": "setup_timetable_mine_list",
+                "description": "The signed-in member's own periods on the weekday of `?on=` (default today), by session\nand number. Empty for anyone who teaches nothing.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "on",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "A date (YYYY-MM-DD); default today"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MyPeriod"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -4059,6 +4431,43 @@
                     "id",
                     "target_id",
                     "target_table"
+                ]
+            },
+            "BellPeriod": {
+                "type": "object",
+                "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer"
+                    },
+                    "session": {
+                        "$ref": "#/components/schemas/SessionEnum"
+                    },
+                    "number": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "starts_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "ends_at": {
+                        "type": "string",
+                        "format": "time"
+                    }
+                },
+                "required": [
+                    "ends_at",
+                    "id",
+                    "number",
+                    "school_year",
+                    "session",
+                    "starts_at"
                 ]
             },
             "BlankEnum": {
@@ -4656,6 +5065,64 @@
                 "type": "string",
                 "description": "* `active` - Active\n* `inactive` - Inactive"
             },
+            "MyPeriod": {
+                "type": "object",
+                "description": "A period of the signed-in teacher's day: times, class, subject and room by name.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "session": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "ends_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "room": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "room_name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "ends_at",
+                    "id",
+                    "number",
+                    "room",
+                    "school_class",
+                    "session",
+                    "starts_at",
+                    "subject",
+                    "subject_name"
+                ]
+            },
             "NullEnum": {
                 "enum": [
                     null
@@ -4684,6 +5151,35 @@
                         "items": {
                             "$ref": "#/components/schemas/AuditEvent"
                         }
+                    }
+                }
+            },
+            "PatchedBellPeriod": {
+                "type": "object",
+                "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer"
+                    },
+                    "session": {
+                        "$ref": "#/components/schemas/SessionEnum"
+                    },
+                    "number": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "starts_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "ends_at": {
+                        "type": "string",
+                        "format": "time"
                     }
                 }
             },
@@ -5103,6 +5599,26 @@
                 "type": "string",
                 "description": "* `mother` - Mother\n* `father` - Father\n* `grandparent` - Grandparent\n* `other` - Other"
             },
+            "ReplaceTimetable": {
+                "type": "object",
+                "description": "`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (today or later,\ninside the class's year). The class comes from the URL, not from the body.",
+                "properties": {
+                    "valid_from": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimetableSlot"
+                        }
+                    }
+                },
+                "required": [
+                    "entries",
+                    "valid_from"
+                ]
+            },
             "RoleAssignment": {
                 "type": "object",
                 "properties": {
@@ -5371,6 +5887,14 @@
                     "name",
                     "starts_on"
                 ]
+            },
+            "SessionEnum": {
+                "enum": [
+                    "morning",
+                    "afternoon"
+                ],
+                "type": "string",
+                "description": "* `morning` - Morning\n* `afternoon` - Afternoon"
             },
             "Student": {
                 "type": "object",
@@ -5699,6 +6223,97 @@
                     "name",
                     "school_year",
                     "starts_on"
+                ]
+            },
+            "TimetableEntry": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "weekday": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "bell_period": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "subject": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "teacher": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "room": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "valid_from": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "valid_to": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "bell_period",
+                    "id",
+                    "room",
+                    "school_class",
+                    "school_year",
+                    "subject",
+                    "teacher",
+                    "valid_from",
+                    "valid_to",
+                    "weekday"
+                ]
+            },
+            "TimetableSlot": {
+                "type": "object",
+                "description": "One cell of the week the admin saves for a class.",
+                "properties": {
+                    "weekday": {
+                        "type": "integer",
+                        "maximum": 7,
+                        "minimum": 1
+                    },
+                    "bell_period": {
+                        "type": "integer"
+                    },
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "teacher": {
+                        "type": "integer"
+                    },
+                    "room": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "bell_period",
+                    "subject",
+                    "teacher",
+                    "weekday"
                 ]
             },
             "TitleEnum": {

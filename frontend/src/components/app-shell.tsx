@@ -5,6 +5,7 @@ import { api } from "@/api/client";
 import { meQuery } from "@/api/queries";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
+import { reach } from "@/lib/capabilities";
 
 const navLink =
   "px-1 py-2 underline-offset-4 hover:underline data-[status=active]:font-semibold data-[status=active]:underline";
@@ -42,6 +43,11 @@ export function AppShell() {
             <Link to="/gradebook" className={navLink}>
               Sổ điểm
             </Link>
+            {reach(me, "school.configure") && (
+              <Link to="/timetable" className={navLink}>
+                Thời khóa biểu
+              </Link>
+            )}
           </nav>
           <span className="text-sm">{me.account.display_name}</span>
           <ModeToggle />

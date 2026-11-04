@@ -4,6 +4,7 @@ from django.core.management.base import CommandError
 
 from accounts.management.commands.seed_dev_roles import GUARDIAN_PHONE, PASSWORD
 from schools.models import Enrollment, GuardianLink, Student
+from timetable.models import TimetableEntry
 
 
 @pytest.mark.parametrize(
@@ -44,6 +45,7 @@ def test_student_and_guardian_are_linked(schools, settings):
         assert student.membership is not None
         assert Enrollment.objects.filter(student=student).count() == 1
         assert GuardianLink.objects.filter(student=student).count() == 1
+        assert TimetableEntry.objects.count() == 5  # once, however often the seed runs
 
 
 def test_refuses_outside_debug(schools, settings):

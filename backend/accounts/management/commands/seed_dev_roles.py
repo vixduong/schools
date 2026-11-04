@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 
 from django.conf import settings
 from django.core.management import call_command
@@ -19,6 +19,7 @@ from schools.models import (
 )
 from tenancy.models import School
 from tenancy.rls import school_scope
+from timetable.models import BellPeriod, TimetableEntry
 
 PASSWORD = "dev-password"
 # Guardians sign in by phone; a fixed number keeps the dev guardian the same on every run.
@@ -126,6 +127,28 @@ class Command(BaseCommand):
                 subject=subject,
                 school_class=klass,
             )
+
+            # A bell schedule and the subject teacher's first period each weekday, so the teacher
+            # home has something to list (the role above starts today, so the entries do too).
+            if not TimetableEntry.objects.filter(school_class=klass).exists():
+                first = BellPeriod.objects.get_or_create(
+                    school=school,
+                    school_year=year,
+                    session=BellPeriod.Session.MORNING,
+                    number=1,
+                    defaults={"starts_at": time(7, 0), "ends_at": time(7, 45)},
+                )[0]
+                for weekday in range(1, 6):
+                    TimetableEntry.objects.create(
+                        school=school,
+                        school_year=year,
+                        school_class=klass,
+                        weekday=weekday,
+                        bell_period=first,
+                        subject=subject,
+                        teacher=_membership(school, accounts["subject"]),
+                        valid_from=today,
+                    )
 
             # The student's sign-in needs an Enrollment in a secondary class first (a trigger).
             student_membership = _membership(school, accounts["student"])

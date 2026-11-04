@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppGradebookRouteImport } from './routes/_app/gradebook'
 import { Route as AppGuardianRouteImport } from './routes/_app/guardian'
+import { Route as AppTimetableRouteImport } from './routes/_app/timetable'
 import { Route as AppStudentsStudentIdRouteImport } from './routes/_app/students.$studentId'
 
 const AppRoute = AppRouteImport.update({
@@ -46,6 +47,11 @@ const AppGuardianRoute = AppGuardianRouteImport.update({
   path: '/guardian',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTimetableRoute = AppTimetableRouteImport.update({
+  id: '/timetable',
+  path: '/timetable',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStudentsStudentIdRoute = AppStudentsStudentIdRouteImport.update({
   id: '/students/$studentId',
   path: '/students/$studentId',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/gradebook': typeof AppGradebookRoute
   '/guardian': typeof AppGuardianRoute
+  '/timetable': typeof AppTimetableRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
 }
 export interface FileRoutesByTo {
@@ -65,6 +72,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/gradebook': typeof AppGradebookRoute
   '/guardian': typeof AppGuardianRoute
+  '/timetable': typeof AppTimetableRoute
   '/': typeof AppIndexRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
 }
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/gradebook': typeof AppGradebookRoute
   '/_app/guardian': typeof AppGuardianRoute
+  '/_app/timetable': typeof AppTimetableRoute
   '/_app/': typeof AppIndexRoute
   '/_app/students/$studentId': typeof AppStudentsStudentIdRoute
 }
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/gradebook'
     | '/guardian'
+    | '/timetable'
     | '/students/$studentId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -93,6 +103,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/gradebook'
     | '/guardian'
+    | '/timetable'
     | '/'
     | '/students/$studentId'
   id:
@@ -102,6 +113,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/gradebook'
     | '/_app/guardian'
+    | '/_app/timetable'
     | '/_app/'
     | '/_app/students/$studentId'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGuardianRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/timetable': {
+      id: '/_app/timetable'
+      path: '/timetable'
+      fullPath: '/timetable'
+      preLoaderRoute: typeof AppTimetableRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/students/$studentId': {
       id: '/_app/students/$studentId'
       path: '/students/$studentId'
@@ -169,6 +188,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppGradebookRoute: typeof AppGradebookRoute
   AppGuardianRoute: typeof AppGuardianRoute
+  AppTimetableRoute: typeof AppTimetableRoute
   AppIndexRoute: typeof AppIndexRoute
   AppStudentsStudentIdRoute: typeof AppStudentsStudentIdRoute
 }
@@ -176,6 +196,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppGradebookRoute: AppGradebookRoute,
   AppGuardianRoute: AppGuardianRoute,
+  AppTimetableRoute: AppTimetableRoute,
   AppIndexRoute: AppIndexRoute,
   AppStudentsStudentIdRoute: AppStudentsStudentIdRoute,
 }
