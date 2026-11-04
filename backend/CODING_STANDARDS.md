@@ -18,7 +18,7 @@ Read during review, not implementation. Each rule is a judgement call that no au
 
 ## Audit
 
-- **A new table about people, roles or scores gets the audit trigger** (`AUDITED` in `audit/migrations/0001_initial.py` shows the pattern: `CREATE TRIGGER audit_row_change ...`), with secrets passed as hidden columns. Reads of sensitive details call `audit.log.record`.
+- **A new table about people, roles or scores gets the audit trigger** (`AUDITED` in `audit/migrations/0001_initial.py` shows the pattern: `CREATE TRIGGER audit_row_change ...`), with secrets and personal free text (reasons, notes, comments) passed as hidden columns; `audit/tests/test_audit_privacy.py` enforces the free text. Reads of sensitive details call `audit.log.record`.
 - **Nothing writes `audit_auditevent` directly**; the app role cannot. A view that acts for someone other than the signed-in member calls `set_actor` first.
 
 ## Invariants

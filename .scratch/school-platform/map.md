@@ -2,6 +2,8 @@
 
 Label: wayfinder:map
 
+**Closed** (2026-11-04): the planning package is done and Phase 0 is built. Implementation continues from `docs/phase-1a.md`.
+
 ## Destination
 
 An English planning package, ready to hand off to implementation: (a) a phased roadmap where each phase is a list of features, (b) a tech-stack analysis recorded as ADRs, (c) a design system built with /hallmark from the statechart-art reference, and (d) a clickable UI prototype. No application code.
