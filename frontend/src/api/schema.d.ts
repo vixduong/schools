@@ -749,6 +749,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/leave-requests/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
+         *     for a linked student, a homeroom teacher those of their class's students, the principal board
+         *     all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+         *     for a linked student, from today, for a student enrolled on the first day; it waits.
+         */
+        get: operations["setup_leave_requests_list"];
+        put?: never;
+        /**
+         * @description Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
+         *     for a linked student, a homeroom teacher those of their class's students, the principal board
+         *     all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+         *     for a linked student, from today, for a student enrolled on the first day; it waits.
+         */
+        post: operations["setup_leave_requests_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/leave-requests/{id}/approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Approve (the comment is optional) or decline (the comment says why) a waiting request:
+         *     `leave_request.approve` on its student, as of today.
+         */
+        post: operations["setup_leave_requests_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/leave-requests/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Cancel a waiting request: only its sender, who still holds `leave_request.send` on the
+         *     student.
+         */
+        post: operations["setup_leave_requests_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/leave-requests/{id}/decline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Approve (the comment is optional) or decline (the comment says why) a waiting request:
+         *     `leave_request.approve` on its student, as of today.
+         */
+        post: operations["setup_leave_requests_decline_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/leave-requests/children/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The students the member may send a leave request for, by name, each with their class today:
+         *     the Guardian's child picker.
+         */
+        get: operations["setup_leave_requests_children_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/levels/": {
         parameters: {
             query?: never;
@@ -1671,6 +1779,15 @@ export interface components {
             students?: number[];
             pairs?: components["schemas"]["TeachingPair"][];
         };
+        /** @description `.../approve/`: the comment is optional. */
+        DecideLeaveRequest: {
+            /** @default  */
+            comment: string;
+        };
+        /** @description `.../decline/`: the comment says why, and is required. */
+        DeclineLeaveRequest: {
+            comment: string;
+        };
         /**
          * @description A student's period in a class. Student, year, start and `reason_started` never change;
          *     `valid_to` (with `reason_ended`) only ends the period, never clears it, and the only reason
@@ -1844,6 +1961,45 @@ export interface components {
             on: string;
             destination?: string;
         };
+        /** @description A student the member may send a leave request for (the Guardian's child picker). */
+        LeaveChild: {
+            id: number;
+            name: string;
+            class_name: string | null;
+        };
+        /**
+         * @description A leave request with the names a ticket shows. The view sets `class_name` (the student's
+         *     class on `from_on`) on each object.
+         */
+        LeaveRequest: {
+            readonly id: number;
+            readonly student: number;
+            student_name: string;
+            class_name: string | null;
+            readonly sent_by: number;
+            sent_by_name: string;
+            /** Format: date */
+            readonly from_on: string;
+            /** Format: date */
+            readonly to_on: string;
+            readonly reason: string;
+            readonly status: components["schemas"]["LeaveRequestStatusEnum"];
+            /** Format: date-time */
+            readonly sent_at: string;
+            readonly decided_by: number | null;
+            decided_by_name?: string | null;
+            /** Format: date-time */
+            readonly decided_at: string | null;
+            readonly decision_comment: string;
+        };
+        /**
+         * @description * `waiting` - Waiting
+         *     * `approved` - Approved
+         *     * `declined` - Declined
+         *     * `cancelled` - Cancelled
+         * @enum {string}
+         */
+        LeaveRequestStatusEnum: "waiting" | "approved" | "declined" | "cancelled";
         /**
          * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
          *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
@@ -2289,6 +2445,18 @@ export interface components {
             ends_on: string;
         };
         /**
+         * @description `POST leave-requests/`: the days are whole days from today (the student is checked by the
+         *     view, which authorised on them).
+         */
+        SendLeaveRequest: {
+            student: number;
+            /** Format: date */
+            from_on: string;
+            /** Format: date */
+            to_on: string;
+            reason: string;
+        };
+        /**
          * @description * `morning` - Morning
          *     * `afternoon` - Afternoon
          * @enum {string}
@@ -2313,10 +2481,22 @@ export interface components {
             can_take: boolean;
             students: components["schemas"]["SheetStudent"][];
         };
+        /**
+         * @description The approved leave request covering the sheet's day (no reason: the reader teaches or leads
+         *     the class, and needs only to know the Guardian asked).
+         */
+        SheetLeave: {
+            id: number;
+            /** Format: date */
+            from_on: string;
+            /** Format: date */
+            to_on: string;
+        };
         SheetStudent: {
             id: number;
             name: string;
             mark: components["schemas"]["Mark"] | null;
+            leave: components["schemas"]["SheetLeave"] | null;
         };
         /**
          * @description `status` is the status today and `scheduled_change` the next change after today (or null),
@@ -3637,6 +3817,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Invitation"][];
+                };
+            };
+        };
+    };
+    setup_leave_requests_list: {
+        parameters: {
+            query?: {
+                /** @description Only this status */
+                status?: string;
+                /** @description Only this student */
+                student?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequest"][];
+                };
+            };
+        };
+    };
+    setup_leave_requests_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendLeaveRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["SendLeaveRequest"];
+                "multipart/form-data": components["schemas"]["SendLeaveRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequest"];
+                };
+            };
+        };
+    };
+    setup_leave_requests_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DecideLeaveRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["DecideLeaveRequest"];
+                "multipart/form-data": components["schemas"]["DecideLeaveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequest"];
+                };
+            };
+        };
+    };
+    setup_leave_requests_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequest"];
+                };
+            };
+        };
+    };
+    setup_leave_requests_decline_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineLeaveRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeclineLeaveRequest"];
+                "multipart/form-data": components["schemas"]["DeclineLeaveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequest"];
+                };
+            };
+        };
+    };
+    setup_leave_requests_children_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveChild"][];
                 };
             };
         };

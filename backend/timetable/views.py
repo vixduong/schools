@@ -4,7 +4,7 @@ from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.fields import DateField
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import SAFE_METHODS
@@ -13,12 +13,12 @@ from rest_framework.response import Response
 from accounts.permissions import HasMembership
 from permissions.actor import Actor, TeachingPair
 from permissions.drf import Can, CanPermission
-from permissions.engine import can
+from permissions.engine import can, visible_students
 from schools.models import Enrollment, SchoolClass, Student
 from schools.views import SetupViewSet, database_rules
 
 from . import serializers
-from .models import AttendanceMark, BellPeriod, TimetableEntry
+from .models import AttendanceMark, BellPeriod, LeaveRequest, TimetableEntry
 
 # The exclusion constraints, and the TimetableEntry column each one is about.
 CLASH_COLUMNS = {
@@ -293,6 +293,18 @@ class PeriodAttendanceView(GenericAPIView):
 
     def sheet(self, request, entry, on):
         marks = {m.student_id: m for m in AttendanceMark.objects.filter(entry=entry, on=on)}
+        roster = self.roster(entry, on)
+        # The approved request covering the day; the screen defaults an untaken sheet from it and
+        # nothing here writes a mark.
+        leaves = {
+            leave.student_id: leave
+            for leave in LeaveRequest.objects.filter(
+                student_id__in=[pk for pk, _, _ in roster],
+                status=LeaveRequest.Status.APPROVED,
+                from_on__lte=on,
+                to_on__gte=on,
+            )
+        }
         period = entry.bell_period
         return {
             "entry": entry.pk,
@@ -312,8 +324,8 @@ class PeriodAttendanceView(GenericAPIView):
                 TeachingPair(entry.subject, entry.school_class),
             ),
             "students": [
-                {"id": pk, "name": name, "mark": marks.get(pk)}
-                for pk, name, _ in self.roster(entry, on)
+                {"id": pk, "name": name, "mark": marks.get(pk), "leave": leaves.get(pk)}
+                for pk, name, _ in roster
             ],
         }
 
@@ -492,3 +504,205 @@ class ClassAttendanceView(GenericAPIView):
                 {"class_name": klass.name, "students": list(students.values()), "periods": periods}
             ).data
         )
+
+
+def leave_student_in_body(request, view):
+    """The Student a send names (one of another School is not found: RLS), kept on the view."""
+    try:
+        pk = int(request.data["student"])
+    except (KeyError, TypeError, ValueError):
+        raise ValidationError({"student": ["required"]}) from None
+    view.student = Student.objects.filter(pk=pk).first()
+    if view.student is None:
+        raise PermissionDenied
+    return view.student
+
+
+class CanUseLeaveRequests(CanPermission):
+    """Any member may ask for the list and the children: each answers only what `visible_students`
+    reaches for the member, which for most is nothing. Sending is `leave_request.send` on the
+    student the body names."""
+
+    action = "leave_request.send"
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return getattr(request, "membership", None) is not None
+        return Can(self.action, leave_student_in_body)().has_permission(request, view)
+
+
+def with_classes(leaves):
+    """The requests as a list, each with `class_name`: the student's class on its first day."""
+    leaves = list(leaves)
+    rows = list(
+        Enrollment.objects.filter(
+            student_id__in={leave.student_id for leave in leaves}
+        ).values_list("student_id", "valid_from", "valid_to", "school_class__name")
+    )
+    for leave in leaves:
+        leave.class_name = next(
+            (
+                name
+                for student, start, end, name in rows
+                if student == leave.student_id
+                and start <= leave.from_on
+                and (end is None or end >= leave.from_on)
+            ),
+            None,
+        )
+    return leaves
+
+
+def leave_requests():
+    return LeaveRequest.objects.select_related("student", "sent_by__account", "decided_by__account")
+
+
+class LeaveRequestsView(GenericAPIView):
+    """Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent
+    for a linked student, a homeroom teacher those of their class's students, the principal board
+    all (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one
+    for a linked student, from today, for a student enrolled on the first day; it waits."""
+
+    permission_classes = [HasMembership, CanUseLeaveRequests]
+    serializer_class = serializers.SendLeaveRequestSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("status", str, description="Only this status"),
+            OpenApiParameter("student", int, description="Only this student"),
+        ],
+        responses=serializers.LeaveRequestSerializer(many=True),
+    )
+    def get(self, request):
+        actor = Actor.of(request)
+        leaves = leave_requests().filter(
+            models.Q(
+                sent_by=request.membership,
+                student__in=visible_students(actor, "leave_request.send"),
+            )
+            | models.Q(student__in=visible_students(actor, "leave_request.approve"))
+        )
+        wanted = request.query_params.get("status")
+        if wanted is not None:
+            if wanted not in LeaveRequest.Status.values:
+                raise ValidationError({"status": ["unknown"]})
+            leaves = leaves.filter(status=wanted)
+        student = request.query_params.get("student")
+        if student is not None:
+            leaves = leaves.filter(student_id=student) if student.isdigit() else leaves.none()
+        body = with_classes(leaves.order_by("-sent_at", "-id"))
+        return Response(serializers.LeaveRequestSerializer(body, many=True).data)
+
+    @extend_schema(responses={201: serializers.LeaveRequestSerializer})
+    def post(self, request):
+        body = self.get_serializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        days = body.validated_data
+        if not Enrollment.objects.in_force(days["from_on"]).filter(student=self.student).exists():
+            raise ValidationError({"from_on": ["not_enrolled"]})
+        with database_rules():
+            leave = LeaveRequest.objects.create(
+                school=request.school,
+                student=self.student,
+                sent_by=request.membership,
+                from_on=days["from_on"],
+                to_on=days["to_on"],
+                reason=days["reason"],
+            )
+        (sent,) = with_classes(leave_requests().filter(pk=leave.pk))
+        return Response(
+            serializers.LeaveRequestSerializer(sent).data, status=status.HTTP_201_CREATED
+        )
+
+
+class LeaveChildrenView(GenericAPIView):
+    """The students the member may send a leave request for, by name, each with their class today:
+    the Guardian's child picker."""
+
+    permission_classes = [HasMembership, CanUseLeaveRequests]
+    serializer_class = serializers.LeaveChildSerializer
+
+    @extend_schema(responses=serializers.LeaveChildSerializer(many=True))
+    def get(self, request):
+        students = visible_students(Actor.of(request), "leave_request.send").order_by(
+            "full_name", "id"
+        )
+        classes = dict(
+            Enrollment.objects.in_force().values_list("student_id", "school_class__name")
+        )
+        body = [
+            {"id": s.pk, "name": s.full_name, "class_name": classes.get(s.pk)} for s in students
+        ]
+        return Response(serializers.LeaveChildSerializer(body, many=True).data)
+
+
+class LeaveRequestAction(GenericAPIView):
+    """Base of approve, decline and cancel: the request in the URL, changed from waiting under a
+    row lock (the trigger `leaverequest_lifecycle` is the net under it). The permission target is
+    the request's student."""
+
+    outcome: str
+
+    def get_leave(self):
+        if not hasattr(self, "leave"):
+            self.leave = (
+                LeaveRequest.objects.select_related("student").filter(pk=self.kwargs["pk"]).first()
+            )
+        if self.leave is None:
+            raise NotFound
+        return self.leave
+
+    def decide(self, request, pk, comment=""):
+        with database_rules():
+            leave = LeaveRequest.objects.select_for_update(no_key=True).get(pk=pk)
+            if leave.status != LeaveRequest.Status.WAITING:
+                raise ValidationError({"status": ["not_waiting"]})
+            leave.status = self.outcome
+            if self.outcome != LeaveRequest.Status.CANCELLED:
+                leave.decided_by, leave.decided_at = request.membership, timezone.now()
+                leave.decision_comment = comment
+            leave.save(update_fields=["status", "decided_by", "decided_at", "decision_comment"])
+        (changed,) = with_classes(leave_requests().filter(pk=pk))
+        return Response(serializers.LeaveRequestSerializer(changed).data)
+
+
+def leave_student(request, view):
+    return view.get_leave().student
+
+
+class LeaveRequestDecideView(LeaveRequestAction):
+    """Approve (the comment is optional) or decline (the comment says why) a waiting request:
+    `leave_request.approve` on its student, as of today."""
+
+    permission_classes = [HasMembership, Can("leave_request.approve", leave_student)]
+    serializer_class = serializers.DecideLeaveRequestSerializer
+
+    @extend_schema(responses=serializers.LeaveRequestSerializer)
+    def post(self, request, pk):
+        body = self.get_serializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return self.decide(request, pk, body.validated_data["comment"])
+
+
+class LeaveRequestApproveView(LeaveRequestDecideView):
+    outcome = LeaveRequest.Status.APPROVED
+
+
+class LeaveRequestDeclineView(LeaveRequestDecideView):
+    outcome = LeaveRequest.Status.DECLINED
+    serializer_class = serializers.DeclineLeaveRequestSerializer
+
+
+class LeaveRequestCancelView(LeaveRequestAction):
+    """Cancel a waiting request: only its sender, who still holds `leave_request.send` on the
+    student."""
+
+    outcome = LeaveRequest.Status.CANCELLED
+    permission_classes = [HasMembership, Can("leave_request.send", leave_student)]
+    serializer_class = serializers.DecideLeaveRequestSerializer
+
+    @extend_schema(request=None, responses=serializers.LeaveRequestSerializer)
+    def post(self, request, pk):
+        if self.get_leave().sent_by_id != request.membership.pk:
+            raise PermissionDenied
+        return self.decide(request, pk)

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/attendance/$entryId/$on")({ component: Screen });
 
+const LEAVE_NOTE = "Có đơn xin nghỉ";
 const GENERIC =
   "Không lưu được điểm danh. Danh sách lớp có thể đã thay đổi: tải lại trang rồi điểm danh lại.";
 
@@ -39,12 +40,19 @@ type Row = { status: Status; note: string };
 
 function SheetForm({ sheet }: { sheet: Sheet }) {
   const queryClient = useQueryClient();
-  // A period not taken yet starts with everyone present (Có mặt).
+  // A period not taken yet starts with everyone present (Có mặt), except a student with an
+  // approved leave request (absent with leave, noted); a taken sheet keeps its marks and only
+  // shows the "Có đơn" flag, so the teacher can correct a mark taken before the approval.
+  const untaken = !sheet.students.some((s) => s.mark);
   const [rows, setRows] = useState<Record<number, Row>>(() =>
     Object.fromEntries(
       sheet.students.map((s) => [
         s.id,
-        { status: s.mark?.status ?? "present", note: s.mark?.note ?? "" },
+        s.mark
+          ? { status: s.mark.status, note: s.mark.note }
+          : untaken && s.leave
+            ? { status: "absent_excused", note: LEAVE_NOTE }
+            : { status: "present", note: "" },
       ]),
     ),
   );
@@ -82,7 +90,7 @@ function SheetForm({ sheet }: { sheet: Sheet }) {
     },
   });
 
-  const taken = sheet.students.some((s) => s.mark);
+  const taken = !untaken;
   let status = "Chưa lưu.";
   if (save.isPending) status = "Đang lưu…";
   else if (dirty) status = "Có thay đổi chưa lưu.";
@@ -115,8 +123,11 @@ function SheetForm({ sheet }: { sheet: Sheet }) {
           >
             <fieldset className="contents">
               <legend className="sr-only">{student.name}</legend>
-              <span className="font-semibold" aria-hidden="true">
-                {student.name}
+              <span>
+                <span className="font-semibold" aria-hidden="true">
+                  {student.name}
+                </span>
+                {student.leave && <span className="ml-2 text-xs italic text-ink-3">Có đơn</span>}
               </span>
               <div className="flex overflow-hidden rounded-md border-[1.5px] border-foreground">
                 {STATUSES.map((option) => {

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 from django.db import models
@@ -178,3 +180,81 @@ class AttendanceMark(TenantModel):
 
     def __str__(self):
         return f"{self.student_id} {self.on} {self.status}"
+
+
+class LeaveRequest(TenantModel):
+    """A Guardian's request that a student be away from `from_on` to `to_on` (whole days,
+    inclusive, at most 30). A ticket with a lifecycle: it is `waiting` until the homeroom teacher
+    or the principal board approves or declines it (declining needs a comment) or its sender
+    cancels it; then it never changes again (trigger `leaverequest_lifecycle`, which also freezes
+    every other column). A waiting or approved request holds its days: another for the same
+    student over them is refused (`leaverequest_no_overlap`). The app role never deletes one."""
+
+    class Status(models.TextChoices):
+        WAITING = "waiting"
+        APPROVED = "approved"
+        DECLINED = "declined"
+        CANCELLED = "cancelled"
+
+    student = models.ForeignKey("schools.Student", on_delete=models.PROTECT, db_constraint=False)
+    sent_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    from_on = models.DateField()
+    to_on = models.DateField()
+    reason = models.CharField(max_length=500)
+    status = models.CharField(max_length=10, choices=Status, default=Status.WAITING)
+    sent_at = models.DateTimeField(default=timezone.now)
+    decided_by = models.ForeignKey(
+        "accounts.Membership",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        related_name="+",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_comment = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="leaverequest_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(to_on__gte=F("from_on")), name="leaverequest_to_on_after_from_on"
+            ),
+            models.CheckConstraint(
+                condition=Q(to_on__lte=F("from_on") + timedelta(days=29)),
+                name="leaverequest_at_most_30_days",
+            ),
+            models.CheckConstraint(condition=~Q(reason=""), name="leaverequest_reason_not_empty"),
+            # A decision is recorded exactly when the request was approved or declined (which also
+            # keeps the status to the four known ones).
+            models.CheckConstraint(
+                condition=(
+                    Q(status__in=["approved", "declined"])
+                    & Q(decided_by__isnull=False, decided_at__isnull=False)
+                )
+                | (
+                    Q(status__in=["waiting", "cancelled"])
+                    & Q(decided_by__isnull=True, decided_at__isnull=True)
+                ),
+                name="leaverequest_decision_matches_status",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="declined", decision_comment=""),
+                name="leaverequest_declined_has_comment",
+            ),
+            # One live request per student and day; a declined or cancelled one frees its days.
+            ExclusionConstraint(
+                name="leaverequest_no_overlap",
+                expressions=[
+                    ("school", RangeOperators.EQUAL),
+                    ("student", RangeOperators.EQUAL),
+                    (_daterange("from_on", "to_on"), RangeOperators.OVERLAPS),
+                ],
+                condition=Q(status__in=["waiting", "approved"]),
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.student_id} {self.from_on}..{self.to_on} {self.status}"

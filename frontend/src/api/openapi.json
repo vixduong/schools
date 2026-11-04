@@ -2080,6 +2080,273 @@
                 }
             }
         },
+        "/api/setup/leave-requests/": {
+            "get": {
+                "operationId": "setup_leave_requests_list",
+                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only this status"
+                    },
+                    {
+                        "in": "query",
+                        "name": "student",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this student"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/LeaveRequest"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_leave_requests_create",
+                "description": "Leave requests. GET: those the member may see, newest first: a Guardian the ones they sent\nfor a linked student, a homeroom teacher those of their class's students, the principal board\nall (`visible_students` with `leave_request.send` and `.approve`). POST: a Guardian sends one\nfor a linked student, from today, for a student enrolled on the first day; it waits.",
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendLeaveRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendLeaveRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendLeaveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LeaveRequest"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/leave-requests/{id}/approve/": {
+            "post": {
+                "operationId": "setup_leave_requests_approve_create",
+                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DecideLeaveRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DecideLeaveRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DecideLeaveRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LeaveRequest"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/leave-requests/{id}/cancel/": {
+            "post": {
+                "operationId": "setup_leave_requests_cancel_create",
+                "description": "Cancel a waiting request: only its sender, who still holds `leave_request.send` on the\nstudent.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LeaveRequest"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/leave-requests/{id}/decline/": {
+            "post": {
+                "operationId": "setup_leave_requests_decline_create",
+                "description": "Approve (the comment is optional) or decline (the comment says why) a waiting request:\n`leave_request.approve` on its student, as of today.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeclineLeaveRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeclineLeaveRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeclineLeaveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LeaveRequest"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/leave-requests/children/": {
+            "get": {
+                "operationId": "setup_leave_requests_children_list",
+                "description": "The students the member may send a leave request for, by name, each with their class today:\nthe Guardian's child picker.",
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/LeaveChild"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/levels/": {
             "get": {
                 "operationId": "setup_levels_list",
@@ -4758,6 +5025,30 @@
                     "once_released"
                 ]
             },
+            "DecideLeaveRequest": {
+                "type": "object",
+                "description": "`.../approve/`: the comment is optional.",
+                "properties": {
+                    "comment": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                }
+            },
+            "DeclineLeaveRequest": {
+                "type": "object",
+                "description": "`.../decline/`: the comment says why, and is required.",
+                "properties": {
+                    "comment": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "comment"
+                ]
+            },
             "Enrollment": {
                 "type": "object",
                 "description": "A student's period in a class. Student, year, start and `reason_started` never change;\n`valid_to` (with `reason_ended`) only ends the period, never clears it, and the only reason\naccepted here is `year_end`: a class change goes through `enrollments/{id}/move/` and a\nleave through `students/{id}/leave/`, so the history and the student's status stay\nconsistent. The class changes in place only for a period that is open and has not started\nyet; `reason_ended` changes only in the request that sets `valid_to`. Only a student who is\nstudying on the first day can start a period (a student who left and returns first gets a\n`studying` status event, then a `return` period).",
@@ -5193,6 +5484,127 @@
                     "on",
                     "reason"
                 ]
+            },
+            "LeaveChild": {
+                "type": "object",
+                "description": "A student the member may send a leave request for (the Guardian's child picker).",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "class_name": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "id",
+                    "name"
+                ]
+            },
+            "LeaveRequest": {
+                "type": "object",
+                "description": "A leave request with the names a ticket shows. The view sets `class_name` (the student's\nclass on `from_on`) on each object.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "student": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "student_name": {
+                        "type": "string"
+                    },
+                    "class_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "sent_by": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "sent_by_name": {
+                        "type": "string"
+                    },
+                    "from_on": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "to_on": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LeaveRequestStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "sent_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "decided_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "decided_by_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "decided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "decision_comment": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "decided_at",
+                    "decided_by",
+                    "decision_comment",
+                    "from_on",
+                    "id",
+                    "reason",
+                    "sent_at",
+                    "sent_by",
+                    "sent_by_name",
+                    "status",
+                    "student",
+                    "student_name",
+                    "to_on"
+                ]
+            },
+            "LeaveRequestStatusEnum": {
+                "enum": [
+                    "waiting",
+                    "approved",
+                    "declined",
+                    "cancelled"
+                ],
+                "type": "string",
+                "description": "* `waiting` - Waiting\n* `approved` - Approved\n* `declined` - Declined\n* `cancelled` - Cancelled"
             },
             "Level": {
                 "type": "object",
@@ -6240,6 +6652,33 @@
                     "starts_on"
                 ]
             },
+            "SendLeaveRequest": {
+                "type": "object",
+                "description": "`POST leave-requests/`: the days are whole days from today (the student is checked by the\nview, which authorised on them).",
+                "properties": {
+                    "student": {
+                        "type": "integer"
+                    },
+                    "from_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "to_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "from_on",
+                    "reason",
+                    "student",
+                    "to_on"
+                ]
+            },
             "SessionEnum": {
                 "enum": [
                     "morning",
@@ -6315,6 +6754,28 @@
                     "subject_name"
                 ]
             },
+            "SheetLeave": {
+                "type": "object",
+                "description": "The approved leave request covering the sheet's day (no reason: the reader teaches or leads\nthe class, and needs only to know the Guardian asked).",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "from_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "to_on": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "from_on",
+                    "id",
+                    "to_on"
+                ]
+            },
             "SheetStudent": {
                 "type": "object",
                 "properties": {
@@ -6331,10 +6792,19 @@
                             }
                         ],
                         "nullable": true
+                    },
+                    "leave": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SheetLeave"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
                     "id",
+                    "leave",
                     "mark",
                     "name"
                 ]

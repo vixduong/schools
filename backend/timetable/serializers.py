@@ -8,7 +8,9 @@ from accounts.models import Membership
 from schools.models import Room, SchoolClass, Subject
 from schools.serializers import setup_serializer
 
-from .models import AttendanceMark, BellPeriod, TimetableEntry
+from .models import AttendanceMark, BellPeriod, LeaveRequest, TimetableEntry
+
+MAX_LEAVE_DAYS = 30  # `leaverequest_at_most_30_days`
 
 # Which session a bell period belongs to, and its number, never change (a timetable points at it).
 BellPeriodSerializer = setup_serializer(
@@ -125,10 +127,20 @@ class MarkSerializer(serializers.Serializer):
     note = serializers.CharField(max_length=200, allow_blank=True)
 
 
+class SheetLeaveSerializer(serializers.Serializer):
+    """The approved leave request covering the sheet's day (no reason: the reader teaches or leads
+    the class, and needs only to know the Guardian asked)."""
+
+    id = serializers.IntegerField()
+    from_on = serializers.DateField()
+    to_on = serializers.DateField()
+
+
 class SheetStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
     mark = MarkSerializer(allow_null=True)
+    leave = SheetLeaveSerializer(allow_null=True)
 
 
 class SheetSerializer(serializers.Serializer):
@@ -190,3 +202,78 @@ class OverviewSerializer(serializers.Serializer):
     class_name = serializers.CharField()
     students = OverviewStudentSerializer(many=True)
     periods = HeldPeriodSerializer(many=True)
+
+
+class LeaveRequestSerializer(serializers.ModelSerializer):
+    """A leave request with the names a ticket shows. The view sets `class_name` (the student's
+    class on `from_on`) on each object."""
+
+    student_name = serializers.CharField(source="student.full_name")
+    class_name = serializers.CharField(allow_null=True)
+    sent_by_name = serializers.CharField(source="sent_by.account.display_name")
+    decided_by_name = serializers.CharField(
+        source="decided_by.account.display_name", default=None, allow_null=True
+    )
+
+    class Meta:
+        model = LeaveRequest
+        fields = [
+            "id",
+            "student",
+            "student_name",
+            "class_name",
+            "sent_by",
+            "sent_by_name",
+            "from_on",
+            "to_on",
+            "reason",
+            "status",
+            "sent_at",
+            "decided_by",
+            "decided_by_name",
+            "decided_at",
+            "decision_comment",
+        ]
+        read_only_fields = fields
+
+
+class SendLeaveRequestSerializer(serializers.Serializer):
+    """`POST leave-requests/`: the days are whole days from today (the student is checked by the
+    view, which authorised on them)."""
+
+    student = serializers.IntegerField()
+    from_on = serializers.DateField()
+    to_on = serializers.DateField()
+    reason = serializers.CharField(max_length=500)
+
+    def validate_from_on(self, from_on: date) -> date:
+        if from_on < timezone.localdate():
+            raise serializers.ValidationError("in_the_past")
+        return from_on
+
+    def validate(self, attrs):
+        if attrs["to_on"] < attrs["from_on"]:
+            raise serializers.ValidationError({"to_on": ["before_from_on"]})
+        if (attrs["to_on"] - attrs["from_on"]).days >= MAX_LEAVE_DAYS:
+            raise serializers.ValidationError({"to_on": ["range_too_long"]})
+        return attrs
+
+
+class DecideLeaveRequestSerializer(serializers.Serializer):
+    """`.../approve/`: the comment is optional."""
+
+    comment = serializers.CharField(max_length=500, allow_blank=True, default="")
+
+
+class DeclineLeaveRequestSerializer(DecideLeaveRequestSerializer):
+    """`.../decline/`: the comment says why, and is required."""
+
+    comment = serializers.CharField(max_length=500)
+
+
+class LeaveChildSerializer(serializers.Serializer):
+    """A student the member may send a leave request for (the Guardian's child picker)."""
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    class_name = serializers.CharField(allow_null=True)
