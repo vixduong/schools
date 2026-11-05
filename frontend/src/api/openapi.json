@@ -1298,6 +1298,355 @@
                 }
             }
         },
+        "/api/setup/gradebooks/": {
+            "get": {
+                "operationId": "setup_gradebooks_list",
+                "description": "GET: the gradebooks the member may see (`scores.view`), by `?term=&school_class=&subject=`.\nPOST: open one, or return the existing one (200); the subject teacher of the pair only.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "school_class",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this school_class"
+                    },
+                    {
+                        "in": "query",
+                        "name": "subject",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this subject"
+                    },
+                    {
+                        "in": "query",
+                        "name": "term",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this term"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Gradebook"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_gradebooks_create",
+                "description": "GET: the gradebooks the member may see (`scores.view`), by `?term=&school_class=&subject=`.\nPOST: open one, or return the existing one (200); the subject teacher of the pair only.",
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenGradebook"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenGradebook"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenGradebook"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/": {
+            "get": {
+                "operationId": "setup_gradebooks_retrieve",
+                "description": "The gradebook in the URL (404 for one of another School: RLS shows none).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/cells/": {
+            "put": {
+                "operationId": "setup_gradebooks_cells_update",
+                "description": "Save cells of the grid, all or nothing. In one transaction, with the gradebook locked: a\ncell whose current entry is not the one the client last saw (`expected`) is a conflict, an\ninvalid one an error; any of either and nothing is saved (400 with each failing cell's code),\notherwise an entry is appended for every cell whose value differs from its current one.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCells"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCells"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCells"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SavedCells"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CellErrors"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/columns/{column}/release/": {
+            "post": {
+                "operationId": "setup_gradebooks_columns_release_create",
+                "description": "The subject teacher releases a column once, when every student still enrolled has a score\nin it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "column",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Column"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReleaseIncomplete"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/history/": {
+            "get": {
+                "operationId": "setup_gradebooks_history_list",
+                "description": "The gradebook in the URL (404 for one of another School: RLS shows none).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "column",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "student",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/HistoryEntry"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/mine/": {
+            "get": {
+                "operationId": "setup_gradebooks_mine_list",
+                "description": "The signed-in teacher's teaching pairs of this school year with each term's gradebook (or\nnone yet): the teacher home's board and the `/gradebook` picker. Empty for anyone who teaches\nnothing in a Lower or Upper Secondary class.",
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MyPair"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/grades/": {
             "get": {
                 "operationId": "setup_grades_list",
@@ -4096,6 +4445,235 @@
                 }
             }
         },
+        "/api/setup/subject-loads/": {
+            "get": {
+                "operationId": "setup_subject_loads_list",
+                "description": "Periods per year of a subject in a Grade (`school.configure`, read-only for the principal\nboard); none is deleted, and one a gradebook already uses is frozen (a trigger).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "school_year",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Only this school year"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/SubjectLoad"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_subject_loads_create",
+                "description": "Periods per year of a subject in a Grade (`school.configure`, read-only for the principal\nboard); none is deleted, and one a gradebook already uses is frozen (a trigger).",
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubjectLoad"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/subject-loads/{id}/": {
+            "get": {
+                "operationId": "setup_subject_loads_retrieve",
+                "description": "Periods per year of a subject in a Grade (`school.configure`, read-only for the principal\nboard); none is deleted, and one a gradebook already uses is frozen (a trigger).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this subject load.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubjectLoad"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "setup_subject_loads_update",
+                "description": "Periods per year of a subject in a Grade (`school.configure`, read-only for the principal\nboard); none is deleted, and one a gradebook already uses is frozen (a trigger).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this subject load.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubjectLoad"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubjectLoad"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "setup_subject_loads_partial_update",
+                "description": "Periods per year of a subject in a Grade (`school.configure`, read-only for the principal\nboard); none is deleted, and one a gradebook already uses is frozen (a trigger).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this subject load.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSubjectLoad"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSubjectLoad"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSubjectLoad"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubjectLoad"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/subjects/": {
             "get": {
                 "operationId": "setup_subjects_list",
@@ -5041,6 +5619,222 @@
                     "once_released"
                 ]
             },
+            "Cell": {
+                "type": "object",
+                "description": "A cell with a current entry (an empty cell has none). A cleared cell has an entry with\nneither value nor result.",
+                "properties": {
+                    "column": {
+                        "type": "integer"
+                    },
+                    "entry": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "changed_after_release": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "changed_after_release",
+                    "column",
+                    "entry",
+                    "result",
+                    "value"
+                ]
+            },
+            "CellError": {
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "integer"
+                    },
+                    "student": {
+                        "type": "integer"
+                    },
+                    "code": {
+                        "$ref": "#/components/schemas/CodeEnum"
+                    },
+                    "current": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CurrentEntry"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "code",
+                    "column",
+                    "current",
+                    "student"
+                ]
+            },
+            "CellErrors": {
+                "type": "object",
+                "properties": {
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CellError"
+                        }
+                    }
+                },
+                "required": [
+                    "cells"
+                ]
+            },
+            "CellInput": {
+                "type": "object",
+                "description": "One cell to save: a scored subject's `value`, a comment-only subject's `result`, neither\nto clear it. `expected` is the id of the cell's current entry as the client last saw it (null\nfor an empty cell).",
+                "properties": {
+                    "column": {
+                        "type": "integer"
+                    },
+                    "student": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "expected": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "column",
+                    "expected",
+                    "student"
+                ]
+            },
+            "CodeEnum": {
+                "enum": [
+                    "conflict",
+                    "out_of_range",
+                    "too_many_decimals",
+                    "wrong_form",
+                    "not_enrolled"
+                ],
+                "type": "string",
+                "description": "* `conflict` - conflict\n* `out_of_range` - out_of_range\n* `too_many_decimals` - too_many_decimals\n* `wrong_form` - wrong_form\n* `not_enrolled` - not_enrolled"
+            },
+            "Column": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ColumnKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "index": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "released_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "index",
+                    "kind",
+                    "released_at"
+                ]
+            },
+            "ColumnKindEnum": {
+                "enum": [
+                    "regular",
+                    "mid_term",
+                    "end_term"
+                ],
+                "type": "string",
+                "description": "* `regular` - Regular\n* `mid_term` - Mid Term\n* `end_term` - End Term"
+            },
+            "CurrentEntry": {
+                "type": "object",
+                "description": "A cell's current entry, shown beside a conflicting save.",
+                "properties": {
+                    "entry": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "entered_by_name": {
+                        "type": "string"
+                    },
+                    "entered_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "entered_at",
+                    "entered_by_name",
+                    "entry",
+                    "result",
+                    "value"
+                ]
+            },
             "DecideLeaveRequest": {
                 "type": "object",
                 "description": "`.../approve/`: the comment is optional.",
@@ -5166,6 +5960,173 @@
                     "number"
                 ]
             },
+            "Gradebook": {
+                "type": "object",
+                "description": "A gradebook in a list.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term_name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "assessment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssessmentEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/GradebookStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "assessment",
+                    "class_name",
+                    "id",
+                    "opened_at",
+                    "school_class",
+                    "school_year",
+                    "status",
+                    "subject",
+                    "subject_name",
+                    "term",
+                    "term_name"
+                ]
+            },
+            "GradebookDetail": {
+                "type": "object",
+                "description": "The grid: header, columns, and a row per student enrolled in the class during the term.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term_name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "assessment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssessmentEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/GradebookStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "profile_source": {
+                        "type": "string"
+                    },
+                    "can_enter": {
+                        "type": "boolean"
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Column"
+                        }
+                    },
+                    "students": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Row"
+                        }
+                    }
+                },
+                "required": [
+                    "assessment",
+                    "can_enter",
+                    "class_name",
+                    "columns",
+                    "id",
+                    "opened_at",
+                    "profile_source",
+                    "school_class",
+                    "school_year",
+                    "status",
+                    "students",
+                    "subject",
+                    "subject_name",
+                    "term",
+                    "term_name"
+                ]
+            },
+            "GradebookStatusEnum": {
+                "enum": [
+                    "draft"
+                ],
+                "type": "string",
+                "description": "* `draft` - Draft"
+            },
             "GuardianLink": {
                 "type": "object",
                 "description": "A Guardian's link to a student. End it with `valid_to`; to link again later, create a new\none. Never deleted. The relation can be corrected until the link has ended. A student's own\nsign-in is no Guardian.",
@@ -5228,6 +6189,48 @@
                     "session",
                     "subject_name",
                     "taken"
+                ]
+            },
+            "HistoryEntry": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "entered_by_name": {
+                        "type": "string"
+                    },
+                    "entered_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "entered_at",
+                    "entered_by_name",
+                    "id",
+                    "result",
+                    "value"
                 ]
             },
             "ImportBatch": {
@@ -5773,6 +6776,36 @@
                 "type": "string",
                 "description": "* `active` - Active\n* `inactive` - Inactive"
             },
+            "MyPair": {
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "school_class": {
+                        "type": "integer"
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "terms": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MyTerm"
+                        }
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "school_class",
+                    "subject",
+                    "subject_name",
+                    "terms"
+                ]
+            },
             "MyPeriod": {
                 "type": "object",
                 "description": "A period of the signed-in teacher's day: times, class, subject and room by name.",
@@ -5841,9 +6874,61 @@
                     "subject_name"
                 ]
             },
+            "MyTerm": {
+                "type": "object",
+                "properties": {
+                    "term": {
+                        "type": "integer"
+                    },
+                    "term_name": {
+                        "type": "string"
+                    },
+                    "gradebook": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "status": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/GradebookStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "gradebook",
+                    "status",
+                    "term",
+                    "term_name"
+                ]
+            },
             "NullEnum": {
                 "enum": [
                     null
+                ]
+            },
+            "OpenGradebook": {
+                "type": "object",
+                "description": "`POST gradebooks/`: which gradebook to open (or find).",
+                "properties": {
+                    "term": {
+                        "type": "integer"
+                    },
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "school_class": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "school_class",
+                    "subject",
+                    "term"
                 ]
             },
             "Overview": {
@@ -6299,6 +7384,30 @@
                     }
                 }
             },
+            "PatchedSubjectLoad": {
+                "type": "object",
+                "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer"
+                    },
+                    "grade": {
+                        "type": "integer"
+                    },
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "periods_per_year": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    }
+                }
+            },
             "PatchedTerm": {
                 "type": "object",
                 "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
@@ -6364,6 +7473,28 @@
                 "type": "string",
                 "description": "* `mother` - Mother\n* `father` - Father\n* `grandparent` - Grandparent\n* `other` - Other"
             },
+            "ReleaseIncomplete": {
+                "type": "object",
+                "description": "The 400 `incomplete`: the enrolled students the column still lacks a score for.",
+                "properties": {
+                    "column": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "students": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StudentName"
+                        }
+                    }
+                },
+                "required": [
+                    "column",
+                    "students"
+                ]
+            },
             "ReplaceTimetable": {
                 "type": "object",
                 "description": "`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,\ninside the class's year). The class comes from the URL, not from the body.",
@@ -6383,6 +7514,14 @@
                     "entries",
                     "valid_from"
                 ]
+            },
+            "ResultEnum": {
+                "enum": [
+                    "pass",
+                    "fail"
+                ],
+                "type": "string",
+                "description": "* `pass` - Pass\n* `fail` - Fail"
             },
             "RoleAssignment": {
                 "type": "object",
@@ -6561,6 +7700,46 @@
                     "name"
                 ]
             },
+            "Row": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "in_class": {
+                        "type": "boolean"
+                    },
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Cell"
+                        }
+                    }
+                },
+                "required": [
+                    "cells",
+                    "id",
+                    "in_class",
+                    "name"
+                ]
+            },
+            "SaveCells": {
+                "type": "object",
+                "properties": {
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CellInput"
+                        }
+                    }
+                },
+                "required": [
+                    "cells"
+                ]
+            },
             "SaveSheet": {
                 "type": "object",
                 "description": "`PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more.",
@@ -6574,6 +7753,40 @@
                 },
                 "required": [
                     "marks"
+                ]
+            },
+            "SavedCell": {
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "integer"
+                    },
+                    "student": {
+                        "type": "integer"
+                    },
+                    "entry": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "column",
+                    "entry",
+                    "student"
+                ]
+            },
+            "SavedCells": {
+                "type": "object",
+                "properties": {
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SavedCell"
+                        }
+                    }
+                },
+                "required": [
+                    "cells"
                 ]
             },
             "ScheduledChange": {
@@ -6945,6 +8158,21 @@
                     "status"
                 ]
             },
+            "StudentName": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
             "StudentStatusEnum": {
                 "enum": [
                     "studying",
@@ -7045,6 +8273,37 @@
                 "required": [
                     "id",
                     "name"
+                ]
+            },
+            "SubjectLoad": {
+                "type": "object",
+                "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer"
+                    },
+                    "grade": {
+                        "type": "integer"
+                    },
+                    "subject": {
+                        "type": "integer"
+                    },
+                    "periods_per_year": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "grade",
+                    "id",
+                    "periods_per_year",
+                    "school_year",
+                    "subject"
                 ]
             },
             "SupportGrant": {

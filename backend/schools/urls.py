@@ -11,6 +11,7 @@ for prefix, viewset in {
     "grades": views.GradeViewSet,
     "subject-groups": views.SubjectGroupViewSet,
     "subjects": views.SubjectViewSet,
+    "subject-loads": views.SubjectLoadViewSet,
     "rooms": views.RoomViewSet,
     "classes": views.SchoolClassViewSet,
     "role-assignments": views.RoleAssignmentViewSet,

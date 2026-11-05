@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from django.conf import settings
 from django.core.management import call_command
@@ -16,6 +16,8 @@ from schools.models import (
     Student,
     Subject,
     SubjectGroup,
+    SubjectLoad,
+    Term,
 )
 from tenancy.models import School
 from tenancy.rls import school_scope
@@ -93,6 +95,25 @@ class Command(BaseCommand):
             subject = Subject.objects.get_or_create(
                 school=school, code="MATH", defaults={"name": "Toán", "subject_group": group}
             )[0]
+            # Two terms, so a gradebook can be opened (the first covers the year's first months).
+            for name, starts_on, ends_on in (
+                ("HK I", year.starts_on, year.starts_on + timedelta(days=135)),
+                ("HK II", year.starts_on + timedelta(days=136), year.ends_on - timedelta(days=90)),
+            ):
+                Term.objects.get_or_create(
+                    school=school,
+                    school_year=year,
+                    name=name,
+                    defaults={"starts_on": starts_on, "ends_on": ends_on},
+                )
+            # The periods Grade 7 has MATH a year decide the columns of a gradebook (three regular).
+            SubjectLoad.objects.get_or_create(
+                school=school,
+                school_year=year,
+                grade=grade,
+                subject=subject,
+                defaults={"periods_per_year": 70},
+            )
 
             _role(
                 school,

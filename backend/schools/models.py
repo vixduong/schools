@@ -61,6 +61,10 @@ class Term(TenantModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["school", "id"], name="term_school_id_key"),
+            # Target of Gradebook's (school, school_year, term) foreign key.
+            models.UniqueConstraint(
+                fields=["school", "school_year", "id"], name="term_school_year_id_key"
+            ),
             models.CheckConstraint(
                 condition=Q(ends_on__gt=models.F("starts_on")), name="term_ends_after_start"
             ),
@@ -142,6 +146,33 @@ class Subject(TenantModel):
 
     def __str__(self):
         return self.name
+
+
+class SubjectLoad(TenantModel):
+    """The periods a Grade has a subject per school year. It decides how many regular columns a
+    gradebook of that year, Grade and subject gets, so it is frozen once such a gradebook exists
+    (trigger `subjectload_frozen_by_gradebooks`, in the grades migration). The app role changes
+    `periods_per_year` only and never deletes one."""
+
+    school_year = models.ForeignKey(SchoolYear, on_delete=models.PROTECT, db_constraint=False)
+    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, db_constraint=False)
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, db_constraint=False)
+    periods_per_year = models.PositiveSmallIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "school_year", "grade", "subject"],
+                name="subjectload_once_per_year_grade_subject",
+            ),
+            models.CheckConstraint(
+                condition=Q(periods_per_year__gte=1, periods_per_year__lte=400),
+                name="subjectload_periods_in_1_to_400",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.grade_id}/{self.subject_id}: {self.periods_per_year}"
 
 
 class Room(TenantModel):

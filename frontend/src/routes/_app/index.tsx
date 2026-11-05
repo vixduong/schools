@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { meQuery } from "@/api/queries";
 import { myPeriodsQuery } from "@/api/timetable";
 import { LeaveInbox } from "@/components/leave-inbox";
+import { TeacherBoard } from "@/components/teacher-board";
 import { Button } from "@/components/ui/button";
 import { resultLabel } from "@/lib/attendance";
 import { reach } from "@/lib/capabilities";
@@ -28,6 +29,7 @@ function Screen() {
   const now = useNow();
   const today = now.toLocaleDateString("sv"); // yyyy-mm-dd, local
   const decidesLeave = !!me.data && reach(me.data, "leave_request.approve") === "write";
+  const entersScores = !!me.data && reach(me.data, "scores.enter") === "write";
   const homerooms = me.data?.role_assignments.filter((r) => r.role === "homeroom_teacher") ?? [];
   return (
     <section>
@@ -102,6 +104,7 @@ function Screen() {
         </div>
         {decidesLeave && <LeaveInbox />}
       </div>
+      {entersScores && <TeacherBoard />}
     </section>
   );
 }

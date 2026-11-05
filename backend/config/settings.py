@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "permissions",
     "audit",
     "timetable",
+    "grades",
 ]
 
 MIDDLEWARE = [
@@ -119,6 +120,7 @@ SPECTACULAR_SETTINGS = {
         "InvitationKindEnum": "accounts.models.Invitation.Kind",
         "ImportBatchKindEnum": "schools.models.ImportBatch.Kind",
         "AttendanceStatusEnum": "timetable.models.AttendanceMark.Status",
+        "GradebookStatusEnum": "grades.models.Gradebook.Status",
     },
 }
 

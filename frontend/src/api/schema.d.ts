@@ -449,6 +449,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/gradebooks/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET: the gradebooks the member may see (`scores.view`), by `?term=&school_class=&subject=`.
+         *     POST: open one, or return the existing one (200); the subject teacher of the pair only.
+         */
+        get: operations["setup_gradebooks_list"];
+        put?: never;
+        /**
+         * @description GET: the gradebooks the member may see (`scores.view`), by `?term=&school_class=&subject=`.
+         *     POST: open one, or return the existing one (200); the subject teacher of the pair only.
+         */
+        post: operations["setup_gradebooks_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The gradebook in the URL (404 for one of another School: RLS shows none). */
+        get: operations["setup_gradebooks_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/cells/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Save cells of the grid, all or nothing. In one transaction, with the gradebook locked: a
+         *     cell whose current entry is not the one the client last saw (`expected`) is a conflict, an
+         *     invalid one an error; any of either and nothing is saved (400 with each failing cell's code),
+         *     otherwise an entry is appended for every cell whose value differs from its current one.
+         */
+        put: operations["setup_gradebooks_cells_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/columns/{column}/release/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description The subject teacher releases a column once, when every student still enrolled has a score
+         *     in it.
+         */
+        post: operations["setup_gradebooks_columns_release_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/history/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The gradebook in the URL (404 for one of another School: RLS shows none). */
+        get: operations["setup_gradebooks_history_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/mine/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The signed-in teacher's teaching pairs of this school year with each term's gradebook (or
+         *     none yet): the teacher home's board and the `/gradebook` picker. Empty for anyone who teaches
+         *     nothing in a Lower or Upper Secondary class.
+         */
+        get: operations["setup_gradebooks_mine_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/grades/": {
         parameters: {
             query?: never;
@@ -1451,6 +1572,58 @@ export interface paths {
         patch: operations["setup_subject_groups_partial_update"];
         trace?: never;
     };
+    "/api/setup/subject-loads/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+         *     board); none is deleted, and one a gradebook already uses is frozen (a trigger).
+         */
+        get: operations["setup_subject_loads_list"];
+        put?: never;
+        /**
+         * @description Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+         *     board); none is deleted, and one a gradebook already uses is frozen (a trigger).
+         */
+        post: operations["setup_subject_loads_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/subject-loads/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+         *     board); none is deleted, and one a gradebook already uses is frozen (a trigger).
+         */
+        get: operations["setup_subject_loads_retrieve"];
+        /**
+         * @description Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+         *     board); none is deleted, and one a gradebook already uses is frozen (a trigger).
+         */
+        put: operations["setup_subject_loads_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+         *     board); none is deleted, and one a gradebook already uses is frozen (a trigger).
+         */
+        patch: operations["setup_subject_loads_partial_update"];
+        trace?: never;
+    };
     "/api/setup/subjects/": {
         parameters: {
             query?: never;
@@ -1783,6 +1956,72 @@ export interface components {
             students?: number[];
             pairs?: components["schemas"]["TeachingPair"][];
         };
+        /**
+         * @description A cell with a current entry (an empty cell has none). A cleared cell has an entry with
+         *     neither value nor result.
+         */
+        Cell: {
+            column: number;
+            entry: number;
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            changed_after_release: boolean;
+        };
+        CellError: {
+            column: number;
+            student: number;
+            code: components["schemas"]["CodeEnum"];
+            current: components["schemas"]["CurrentEntry"] | null;
+        };
+        CellErrors: {
+            cells: components["schemas"]["CellError"][];
+        };
+        /**
+         * @description One cell to save: a scored subject's `value`, a comment-only subject's `result`, neither
+         *     to clear it. `expected` is the id of the cell's current entry as the client last saw it (null
+         *     for an empty cell).
+         */
+        CellInput: {
+            column: number;
+            student: number;
+            value?: number | null;
+            result?: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            expected: number | null;
+        };
+        /**
+         * @description * `conflict` - conflict
+         *     * `out_of_range` - out_of_range
+         *     * `too_many_decimals` - too_many_decimals
+         *     * `wrong_form` - wrong_form
+         *     * `not_enrolled` - not_enrolled
+         * @enum {string}
+         */
+        CodeEnum: "conflict" | "out_of_range" | "too_many_decimals" | "wrong_form" | "not_enrolled";
+        Column: {
+            readonly id: number;
+            readonly kind: components["schemas"]["ColumnKindEnum"];
+            readonly index: number;
+            /** Format: date-time */
+            readonly released_at: string | null;
+        };
+        /**
+         * @description * `regular` - Regular
+         *     * `mid_term` - Mid Term
+         *     * `end_term` - End Term
+         * @enum {string}
+         */
+        ColumnKindEnum: "regular" | "mid_term" | "end_term";
+        /** @description A cell's current entry, shown beside a conflicting save. */
+        CurrentEntry: {
+            entry: number;
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            entered_by_name: string;
+            /** Format: date-time */
+            entered_at: string;
+        };
         /** @description `.../approve/`: the comment is optional. */
         DecideLeaveRequest: {
             /** @default  */
@@ -1836,6 +2075,45 @@ export interface components {
             level: number;
             number: number;
         };
+        /** @description A gradebook in a list. */
+        Gradebook: {
+            readonly id: number;
+            readonly school_year: number;
+            readonly term: number;
+            term_name: string;
+            readonly subject: number;
+            subject_name: string;
+            readonly assessment: components["schemas"]["AssessmentEnum"];
+            readonly school_class: number;
+            class_name: string;
+            readonly status: components["schemas"]["GradebookStatusEnum"];
+            /** Format: date-time */
+            readonly opened_at: string;
+        };
+        /** @description The grid: header, columns, and a row per student enrolled in the class during the term. */
+        GradebookDetail: {
+            readonly id: number;
+            readonly school_year: number;
+            readonly term: number;
+            term_name: string;
+            readonly subject: number;
+            subject_name: string;
+            readonly assessment: components["schemas"]["AssessmentEnum"];
+            readonly school_class: number;
+            class_name: string;
+            readonly status: components["schemas"]["GradebookStatusEnum"];
+            /** Format: date-time */
+            readonly opened_at: string;
+            profile_source: string;
+            can_enter: boolean;
+            columns: components["schemas"]["Column"][];
+            students: components["schemas"]["Row"][];
+        };
+        /**
+         * @description * `draft` - Draft
+         * @enum {string}
+         */
+        GradebookStatusEnum: "draft";
         /**
          * @description A Guardian's link to a student. End it with `valid_to`; to link again later, create a new
          *     one. Never deleted. The relation can be corrected until the link has ended. A student's own
@@ -1859,6 +2137,15 @@ export interface components {
             number: number;
             subject_name: string;
             taken: boolean;
+        };
+        HistoryEntry: {
+            id: number;
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            entered_by_name: string;
+            /** Format: date-time */
+            entered_at: string;
         };
         /**
          * @description A previewed (or committed) upload: `counts` of rows by result, every error as
@@ -2057,6 +2344,13 @@ export interface components {
          * @enum {string}
          */
         MembershipStatusEnum: "active" | "inactive";
+        MyPair: {
+            subject: number;
+            subject_name: string;
+            school_class: number;
+            class_name: string;
+            terms: components["schemas"]["MyTerm"][];
+        };
         /** @description A period of the signed-in teacher's day: times, class, subject and room by name. */
         MyPeriod: {
             readonly id: number;
@@ -2074,8 +2368,20 @@ export interface components {
             room_name?: string;
             readonly attendance: components["schemas"]["AttendanceResult"] | null;
         };
+        MyTerm: {
+            term: number;
+            term_name: string;
+            gradebook: number | null;
+            status: (components["schemas"]["GradebookStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
         /** @enum {unknown} */
         NullEnum: null;
+        /** @description `POST gradebooks/`: which gradebook to open (or find). */
+        OpenGradebook: {
+            term: number;
+            subject: number;
+            school_class: number;
+        };
         Overview: {
             class_name: string;
             students: components["schemas"]["OverviewStudent"][];
@@ -2288,6 +2594,18 @@ export interface components {
          *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
          *     client may PUT the whole row back).
          */
+        PatchedSubjectLoad: {
+            readonly id?: number;
+            school_year?: number;
+            grade?: number;
+            subject?: number;
+            periods_per_year?: number;
+        };
+        /**
+         * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
+         *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
+         *     client may PUT the whole row back).
+         */
         PatchedTerm: {
             readonly id?: number;
             school_year?: number;
@@ -2329,6 +2647,11 @@ export interface components {
          * @enum {string}
          */
         RelationEnum: "mother" | "father" | "grandparent" | "other";
+        /** @description The 400 `incomplete`: the enrolled students the column still lacks a score for. */
+        ReleaseIncomplete: {
+            column: string[];
+            students: components["schemas"]["StudentName"][];
+        };
         /**
          * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,
          *     inside the class's year). The class comes from the URL, not from the body.
@@ -2338,6 +2661,12 @@ export interface components {
             valid_from: string;
             entries: components["schemas"]["TimetableSlot"][];
         };
+        /**
+         * @description * `pass` - Pass
+         *     * `fail` - Fail
+         * @enum {string}
+         */
+        ResultEnum: "pass" | "fail";
         RoleAssignment: {
             readonly id: number;
             role: components["schemas"]["RoleEnum"];
@@ -2410,9 +2739,26 @@ export interface components {
             name: string;
             is_active?: boolean;
         };
+        Row: {
+            id: number;
+            name: string;
+            in_class: boolean;
+            cells: components["schemas"]["Cell"][];
+        };
+        SaveCells: {
+            cells: components["schemas"]["CellInput"][];
+        };
         /** @description `PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more. */
         SaveSheet: {
             marks: components["schemas"]["MarkInput"][];
+        };
+        SavedCell: {
+            column: number;
+            student: number;
+            entry: number | null;
+        };
+        SavedCells: {
+            cells: components["schemas"]["SavedCell"][];
         };
         ScheduledChange: {
             status: components["schemas"]["StudentStatusEnum"];
@@ -2538,6 +2884,10 @@ export interface components {
             readonly status: components["schemas"]["StudentStatusEnum"];
             readonly scheduled_change: components["schemas"]["ScheduledChange"] | null;
         };
+        StudentName: {
+            id: number;
+            name: string;
+        };
         /**
          * @description * `studying` - Studying
          *     * `transferred_out` - Transferred Out
@@ -2582,6 +2932,18 @@ export interface components {
         SubjectGroup: {
             readonly id: number;
             name: string;
+        };
+        /**
+         * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
+         *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
+         *     client may PUT the whole row back).
+         */
+        SubjectLoad: {
+            readonly id: number;
+            school_year: number;
+            grade: number;
+            subject: number;
+            periods_per_year: number;
         };
         /**
          * @description Let the platform operator in, read only, from now for `hours` (1 to 72). Never edited:
@@ -3376,6 +3738,194 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_list: {
+        parameters: {
+            query?: {
+                /** @description Only this school_class */
+                school_class?: number;
+                /** @description Only this subject */
+                subject?: number;
+                /** @description Only this term */
+                term?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gradebook"][];
+                };
+            };
+        };
+    };
+    setup_gradebooks_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenGradebook"];
+                "application/x-www-form-urlencoded": components["schemas"]["OpenGradebook"];
+                "multipart/form-data": components["schemas"]["OpenGradebook"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_cells_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCells"];
+                "application/x-www-form-urlencoded": components["schemas"]["SaveCells"];
+                "multipart/form-data": components["schemas"]["SaveCells"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedCells"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CellErrors"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_columns_release_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                column: number;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Column"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseIncomplete"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_history_list: {
+        parameters: {
+            query: {
+                column: number;
+                student: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryEntry"][];
+                };
+            };
+        };
+    };
+    setup_gradebooks_mine_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyPair"][];
                 };
             };
         };
@@ -4932,6 +5482,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectGroup"];
+                };
+            };
+        };
+    };
+    setup_subject_loads_list: {
+        parameters: {
+            query?: {
+                /** @description Only this school year */
+                school_year?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectLoad"][];
+                };
+            };
+        };
+    };
+    setup_subject_loads_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubjectLoad"];
+                "application/x-www-form-urlencoded": components["schemas"]["SubjectLoad"];
+                "multipart/form-data": components["schemas"]["SubjectLoad"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectLoad"];
+                };
+            };
+        };
+    };
+    setup_subject_loads_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this subject load. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectLoad"];
+                };
+            };
+        };
+    };
+    setup_subject_loads_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this subject load. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubjectLoad"];
+                "application/x-www-form-urlencoded": components["schemas"]["SubjectLoad"];
+                "multipart/form-data": components["schemas"]["SubjectLoad"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectLoad"];
+                };
+            };
+        };
+    };
+    setup_subject_loads_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this subject load. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSubjectLoad"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSubjectLoad"];
+                "multipart/form-data": components["schemas"]["PatchedSubjectLoad"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectLoad"];
                 };
             };
         };

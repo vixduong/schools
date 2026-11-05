@@ -26,6 +26,7 @@ from .models import (
     StudentStatusEvent,
     Subject,
     SubjectGroup,
+    SubjectLoad,
     Term,
     scheduled_change,
     status_as_of,
@@ -93,6 +94,27 @@ SubjectSerializer = setup_serializer(
     Subject, "name", "code", "subject_group", "ministry_code", "assessment", "is_active"
 )
 RoomSerializer = setup_serializer(Room, "name", "is_active")
+
+
+# Only the periods change: the year, Grade and subject of a load never move.
+class SubjectLoadSerializer(
+    setup_serializer(
+        SubjectLoad,
+        "school_year",
+        "grade",
+        "subject",
+        "periods_per_year",
+        immutable=("school_year", "grade", "subject"),
+        name="SubjectLoadBase",
+    )
+):
+    def update(self, instance, validated_data):
+        """UPDATE of the one column the app role may change (no other is granted)."""
+        instance.periods_per_year = validated_data.get(
+            "periods_per_year", instance.periods_per_year
+        )
+        instance.save(update_fields=["periods_per_year"])
+        return instance
 
 
 class SchoolClassSerializer(

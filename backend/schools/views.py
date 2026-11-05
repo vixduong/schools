@@ -36,6 +36,7 @@ from .models import (
     StudentStatusEvent,
     Subject,
     SubjectGroup,
+    SubjectLoad,
     Term,
     status_as_of,
 )
@@ -131,6 +132,25 @@ class SubjectGroupViewSet(SetupViewSet):
 class SubjectViewSet(SetupViewSet):
     queryset = Subject.objects.order_by("code")
     serializer_class = serializers.SubjectSerializer
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[OpenApiParameter("school_year", int, description="Only this school year")]
+    )
+)
+class SubjectLoadViewSet(SetupViewSet):
+    """Periods per year of a subject in a Grade (`school.configure`, read-only for the principal
+    board); none is deleted, and one a gradebook already uses is frozen (a trigger)."""
+
+    queryset = SubjectLoad.objects.order_by("school_year_id", "grade_id", "subject_id")
+    serializer_class = serializers.SubjectLoadSerializer
+
+    def filter_queryset(self, queryset):
+        if "school_year" in self.request.query_params:
+            year = self.request.query_params["school_year"]
+            queryset = queryset.filter(school_year_id=year) if year.isdigit() else queryset.none()
+        return queryset
 
 
 class RoomViewSet(SetupViewSet):

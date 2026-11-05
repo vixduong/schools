@@ -13,9 +13,11 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as ActivateRouteImport } from './routes/activate'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
-import { Route as AppGradebookRouteImport } from './routes/_app/gradebook'
 import { Route as AppGuardianRouteImport } from './routes/_app/guardian'
 import { Route as AppTimetableRouteImport } from './routes/_app/timetable'
+import { Route as AppGradebookIndexRouteImport } from './routes/_app/gradebook.index'
+import { Route as AppGradebookGradebookIdRouteImport } from './routes/_app/gradebook.$gradebookId'
+import { Route as AppSetupSubjectLoadsRouteImport } from './routes/_app/setup.subject-loads'
 import { Route as AppStudentsStudentIdRouteImport } from './routes/_app/students.$studentId'
 import { Route as AppAttendanceEntryIdOnRouteImport } from './routes/_app/attendance.$entryId.$on'
 import { Route as AppClassesClassIdAttendanceRouteImport } from './routes/_app/classes.$classId.attendance'
@@ -39,11 +41,6 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppGradebookRoute = AppGradebookRouteImport.update({
-  id: '/gradebook',
-  path: '/gradebook',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppGuardianRoute = AppGuardianRouteImport.update({
   id: '/guardian',
   path: '/guardian',
@@ -52,6 +49,21 @@ const AppGuardianRoute = AppGuardianRouteImport.update({
 const AppTimetableRoute = AppTimetableRouteImport.update({
   id: '/timetable',
   path: '/timetable',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGradebookIndexRoute = AppGradebookIndexRouteImport.update({
+  id: '/gradebook/',
+  path: '/gradebook/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGradebookGradebookIdRoute = AppGradebookGradebookIdRouteImport.update({
+  id: '/gradebook/$gradebookId',
+  path: '/gradebook/$gradebookId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSetupSubjectLoadsRoute = AppSetupSubjectLoadsRouteImport.update({
+  id: '/setup/subject-loads',
+  path: '/setup/subject-loads',
   getParentRoute: () => AppRoute,
 } as any)
 const AppStudentsStudentIdRoute = AppStudentsStudentIdRouteImport.update({
@@ -75,21 +87,25 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/activate': typeof ActivateRoute
   '/login': typeof LoginRoute
-  '/gradebook': typeof AppGradebookRoute
   '/guardian': typeof AppGuardianRoute
   '/timetable': typeof AppTimetableRoute
+  '/gradebook/$gradebookId': typeof AppGradebookGradebookIdRoute
+  '/setup/subject-loads': typeof AppSetupSubjectLoadsRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/gradebook/': typeof AppGradebookIndexRoute
   '/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
   '/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
 export interface FileRoutesByTo {
   '/activate': typeof ActivateRoute
   '/login': typeof LoginRoute
-  '/gradebook': typeof AppGradebookRoute
   '/guardian': typeof AppGuardianRoute
   '/timetable': typeof AppTimetableRoute
   '/': typeof AppIndexRoute
+  '/gradebook/$gradebookId': typeof AppGradebookGradebookIdRoute
+  '/setup/subject-loads': typeof AppSetupSubjectLoadsRoute
   '/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/gradebook': typeof AppGradebookIndexRoute
   '/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
   '/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
@@ -98,11 +114,13 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/activate': typeof ActivateRoute
   '/login': typeof LoginRoute
-  '/_app/gradebook': typeof AppGradebookRoute
   '/_app/guardian': typeof AppGuardianRoute
   '/_app/timetable': typeof AppTimetableRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/gradebook/$gradebookId': typeof AppGradebookGradebookIdRoute
+  '/_app/setup/subject-loads': typeof AppSetupSubjectLoadsRoute
   '/_app/students/$studentId': typeof AppStudentsStudentIdRoute
+  '/_app/gradebook/': typeof AppGradebookIndexRoute
   '/_app/attendance/$entryId/$on': typeof AppAttendanceEntryIdOnRoute
   '/_app/classes/$classId/attendance': typeof AppClassesClassIdAttendanceRoute
 }
@@ -112,21 +130,25 @@ export interface FileRouteTypes {
     | '/'
     | '/activate'
     | '/login'
-    | '/gradebook'
     | '/guardian'
     | '/timetable'
+    | '/gradebook/$gradebookId'
+    | '/setup/subject-loads'
     | '/students/$studentId'
+    | '/gradebook/'
     | '/attendance/$entryId/$on'
     | '/classes/$classId/attendance'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/activate'
     | '/login'
-    | '/gradebook'
     | '/guardian'
     | '/timetable'
     | '/'
+    | '/gradebook/$gradebookId'
+    | '/setup/subject-loads'
     | '/students/$studentId'
+    | '/gradebook'
     | '/attendance/$entryId/$on'
     | '/classes/$classId/attendance'
   id:
@@ -134,11 +156,13 @@ export interface FileRouteTypes {
     | '/_app'
     | '/activate'
     | '/login'
-    | '/_app/gradebook'
     | '/_app/guardian'
     | '/_app/timetable'
     | '/_app/'
+    | '/_app/gradebook/$gradebookId'
+    | '/_app/setup/subject-loads'
     | '/_app/students/$studentId'
+    | '/_app/gradebook/'
     | '/_app/attendance/$entryId/$on'
     | '/_app/classes/$classId/attendance'
   fileRoutesById: FileRoutesById
@@ -179,13 +203,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/gradebook': {
-      id: '/_app/gradebook'
-      path: '/gradebook'
-      fullPath: '/gradebook'
-      preLoaderRoute: typeof AppGradebookRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/guardian': {
       id: '/_app/guardian'
       path: '/guardian'
@@ -198,6 +215,27 @@ declare module '@tanstack/react-router' {
       path: '/timetable'
       fullPath: '/timetable'
       preLoaderRoute: typeof AppTimetableRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/gradebook/': {
+      id: '/_app/gradebook/'
+      path: '/gradebook'
+      fullPath: '/gradebook/'
+      preLoaderRoute: typeof AppGradebookIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/gradebook/$gradebookId': {
+      id: '/_app/gradebook/$gradebookId'
+      path: '/gradebook/$gradebookId'
+      fullPath: '/gradebook/$gradebookId'
+      preLoaderRoute: typeof AppGradebookGradebookIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/setup/subject-loads': {
+      id: '/_app/setup/subject-loads'
+      path: '/setup/subject-loads'
+      fullPath: '/setup/subject-loads'
+      preLoaderRoute: typeof AppSetupSubjectLoadsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/students/$studentId': {
@@ -225,21 +263,25 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
-  AppGradebookRoute: typeof AppGradebookRoute
   AppGuardianRoute: typeof AppGuardianRoute
   AppTimetableRoute: typeof AppTimetableRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppGradebookGradebookIdRoute: typeof AppGradebookGradebookIdRoute
+  AppSetupSubjectLoadsRoute: typeof AppSetupSubjectLoadsRoute
   AppStudentsStudentIdRoute: typeof AppStudentsStudentIdRoute
+  AppGradebookIndexRoute: typeof AppGradebookIndexRoute
   AppAttendanceEntryIdOnRoute: typeof AppAttendanceEntryIdOnRoute
   AppClassesClassIdAttendanceRoute: typeof AppClassesClassIdAttendanceRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppGradebookRoute: AppGradebookRoute,
   AppGuardianRoute: AppGuardianRoute,
   AppTimetableRoute: AppTimetableRoute,
   AppIndexRoute: AppIndexRoute,
+  AppGradebookGradebookIdRoute: AppGradebookGradebookIdRoute,
+  AppSetupSubjectLoadsRoute: AppSetupSubjectLoadsRoute,
   AppStudentsStudentIdRoute: AppStudentsStudentIdRoute,
+  AppGradebookIndexRoute: AppGradebookIndexRoute,
   AppAttendanceEntryIdOnRoute: AppAttendanceEntryIdOnRoute,
   AppClassesClassIdAttendanceRoute: AppClassesClassIdAttendanceRoute,
 }

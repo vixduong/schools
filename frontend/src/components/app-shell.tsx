@@ -44,9 +44,14 @@ export function AppShell() {
               Sổ điểm
             </Link>
             {reach(me, "school.configure") && (
-              <Link to="/timetable" className={navLink}>
-                Thời khóa biểu
-              </Link>
+              <>
+                <Link to="/timetable" className={navLink}>
+                  Thời khóa biểu
+                </Link>
+                <Link to="/setup/subject-loads" className={navLink}>
+                  Số tiết các môn
+                </Link>
+              </>
             )}
           </nav>
           <span className="text-sm">{me.account.display_name}</span>

@@ -33,7 +33,7 @@ Done when a teacher fills a gradebook, a bad score is refused per cell, and the 
 ## API (under `/api/setup/`)
 
 - `GET gradebooks/?term=&school_class=&subject=` (`scores.view` read, through `visible_*`); `POST gradebooks/ {term, subject, school_class}` opens one (or returns the existing one, 200), `scores.enter` on the pair.
-- `GET gradebooks/{id}/`: header (class, subject, term, profile version source, status), columns (kind, index, released), and one row per student enrolled in the class at any time during the term (name, still in the class today or not), each cell its current value or result, its entry id, and `changed_after_release` (more than one entry after the column's release). `scores.view` read.
+- `GET gradebooks/{id}/`: header (class, subject, term, profile version source, status), columns (kind, index, released), and one row per student enrolled in the class at any time during the term (name, still in the class today or not), each cell its current value or result, its entry id, and `changed_after_release` (any entry after the column's release: a single correction is a change). `scores.view` read.
 - `PUT gradebooks/{id}/cells/` as above; `scores.enter` on the pair as of today.
 - `POST gradebooks/{id}/columns/{column}/release/`: `scores.enter`; refused when the column has an enrolled student with no score (400 `incomplete`, listing them).
 - `GET gradebooks/{id}/history/?column=&student=`: every entry of a cell, oldest first, with who entered it. `scores.view` read.

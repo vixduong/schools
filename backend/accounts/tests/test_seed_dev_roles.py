@@ -3,7 +3,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from accounts.management.commands.seed_dev_roles import GUARDIAN_PHONE, PASSWORD
-from schools.models import Enrollment, GuardianLink, Student
+from schools.models import Enrollment, GuardianLink, Student, SubjectLoad, Term
 from timetable.models import TimetableEntry
 
 
@@ -46,6 +46,8 @@ def test_student_and_guardian_are_linked(schools, settings):
         assert Enrollment.objects.filter(student=student).count() == 1
         assert GuardianLink.objects.filter(student=student).count() == 1
         assert TimetableEntry.objects.count() == 5  # once, however often the seed runs
+        assert SubjectLoad.objects.count() == 1  # Grade 7 x MATH, once
+        assert Term.objects.count() == 2
 
 
 def test_refuses_outside_debug(schools, settings):
