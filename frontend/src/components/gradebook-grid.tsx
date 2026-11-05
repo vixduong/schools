@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useBlocker } from "@tanstack/react-router";
 import { History } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/api/client";
 import {
   type CellError,
@@ -14,6 +15,7 @@ import {
   type GradebookRow,
   gradebookQuery,
 } from "@/api/grades";
+import { meQuery } from "@/api/queries";
 import { FormError } from "@/components/auth-page";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { type DraftEdit, draftKey, readDraft, writeDraft } from "@/lib/drafts";
 import {
   CELL_ERROR,
   columnLabel,
@@ -42,7 +45,7 @@ import { cn } from "@/lib/utils";
 const GENERIC =
   "Không lưu được điểm. Danh sách lớp có thể đã thay đổi: tải lại trang rồi lưu lại; các ô bạn nhập vẫn còn.";
 
-type Edit = { text: string; expected: number | null }; // typed text; the entry last seen
+type Edit = DraftEdit;
 type Problem = { code: CellError["code"] | "invalid"; current?: CurrentEntry | null };
 
 const keyOf = (column: number, student: number) => `${column}:${student}`;
@@ -58,6 +61,19 @@ class CellsRefused extends Error {
   constructor(readonly cells: CellError[]) {
     super("cells");
   }
+}
+
+/** A body is a cell-by-cell refusal only when every item names a cell and a code we can word:
+ * anything else under `cells` (a malformed request) is the generic message. */
+function isCellErrors(cells: unknown): cells is CellError[] {
+  return (
+    Array.isArray(cells) &&
+    cells.length > 0 &&
+    cells.every(
+      (c) =>
+        typeof c?.column === "number" && typeof c?.student === "number" && c.code in CELL_ERROR,
+    )
+  );
 }
 
 /** The enrolled students a column still lacks a score for. */
@@ -85,15 +101,33 @@ function cellInput(key: string, edit: Edit, parsed: Parsed, commentOnly: boolean
  * until the server confirms them; a failed save never clears them. */
 export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const queryClient = useQueryClient();
+  const { data: me } = useSuspenseQuery(meQuery);
   const commentOnly = book.assessment === "comment_only";
   const editable = book.can_enter;
+  const draftId = draftKey(me.account.id, book.id);
 
   const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [problems, setProblems] = useState<Record<string, Problem>>({});
   const [failure, setFailure] = useState<string>();
   const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [releasing, setReleasing] = useState<GradebookColumn | null>(null);
+  const [refusedFirst, setRefusedFirst] = useState<string | null>(null);
   const inputs = useRef(new Map<string, HTMLInputElement | HTMLSelectElement>());
+  const latest = useRef(edits);
+  latest.current = edits;
+
+  // The draft of an earlier visit, offered (never applied) until the person chooses. Only the
+  // cells of students still in the class and columns of this grid can be restored.
+  const [pending, setPending] = useState<Record<string, Edit> | null>(() => {
+    const draft = editable ? readDraft(draftId) : null;
+    const open = new Set(
+      book.students
+        .filter((s) => s.in_class)
+        .flatMap((s) => book.columns.map((c) => keyOf(c.id, s.id))),
+    );
+    const usable = Object.entries(draft ?? {}).filter(([key]) => open.has(key));
+    return usable.length ? Object.fromEntries(usable) : null;
+  });
 
   const saved = useMemo(
     () =>
@@ -108,18 +142,51 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const dirty = Object.keys(edits).length;
   const failed = Object.keys(problems).length;
 
+  // Every change of the edits is kept in the browser until the server confirms the cells. The
+  // first run is the mount, which must not renew an old draft's age.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (editable) writeDraft(draftId, { ...pending, ...edits });
+  }, [edits, pending, editable, draftId]);
+
+  useBlocker({
+    // A session that ends goes to /login and keeps the draft; leaving otherwise asks first.
+    shouldBlockFn: ({ next }) =>
+      next.pathname !== "/login" &&
+      !window.confirm(
+        `Còn ${dirty} ô chưa lưu vào sổ điểm. Các ô này còn trong bản nháp trên máy này, nhưng chưa được lưu. Rời trang?`,
+      ),
+    enableBeforeUnload: dirty > 0,
+    disabled: dirty === 0,
+  });
+
   function change(key: string, text: string) {
     setEdits((current) => {
       if (text === savedText(saved.get(key), commentOnly)) {
         const { [key]: _gone, ...rest } = current;
         return rest;
       }
-      return {
-        ...current,
-        [key]: { text, expected: current[key]?.expected ?? saved.get(key)?.entry ?? null },
-      };
+      // An edit keeps the entry it was typed against: a refetch must not move it, or a cell
+      // someone else saved meanwhile would be overwritten without a conflict.
+      const existing = current[key];
+      const expected = existing ? existing.expected : (saved.get(key)?.entry ?? null);
+      return { ...current, [key]: { text, expected } };
     });
     setProblems(({ [key]: _gone, ...rest }) => rest);
+  }
+
+  function discard(key: string) {
+    setEdits(({ [key]: _gone, ...rest }) => rest);
+    setProblems(({ [key]: _gone, ...rest }) => rest);
+  }
+
+  function restoreDraft() {
+    setEdits((current) => ({ ...pending, ...current }));
+    setPending(null);
   }
 
   const save = useMutation({
@@ -132,8 +199,8 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
         body: { cells },
       });
       if (data) return data;
-      const body = error as unknown as { cells?: CellError[] } | undefined;
-      if (response.status === 400 && Array.isArray(body?.cells)) throw new CellsRefused(body.cells);
+      const body = error as unknown as { cells?: unknown } | undefined;
+      if (response.status === 400 && isCellErrors(body?.cells)) throw new CellsRefused(body.cells);
       if (response.status === 400) throw new Error(GENERIC);
       throw new Error(`HTTP ${response.status}`);
     },
@@ -156,16 +223,19 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
       setProblems({});
       setFailure(undefined);
     },
-    onError: (error) => {
+    onError: (error, sent) => {
       if (error instanceof CellsRefused) {
+        // Only for a cell still holding the text that was sent: a verdict on other text is stale.
+        const refused = error.cells.filter((c) => {
+          const key = keyOf(c.column, c.student);
+          return latest.current[key]?.text === sent[key]?.text;
+        });
         setProblems(
           Object.fromEntries(
-            error.cells.map((c) => [
-              keyOf(c.column, c.student),
-              { code: c.code, current: c.current },
-            ]),
+            refused.map((c) => [keyOf(c.column, c.student), { code: c.code, current: c.current }]),
           ),
         );
+        setRefusedFirst(refused[0] ? keyOf(refused[0].column, refused[0].student) : null);
         setFailure(undefined);
       } else {
         // A 400 that is no cell's verdict (a rule only the database holds) has its own words;
@@ -183,7 +253,10 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
       ([, edit]) => !commentOnly && parseScore(edit.text).kind === "invalid",
     );
     if (invalid.length) {
-      setProblems(Object.fromEntries(invalid.map(([key]) => [key, { code: "invalid" as const }])));
+      setProblems((current) => ({
+        ...current,
+        ...Object.fromEntries(invalid.map(([key]) => [key, { code: "invalid" as const }])),
+      }));
       inputs.current.get(invalid[0]?.[0] ?? "")?.focus();
       return;
     }
@@ -213,7 +286,7 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
       submit();
       return;
     }
-    if (event.altKey && event.key.toLowerCase() === "h") {
+    if (event.altKey && event.code === "KeyH") {
       event.preventDefault();
       if (saved.get(key)) setHistoryOf(key);
       return;
@@ -233,6 +306,15 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
     focusAt(row, column, move);
   }
 
+  // After a refusal the first refused cell takes focus, once the grid is writable again (a
+  // disabled select cannot hold it).
+  useEffect(() => {
+    if (refusedFirst && !save.isPending) {
+      inputs.current.get(refusedFirst)?.focus();
+      setRefusedFirst(null);
+    }
+  }, [refusedFirst, save.isPending]);
+
   let status = "Đã lưu";
   if (save.isPending) status = "Đang lưu…";
   else if (failed) status = `Lỗi ${failed} ô`;
@@ -242,14 +324,33 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
 
   return (
     <div className="grid gap-4">
-      <div className="overflow-x-auto">
+      {pending && (
+        <section
+          aria-label="Bản nháp chưa lưu"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm italic text-ink-3"
+        >
+          <span>Còn {Object.keys(pending).length} ô chưa lưu từ lần trước</span>
+          <Button variant="quiet" onClick={restoreDraft}>
+            Khôi phục
+          </Button>
+          <Button variant="quiet" onClick={() => setPending(null)}>
+            Bỏ
+          </Button>
+        </section>
+      )}
+      {/* One scroll box in both directions: a sticky head and a pinned name column only work
+          against the box that scrolls, so it is as tall as the window under the top bar. */}
+      <div className="max-h-[calc(100dvh-8rem)] overflow-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">
             Điểm {book.subject_name} lớp {book.class_name}, {book.term_name}
           </caption>
-          <thead className="sticky top-14 z-10 bg-background">
+          <thead className="sticky top-0 z-20 bg-background">
             <tr className="border-b border-border">
-              <th scope="col" className="px-2 py-2 text-left font-semibold">
+              <th
+                scope="col"
+                className="sticky left-0 z-10 bg-background px-2 py-2 text-left font-semibold"
+              >
                 Học sinh
               </th>
               {book.columns.map((column) => (
@@ -281,23 +382,30 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                 key={student.id}
                 className={cn("border-b border-border", !student.in_class && "text-ink-3")}
               >
-                <th scope="row" className="px-2 py-1 text-left font-normal whitespace-nowrap">
+                <th
+                  scope="row"
+                  className="sticky left-0 z-[5] bg-background px-2 py-1 text-left font-normal whitespace-nowrap"
+                >
                   {student.name}
                   {!student.in_class && <span className="ml-2 text-xs italic">đã rời lớp</span>}
                 </th>
                 {book.columns.map((column, col) => {
                   const key = keyOf(column.id, student.id);
                   const cell = saved.get(key);
-                  const text = edits[key]?.text ?? savedText(cell, commentOnly);
+                  const edit = edits[key];
+                  const text = edit?.text ?? savedText(cell, commentOnly);
                   const problem = problems[key];
+                  const live = editable && student.in_class;
+                  const label = `${student.name}, ${columnLabel(column)}`;
                   return (
                     <td key={column.id} className="group px-1 py-1 text-center align-top">
                       <div className="flex items-center justify-center gap-1">
-                        {editable && student.in_class ? (
+                        {live ? (
                           <CellField
-                            name={`${student.name}, ${columnLabel(column)}`}
+                            name={label}
                             commentOnly={commentOnly}
                             text={text}
+                            locked={save.isPending}
                             invalid={!!problem}
                             describedBy={problem ? `err-${key}` : undefined}
                             refs={inputs.current}
@@ -305,6 +413,23 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                             onChange={(value) => change(key, value)}
                             onKeyDown={(event) => onKeyDown(event, row, col, key)}
                           />
+                        ) : edit ? (
+                          // Typed text on a row that can no longer be scored: shown, never sent
+                          // silently, and the person can drop it.
+                          <>
+                            <span className="inline-block min-w-12 px-2 italic tabular-nums">
+                              {textOf(edit.text, commentOnly)}
+                            </span>
+                            <Button
+                              variant="quiet"
+                              className="h-auto text-xs font-normal"
+                              disabled={save.isPending}
+                              aria-label={`Bỏ ô này, ${label}`}
+                              onClick={() => discard(key)}
+                            >
+                              Bỏ ô này
+                            </Button>
+                          </>
                         ) : (
                           <span className="inline-block min-w-12 px-2 tabular-nums">
                             {commentOnly ? resultLabel(cell?.result) : formatScore(cell?.value)}
@@ -315,10 +440,12 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                             book={book.id}
                             column={column.id}
                             student={student.id}
-                            label={`${student.name}, ${columnLabel(column)}`}
+                            label={label}
                             open={historyOf === key}
                             onOpenChange={(open) => setHistoryOf(open ? key : null)}
                             changed={cell.changed_after_release}
+                            tabbable={!live}
+                            returnFocusTo={inputs.current.get(key)}
                           />
                         )}
                       </div>
@@ -365,6 +492,8 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                 </span>
                 <Button
                   variant="quiet"
+                  disabled={save.isPending}
+                  aria-label={`Giữ số của tôi, ${names.get(student)} ${labels.get(column)}`}
                   onClick={() => {
                     setEdits((c) => ({
                       ...c,
@@ -377,10 +506,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                 </Button>
                 <Button
                   variant="quiet"
-                  onClick={() => {
-                    setEdits(({ [key]: _gone, ...rest }) => rest);
-                    setProblems(({ [key]: _gone, ...rest }) => rest);
-                  }}
+                  disabled={save.isPending}
+                  aria-label={`Dùng số đang có, ${names.get(student)} ${labels.get(column)}`}
+                  onClick={() => discard(key)}
                 >
                   Dùng số đang có
                 </Button>
@@ -424,6 +552,7 @@ function CellField({
   name,
   commentOnly,
   text,
+  locked,
   invalid,
   describedBy,
   refs,
@@ -434,6 +563,7 @@ function CellField({
   name: string;
   commentOnly: boolean;
   text: string;
+  locked: boolean; // a save is in flight: what was sent must not change under it
   invalid: boolean;
   describedBy?: string;
   refs: Map<string, HTMLInputElement | HTMLSelectElement>;
@@ -458,6 +588,7 @@ function CellField({
         {...shared}
         className={cn(frame, "w-24")}
         value={text}
+        disabled={locked}
         ref={(el) => {
           if (el) refs.set(cellKey, el);
           else refs.delete(cellKey);
@@ -480,6 +611,7 @@ function CellField({
       inputMode="decimal"
       autoComplete="off"
       value={text}
+      readOnly={locked}
       ref={(el) => {
         if (el) refs.set(cellKey, el);
         else refs.delete(cellKey);
@@ -499,6 +631,8 @@ function HistoryButton({
   open,
   onOpenChange,
   changed,
+  tabbable,
+  returnFocusTo,
 }: {
   book: number;
   column: number;
@@ -507,13 +641,15 @@ function HistoryButton({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   changed: boolean;
+  tabbable: boolean; // no field to press Alt+H in: the button is the way in
+  returnFocusTo: HTMLElement | undefined;
 }) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          tabIndex={-1}
+          tabIndex={tabbable ? 0 : -1}
           aria-label={`Lịch sử ${label}`}
           title={changed ? "Đã sửa sau khi công bố" : "Lịch sử ô này"}
           className={cn(
@@ -526,7 +662,15 @@ function HistoryButton({
           <History aria-hidden="true" className="size-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 text-sm">
+      <PopoverContent
+        align="start"
+        className="w-80 text-sm"
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusTo) return; // no field: the button gets the focus back
+          event.preventDefault();
+          returnFocusTo.focus();
+        }}
+      >
         <HistoryList
           book={book}
           column={column}
@@ -606,24 +750,18 @@ function ReleaseDialog({
         throw new Error("Cột này đã được công bố hoặc không còn công bố được.");
       throw new Error(NETWORK);
     },
-    onSuccess: () => {
-      onClose();
-      release.reset();
-    },
+    onSuccess: () => close(),
     onSettled: () => queryClient.invalidateQueries({ queryKey: [...GRADEBOOK_KEY, book.id] }),
   });
+  // Every way out clears the last refusal, so the next column opens clean.
+  function close() {
+    release.reset();
+    onClose();
+  }
   const error = release.error;
   const label = column ? columnLabel(column) : "";
   return (
-    <Dialog
-      open={column !== null}
-      onOpenChange={(open) => {
-        if (!open) {
-          release.reset();
-          onClose();
-        }
-      }}
-    >
+    <Dialog open={column !== null} onOpenChange={(open) => !open && close()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Công bố cột {label}?</DialogTitle>
@@ -640,7 +778,7 @@ function ReleaseDialog({
           <FormError message={error?.message} />
         )}
         <DialogFooter>
-          <Button variant="secondary" onClick={() => onClose()}>
+          <Button variant="secondary" onClick={close}>
             Hủy
           </Button>
           <Button disabled={release.isPending} onClick={() => column && release.mutate(column)}>

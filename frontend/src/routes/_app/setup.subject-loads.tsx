@@ -156,7 +156,11 @@ function LoadRow({
   canEdit: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [text, setText] = useState(load ? String(load.periods_per_year) : "");
+  // What was typed, or null while the row shows the server's number: a refetch moves the row
+  // until the person edits it.
+  const [typed, setTyped] = useState<string | null>(null);
+  const served = load ? String(load.periods_per_year) : "";
+  const text = typed ?? served;
   const save = useMutation({
     mutationFn: async () => {
       const periods = Number(text);
@@ -183,9 +187,13 @@ function LoadRow({
       }
       throw new Error(NETWORK);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: subjectLoadsQuery(year).queryKey }),
+    // The row follows the server again once the refetch has brought the saved number.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: subjectLoadsQuery(year).queryKey });
+      setTyped(null);
+    },
   });
-  const changed = text !== (load ? String(load.periods_per_year) : "");
+  const changed = text !== served;
   const id = `periods-${grade.id}-${subject.id}`;
   return (
     <tr className="border-b border-border">
@@ -202,7 +210,7 @@ function LoadRow({
             disabled={!canEdit}
             aria-invalid={save.isError || undefined}
             onChange={(event) => {
-              setText(event.target.value);
+              setTyped(event.target.value);
               save.reset();
             }}
           />

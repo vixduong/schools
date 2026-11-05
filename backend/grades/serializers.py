@@ -39,11 +39,11 @@ class CellInputSerializer(serializers.Serializer):
 class SaveCellsSerializer(serializers.Serializer):
     cells = CellInputSerializer(many=True, allow_empty=False, max_length=MAX_CELLS_PER_SAVE)
 
-    def validate_cells(self, cells):
-        keys = [(cell["column"], cell["student"]) for cell in cells]
+    def validate(self, attrs):
+        keys = [(cell["column"], cell["student"]) for cell in attrs["cells"]]
         if len(set(keys)) != len(keys):
-            raise serializers.ValidationError("duplicate_cell")
-        return cells
+            raise serializers.ValidationError({"request": ["duplicate_cell"]})
+        return attrs
 
 
 class SavedCellSerializer(serializers.Serializer):
@@ -77,8 +77,15 @@ class CellErrorSerializer(serializers.Serializer):
     current = CurrentEntrySerializer(allow_null=True)
 
 
-class CellErrorsSerializer(serializers.Serializer):
-    cells = CellErrorSerializer(many=True)
+class SaveRefusedSerializer(serializers.Serializer):
+    """The 400 of a save, by what refused it: `cells` (each failing cell, nothing saved), `request`
+    (`unknown_column`, `duplicate_cell`), `gradebook` (`not_draft`) or `constraint` (a rule only
+    the database holds). A malformed body is DRF's own field errors under `cells`."""
+
+    cells = CellErrorSerializer(many=True, required=False)
+    request = serializers.ListField(child=serializers.CharField(), required=False)
+    gradebook = serializers.ListField(child=serializers.CharField(), required=False)
+    constraint = serializers.ListField(child=serializers.CharField(), required=False)
 
 
 class GradebookSerializer(serializers.ModelSerializer):
@@ -160,11 +167,25 @@ class StudentNameSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
-class ReleaseIncompleteSerializer(serializers.Serializer):
-    """The 400 `incomplete`: the enrolled students the column still lacks a score for."""
+class ReleaseRefusedSerializer(serializers.Serializer):
+    """The 400 of a release: `column` (`incomplete`, with the enrolled `students` the column still
+    lacks a score for, or `already_released`), `gradebook` (`not_draft`) or `constraint`."""
 
-    column = serializers.ListField(child=serializers.CharField())
-    students = StudentNameSerializer(many=True)
+    column = serializers.ListField(child=serializers.CharField(), required=False)
+    students = StudentNameSerializer(many=True, required=False)
+    gradebook = serializers.ListField(child=serializers.CharField(), required=False)
+    constraint = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+class OpenRefusedSerializer(serializers.Serializer):
+    """The 400 of opening a gradebook: `gradebook` (`no_profile_version`, `no_subject_load`),
+    `term` (`not_in_class_year`), `constraint`, or a field error of the body."""
+
+    term = serializers.ListField(child=serializers.CharField(), required=False)
+    subject = serializers.ListField(child=serializers.CharField(), required=False)
+    school_class = serializers.ListField(child=serializers.CharField(), required=False)
+    gradebook = serializers.ListField(child=serializers.CharField(), required=False)
+    constraint = serializers.ListField(child=serializers.CharField(), required=False)
 
 
 class HistoryEntrySerializer(serializers.Serializer):

@@ -1,6 +1,6 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException
 
-from django.db import models
+from django.db import connection, models
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
@@ -131,11 +131,19 @@ class GradebookMixin:
     @staticmethod
     def lock(gradebook):
         """Saves, releases (and slice 5's submit) of one gradebook take turns; a score entry in
-        flight holds it FOR SHARE (a trigger) and so conflicts with a lock taken this way."""
+        flight holds it FOR SHARE (a trigger) and so conflicts with a lock taken this way.
+        Returns (today, clock) read once, after the lock: the School's day, the value
+        `scoreentry_student_in_class` uses (the transaction's `now()`), and the database clock, the
+        one source of every entry and release time, so those follow the order of the locks."""
         Gradebook.objects.select_for_update(no_key=True).get(pk=gradebook.pk)
         gradebook.refresh_from_db(fields=["status"])
         if gradebook.status != Gradebook.Status.DRAFT:
             raise ValidationError({"gradebook": ["not_draft"]})
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, clock_timestamp()"
+            )
+            return cursor.fetchone()
 
 
 def regular_columns(rules, subject, periods_per_year):
@@ -183,6 +191,7 @@ class GradebooksView(GradebookMixin, GenericAPIView):
         responses={
             200: serializers.GradebookDetailSerializer,
             201: serializers.GradebookDetailSerializer,
+            400: serializers.OpenRefusedSerializer,
         },
     )
     def post(self, request):
@@ -206,20 +215,10 @@ class GradebooksView(GradebookMixin, GenericAPIView):
         """The gradebook with its columns, in one transaction; None when it already exists. The
         profile version is the class's Level kind's in force on the school year's first day."""
         year = klass.school_year
-        version = (
-            AssessmentProfileVersion.objects.filter(
-                models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=year.starts_on),
-                level_kind=klass.grade.level.kind,
-                effective_from__lte=year.starts_on,
-            )
-            .order_by("-effective_from")
-            .first()
-        )
-        if version is None:
-            raise ValidationError({"gradebook": ["no_profile_version"]})
         with database_rules():
-            # The load decides the columns and is frozen once a gradebook exists: holding it FOR
-            # NO KEY UPDATE makes two openings, and an edit of the load, take turns.
+            # The load and the subject's form decide the columns and are frozen once a gradebook
+            # exists: holding them FOR NO KEY UPDATE makes two openings, and an edit of either,
+            # take turns. The subject is read again under the lock.
             load = (
                 SubjectLoad.objects.select_for_update(no_key=True)
                 .filter(school_year=year, grade=klass.grade, subject=subject)
@@ -227,6 +226,19 @@ class GradebooksView(GradebookMixin, GenericAPIView):
             )
             if load is None:
                 raise ValidationError({"gradebook": ["no_subject_load"]})
+            subject = Subject.objects.select_for_update(no_key=True).get(pk=subject.pk)
+            version = (
+                AssessmentProfileVersion.objects.filter(
+                    models.Q(effective_to__isnull=True)
+                    | models.Q(effective_to__gte=year.starts_on),
+                    level_kind=klass.grade.level.kind,
+                    effective_from__lte=year.starts_on,
+                )
+                .order_by("-effective_from")
+                .first()
+            )
+            if version is None:
+                raise ValidationError({"gradebook": ["no_profile_version"]})
             if Gradebook.objects.filter(term=term, subject=subject, school_class=klass).exists():
                 return None
             gradebook = Gradebook.objects.create(
@@ -275,8 +287,8 @@ def detail(request, gradebook):
                 "entry": entry.pk,
                 "value": entry.value,
                 "result": entry.result,
-                # shortcut: any entry after the release counts as a change (the plan says "more
-                # than one"; see the slice report).
+                # Any entry after the release is a change; entry and release times are ordered by
+                # the database clock (`GradebookMixin.lock`), so this is exact.
                 "changed_after_release": (entry.column_id, entry.student_id) in released,
             }
         )
@@ -311,14 +323,14 @@ def judge(cell, assessment):
         return None, None
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return "wrong_form", None
-    try:
+    try:  # any DecimalException: "1e9999999" overflows `normalize`, not the parse
         number = Decimal(str(value).strip())
-    except InvalidOperation:
+        if not number.is_finite():
+            return "wrong_form", None
+        if number.normalize().as_tuple().exponent < -1:
+            return "too_many_decimals", None
+    except DecimalException:
         return "wrong_form", None
-    if not number.is_finite():
-        return "wrong_form", None
-    if number.normalize().as_tuple().exponent < -1:
-        return "too_many_decimals", None
     if not 0 <= number <= SCALE_MAX:
         return "out_of_range", None
     return None, number.quantize(ONE_DECIMAL)
@@ -358,7 +370,7 @@ class GradebookCellsView(GradebookMixin, GenericAPIView):
 
     @extend_schema(
         request=serializers.SaveCellsSerializer,
-        responses={200: serializers.SavedCellsSerializer, 400: serializers.CellErrorsSerializer},
+        responses={200: serializers.SavedCellsSerializer, 400: serializers.SaveRefusedSerializer},
     )
     def put(self, request, pk):
         gradebook = self.get_gradebook()
@@ -368,10 +380,11 @@ class GradebookCellsView(GradebookMixin, GenericAPIView):
         # A gradebook never gains or loses a column, so they are read before the lock.
         columns = set(gradebook.gradebookcolumn_set.values_list("pk", flat=True))
         if any(cell["column"] not in columns for cell in given):
-            raise ValidationError({"cells": ["unknown_column"]})
+            raise ValidationError({"request": ["unknown_column"]})
         with database_rules():
-            self.lock(gradebook)  # everything below reads what the last saver committed
-            _, in_class = roster(gradebook, timezone.localdate())
+            # everything below reads what the last saver committed
+            today, clock = self.lock(gradebook)
+            _, in_class = roster(gradebook, today)
             current = {
                 (entry.column_id, entry.student_id): entry
                 for entry in current_entries(gradebook).select_related("entered_by__account")
@@ -393,18 +406,15 @@ class GradebookCellsView(GradebookMixin, GenericAPIView):
                     )
             if errors:
                 return Response({"cells": errors}, status=status.HTTP_400_BAD_REQUEST)
-            return Response({"cells": self.append(request, gradebook, checked)})
+            return Response({"cells": self.append(request, checked, clock)})
 
     @staticmethod
-    def append(request, gradebook, checked):
+    def append(request, checked, clock):
         """An entry for every checked cell whose value or result differs from its current one;
         the cells with the id of their current entry afterwards."""
-        # Never earlier than an entry already saved, whatever the clocks say: the latest entry
-        # (by time, then id) is the cell's score.
-        last = ScoreEntry.objects.filter(column__gradebook=gradebook).aggregate(
-            last=models.Max("entered_at")
-        )["last"]
-        at = max(timezone.now(), last) if last else timezone.now()
+        # The database clock after the lock, never earlier than the current entry of a cell: the
+        # latest entry (by time, then id) is the cell's score (trigger `scoreentry_in_order`).
+        at = max([clock, *(now.entered_at for _, _, now in checked if now)])
         written = {}
         for cell, value, now in checked:
             if (value, cell["result"]) != ((now.value, now.result) if now else (None, None)):
@@ -438,13 +448,13 @@ class ColumnReleaseView(GradebookMixin, GenericAPIView):
 
     @extend_schema(
         request=None,
-        responses={200: serializers.ColumnSerializer, 400: serializers.ReleaseIncompleteSerializer},
+        responses={200: serializers.ColumnSerializer, 400: serializers.ReleaseRefusedSerializer},
     )
     def post(self, request, pk, column):
         gradebook = self.get_gradebook()
         with database_rules():
-            self.lock(gradebook)
-            students, in_class = roster(gradebook, timezone.localdate())
+            today, clock = self.lock(gradebook)
+            students, in_class = roster(gradebook, today)
             released = GradebookColumn.objects.filter(gradebook=gradebook, pk=column).first()
             if released is None:
                 raise NotFound
@@ -467,7 +477,12 @@ class ColumnReleaseView(GradebookMixin, GenericAPIView):
                     {"column": ["incomplete"], "students": missing},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            released.released_at = timezone.now()
+            # Never earlier than an entry of the gradebook, so only a later one is "after the
+            # release" (`changed_after_release`).
+            latest = ScoreEntry.objects.filter(column__gradebook=gradebook).aggregate(
+                latest=models.Max("entered_at")
+            )["latest"]
+            released.released_at = max(clock, latest) if latest else clock
             released.released_by = request.membership
             released.save(update_fields=["released_at", "released_by"])
         return Response(serializers.ColumnSerializer(released).data)

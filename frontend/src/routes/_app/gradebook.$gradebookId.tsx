@@ -26,7 +26,7 @@ function Screen() {
         )}
       </div>
       {book.isPending && <p className="italic text-ink-3">Đang tải sổ điểm…</p>}
-      {book.isError && (
+      {book.isError && !book.data && (
         <p role="alert" className="text-destructive">
           Không mở được sổ điểm. Sổ có thể không tồn tại, hoặc bạn không có quyền xem; kiểm tra mạng
           rồi tải lại trang.

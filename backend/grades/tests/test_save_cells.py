@@ -3,20 +3,21 @@ per-cell `expected` check, all or nothing with a code per failing cell, unchange
 nothing."""
 
 import threading
-import time
+import types
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from django.db import connections
+from django.db import connection, connections
 from django.utils import timezone
 
-from grades.models import ScoreEntry
+from grades.models import GradebookColumn, ScoreEntry
 from schools.models import Enrollment
 from tenancy.rls import school_scope
 
 TODAY = timezone.localdate()
 DAY = timedelta(days=1)
+SECOND = timedelta(seconds=1)
 
 
 @pytest.fixture
@@ -161,6 +162,8 @@ def errors(response):
         ("", "wrong_form"),
         ("NaN", "wrong_form"),
         ("Infinity", "wrong_form"),
+        ("1e9999999", "wrong_form"),  # overflows the decimal context
+        ("-1e9999999", "wrong_form"),
         (True, "wrong_form"),
         ([7], "wrong_form"),
     ],
@@ -207,9 +210,11 @@ def test_a_result_on_a_scored_subject_both_forms_and_a_student_who_may_not_be_sc
 
 def test_a_malformed_save_is_refused_whole(w, book, cell, save, stored, columns):
     assert save(book["id"], []).status_code == 400
-    assert save(book["id"], [cell("an", 7), cell("an", 8)]).status_code == 400  # one cell twice
+    twice = save(book["id"], [cell("an", 7), cell("an", 8)])  # one cell twice
+    assert (twice.status_code, twice.json()) == (400, {"request": ["duplicate_cell"]})
     unknown = {"column": 999999, "student": w["an"].pk, "value": 7, "expected": None}
-    assert save(book["id"], [cell("bao", 7), unknown]).status_code == 400
+    nowhere = save(book["id"], [cell("bao", 7), unknown])
+    assert (nowhere.status_code, nowhere.json()) == (400, {"request": ["unknown_column"]})
     other = {"column": columns(book)["regular", 1], "student": w["an"].pk, "value": 7}
     assert save(book["id"], [other]).status_code == 400  # `expected` is required
     assert save(book["id"], [cell("an", 7, result="maybe")]).status_code == 400
@@ -321,17 +326,18 @@ def test_the_current_entry_is_the_latest_by_time_then_id(
     a, _ = schools
     col = columns(book)["regular", 1]
     with school_scope(a.pk):
-        later = ScoreEntry.objects.create(
-            school=a, column_id=col, student=w["an"], value=Decimal("6"), entered_by=w["t1"]
-        )
-        # Inserted after, but entered earlier: not the current one.
+        # Entered earlier, inserted first (the database refuses the other order,
+        # `scoreentry_in_order`).
         ScoreEntry.objects.create(
             school=a,
             column_id=col,
             student=w["an"],
             value=Decimal("4"),
             entered_by=w["t1"],
-            entered_at=later.entered_at - DAY,
+            entered_at=timezone.now() - DAY,
+        )
+        later = ScoreEntry.objects.create(
+            school=a, column_id=col, student=w["an"], value=Decimal("6"), entered_by=w["t1"]
         )
         tie = ScoreEntry.objects.create(
             school=a,
@@ -372,6 +378,64 @@ def test_a_new_entry_is_never_dated_before_one_already_saved(
         )
     saved(save(book["id"], [cell("an", 8, ahead.pk)]))
     assert grid(call, client_of, book)[col, "An"][0] == 8
+
+
+def test_entry_and_release_times_are_the_database_clock_never_the_servers(
+    monkeypatch, schools, w, book, cell, save, columns, call, client_of
+):
+    """Entries and releases are dated by the database clock read after the gradebook lock: a
+    server whose own clock is an hour behind changes nothing."""
+    a, _ = schools
+    col = columns(book)["regular", 1]
+    t1 = client_of("t1@example.com")
+    with school_scope(a.pk), connection.cursor() as cursor:
+        cursor.execute("SELECT clock_timestamp()")
+        (before,) = cursor.fetchone()
+    monkeypatch.setattr(timezone, "now", lambda: before - 3600 * SECOND)
+    saved(save(book["id"], [cell(name, 7) for name in ("an", "bao", "eve")], t1))
+    assert call(t1, "post", f"gradebooks/{book['id']}/columns/{col}/release/").status_code == 200
+    monkeypatch.undo()
+    with school_scope(a.pk):
+        stamps = [e.entered_at for e in ScoreEntry.objects.all()]
+        released = GradebookColumn.objects.get(pk=col).released_at
+    assert all(before <= at <= released for at in stamps)
+
+
+def test_a_release_is_never_dated_before_an_entry_of_its_gradebook(
+    schools, w, book, cell, save, columns, call, client_of
+):
+    a, _ = schools
+    col = columns(book)["regular", 1]
+    t1 = client_of("t1@example.com")
+    entries = saved(save(book["id"], [cell(name, 7) for name in ("an", "bao", "eve")], t1))
+    with school_scope(a.pk):  # another cell, dated ahead of every clock
+        ahead = ScoreEntry.objects.create(
+            school=a,
+            column_id=columns(book)["mid_term", 1],
+            student=w["an"],
+            value=Decimal("5"),
+            entered_by=w["t3"],
+            entered_at=timezone.now() + timedelta(hours=1),
+        )
+    assert call(t1, "post", f"gradebooks/{book['id']}/columns/{col}/release/").status_code == 200
+    with school_scope(a.pk):
+        assert GradebookColumn.objects.get(pk=col).released_at >= ahead.entered_at
+    detail = call(t1, "get", f"gradebooks/{book['id']}/").json()
+    assert not any(c["changed_after_release"] for s in detail["students"] for c in s["cells"])
+    assert len(entries) == 3
+
+
+def test_a_save_reads_the_schools_day_in_the_database_not_the_servers(
+    monkeypatch, w, book, cell, save, stored
+):
+    """The roster of a save uses the transaction's `(now() AT TIME ZONE ...)::date`, the value
+    the trigger uses; a server whose calendar is off changes nothing."""
+    from grades import views
+
+    far = TODAY + 400 * DAY
+    monkeypatch.setattr(views, "timezone", types.SimpleNamespace(localdate=lambda: far))
+    saved(save(book["id"], [cell("an", 7), cell("eve", 8)]))
+    assert len(stored()) == 2
 
 
 def test_a_change_after_the_release_is_flagged_on_its_cell(
@@ -425,7 +489,7 @@ def in_thread(function, results, key):
 
 
 def test_a_save_waits_for_a_save_in_flight_and_then_conflicts_with_it(
-    schools, w, book, cell, save, stored, columns, app_conn, client_of
+    schools, w, book, cell, save, stored, columns, app_conn, client_of, lock_wait
 ):
     """Another transaction holds the gradebook (as a save does) and saves the cell; the waiting
     save then sees that entry, not the cell as it was, and conflicts."""
@@ -435,8 +499,9 @@ def test_a_save_waits_for_a_save_in_flight_and_then_conflicts_with_it(
     app_conn.execute("SELECT set_config('app.school_id', %s, true)", [str(a.pk)])
     app_conn.execute("SELECT 1 FROM grades_gradebook WHERE id = %s FOR NO KEY UPDATE", [book["id"]])
     results = {}
-    thread = in_thread(lambda: save(book["id"], [cell("an", 7)]), results, "mine")
-    time.sleep(0.5)
+    client = client_of("t1@example.com")  # signed in before the thread starts
+    thread = in_thread(lambda: save(book["id"], [cell("an", 7)], client), results, "mine")
+    lock_wait()
     assert thread.is_alive()  # waiting for the lock
     app_conn.execute(
         "INSERT INTO grades_scoreentry (school_id, column_id, student_id, value, entered_by_id,"
@@ -457,8 +522,9 @@ def test_two_saves_of_the_same_cell_at_once_keep_one_and_conflict_the_other(
     results = {}
 
     def go(who, value):
+        client = client_of(who)  # signed in before the thread starts
+
         def run():
-            client = client_of(who)  # signed in before the gate, so both reach the lock together
             gate.wait()
             return save(book["id"], [cell("an", value)], client)
 

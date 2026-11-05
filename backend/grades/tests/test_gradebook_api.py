@@ -1,7 +1,6 @@
 """Opening, reading and releasing gradebooks, subject loads and who may do what."""
 
 import threading
-import time
 from datetime import timedelta
 
 import pytest
@@ -409,35 +408,65 @@ def test_two_openings_at_once_make_one_gradebook(schools, w, call, client_of):
         assert GradebookColumn.objects.count() == 5
 
 
-def test_opening_waits_for_an_edit_of_the_subject_load_and_uses_what_it_committed(
-    schools, w, call, client_of, app_conn
+@pytest.mark.parametrize(
+    ("edit", "what"),
+    [
+        ("UPDATE schools_subjectload SET periods_per_year = 71 WHERE subject_id = {math}", "load"),
+        ("UPDATE schools_subject SET assessment = 'comment_only' WHERE id = {math}", "subject"),
+    ],
+)
+def test_opening_waits_for_an_edit_of_what_decides_its_columns_and_uses_what_it_committed(
+    schools, w, call, client_of, app_conn, lock_wait, edit, what
 ):
-    """The load decides the columns and freezes once a gradebook exists: an edit in flight holds
-    the row, the opening waits for it and opens with the edited load."""
+    """The subject load and the subject's form decide the columns and freeze once a gradebook
+    exists: an edit in flight holds the row, the opening waits for it and opens with what was
+    committed."""
     a, _ = schools
     app_conn.execute("BEGIN")
     app_conn.execute("SELECT set_config('app.school_id', %s, true)", [str(a.pk)])
-    app_conn.execute(
-        "UPDATE schools_subjectload SET periods_per_year = 71 WHERE subject_id = %s", [w["math"].pk]
-    )
+    app_conn.execute(edit.format(math=w["math"].pk))
     results = {}
+    client = client_of("t1@example.com")
+    body = {"term": w["hk1"].pk, "subject": w["math"].pk, "school_class": w["7A"].pk}
 
     def open_():
         try:
-            results["book"] = call(
-                client_of("t1@example.com"),
-                "post",
-                "gradebooks/",
-                {"term": w["hk1"].pk, "subject": w["math"].pk, "school_class": w["7A"].pk},
-            )
+            results["book"] = call(client, "post", "gradebooks/", body)
         finally:
             connections.close_all()
 
     thread = threading.Thread(target=open_)
     thread.start()
-    time.sleep(0.5)
+    lock_wait()
     assert thread.is_alive()
     app_conn.execute("COMMIT")
     thread.join(10)
-    assert results["book"].status_code == 201
-    assert shape(results["book"].json()) == {"regular": 4, "mid_term": 1, "end_term": 1}
+    assert results["book"].status_code == 201, results["book"].content
+    opened = results["book"].json()
+    if what == "load":  # 71 periods: four regular columns
+        assert shape(opened) == {"regular": 4, "mid_term": 1, "end_term": 1}
+    elif what == "subject":  # comment only: the profile's comment-only count
+        assert opened["assessment"] == "comment_only"
+        assert shape(opened) == {"regular": 2, "mid_term": 1, "end_term": 1}
+
+
+def test_the_subject_form_freezes_once_a_gradebook_uses_it(schools, w, open_book, call, client_of):
+    admin = client_of("admin-a@example.com")
+    subject = f"subjects/{w['math'].pk}/"
+
+    def patch(path, field, value):
+        response = call(admin, "patch", path, {field: value})
+        return response.status_code, response.json() if response.status_code == 400 else None
+
+    # Free while no gradebook exists, and while the value stays the same.
+    assert patch(subject, "assessment", "comment_only")[0] == 200
+    assert patch(subject, "assessment", "scored")[0] == 200
+    open_book()  # MATH in 7A
+    assert patch(subject, "assessment", "comment_only") == (
+        400,
+        {"constraint": ["subject_assessment_frozen_by_gradebooks"]},
+    )
+    assert patch(subject, "assessment", "scored")[0] == 200  # unchanged is no change
+    # Another subject is not held.
+    assert patch(f"subjects/{w['pe'].pk}/", "assessment", "scored")[0] == 200
+    assert call(admin, "get", subject).json()["assessment"] == "scored"

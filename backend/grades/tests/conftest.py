@@ -3,6 +3,7 @@ students, and helpers (as fixtures, so no test file imports another). Everything
 role (`as_app_role`), like production requests."""
 
 import importlib
+import time
 from datetime import timedelta
 
 import psycopg
@@ -314,3 +315,23 @@ def second_conn(schools):
     )
     yield conn
     conn.close()
+
+
+@pytest.fixture
+def lock_wait(second_conn):
+    """`lock_wait()`: returns once some session is waiting for a lock (polled, never a sleep that
+    hopes a thread got there); fails after `timeout` seconds."""
+
+    def wait(timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            (waiting,) = second_conn.execute(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            ).fetchone()
+            if waiting:
+                return
+            time.sleep(0.02)
+        raise AssertionError("no session is waiting for a lock")
+
+    return wait

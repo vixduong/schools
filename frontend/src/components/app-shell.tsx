@@ -6,6 +6,7 @@ import { meQuery } from "@/api/queries";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import { reach } from "@/lib/capabilities";
+import { clearDrafts, countDrafts } from "@/lib/drafts";
 
 const navLink =
   "px-1 py-2 underline-offset-4 hover:underline data-[status=active]:font-semibold data-[status=active]:underline";
@@ -20,11 +21,21 @@ export function AppShell() {
   // Only a confirmed sign-out leaves the screen: on a shared computer a failed one must not look
   // like success while the session is still live.
   async function signOut() {
+    // Signing out removes this person's unsaved gradebook cells from the browser: ask first.
+    const waiting = countDrafts(me.account.id);
+    if (
+      waiting > 0 &&
+      !window.confirm(
+        `Còn ${waiting} ô điểm chưa lưu trên máy này. Đăng xuất sẽ xóa chúng. Đăng xuất?`,
+      )
+    )
+      return;
     const { response } = await api.POST("/api/auth/logout/").catch(() => ({ response: null }));
     if (!response?.ok) {
       setSignOutFailed(true);
       return;
     }
+    clearDrafts(me.account.id);
     queryClient.clear();
     router.history.push("/login");
   }

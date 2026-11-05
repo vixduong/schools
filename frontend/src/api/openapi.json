@@ -1403,6 +1403,16 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OpenRefused"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -1500,7 +1510,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/CellErrors"
+                                    "$ref": "#/components/schemas/SaveRefused"
                                 }
                             }
                         },
@@ -1554,7 +1564,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ReleaseIncomplete"
+                                    "$ref": "#/components/schemas/ReleaseRefused"
                                 }
                             }
                         },
@@ -5689,20 +5699,6 @@
                     "student"
                 ]
             },
-            "CellErrors": {
-                "type": "object",
-                "properties": {
-                    "cells": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/CellError"
-                        }
-                    }
-                },
-                "required": [
-                    "cells"
-                ]
-            },
             "CellInput": {
                 "type": "object",
                 "description": "One cell to save: a scored subject's `value`, a comment-only subject's `result`, neither\nto clear it. `expected` is the id of the cell's current entry as the client last saw it (null\nfor an empty cell).",
@@ -6931,6 +6927,42 @@
                     "term"
                 ]
             },
+            "OpenRefused": {
+                "type": "object",
+                "description": "The 400 of opening a gradebook: `gradebook` (`no_profile_version`, `no_subject_load`),\n`term` (`not_in_class_year`), `constraint`, or a field error of the body.",
+                "properties": {
+                    "term": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "subject": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "school_class": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "gradebook": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
             "Overview": {
                 "type": "object",
                 "properties": {
@@ -7473,9 +7505,9 @@
                 "type": "string",
                 "description": "* `mother` - Mother\n* `father` - Father\n* `grandparent` - Grandparent\n* `other` - Other"
             },
-            "ReleaseIncomplete": {
+            "ReleaseRefused": {
                 "type": "object",
-                "description": "The 400 `incomplete`: the enrolled students the column still lacks a score for.",
+                "description": "The 400 of a release: `column` (`incomplete`, with the enrolled `students` the column still\nlacks a score for, or `already_released`), `gradebook` (`not_draft`) or `constraint`.",
                 "properties": {
                     "column": {
                         "type": "array",
@@ -7488,12 +7520,20 @@
                         "items": {
                             "$ref": "#/components/schemas/StudentName"
                         }
+                    },
+                    "gradebook": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
-                },
-                "required": [
-                    "column",
-                    "students"
-                ]
+                }
             },
             "ReplaceTimetable": {
                 "type": "object",
@@ -7739,6 +7779,36 @@
                 "required": [
                     "cells"
                 ]
+            },
+            "SaveRefused": {
+                "type": "object",
+                "description": "The 400 of a save, by what refused it: `cells` (each failing cell, nothing saved), `request`\n(`unknown_column`, `duplicate_cell`), `gradebook` (`not_draft`) or `constraint` (a rule only\nthe database holds). A malformed body is DRF's own field errors under `cells`.",
+                "properties": {
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CellError"
+                        }
+                    },
+                    "request": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "gradebook": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
             },
             "SaveSheet": {
                 "type": "object",

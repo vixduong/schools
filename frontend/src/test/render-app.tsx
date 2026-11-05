@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { makeApp } from "@/router";
 
 export type Reply = { status: number; body?: unknown };
-export type Handler = (request: Request) => Reply | undefined;
+export type Handler = (request: Request) => Reply | undefined | Promise<Reply | undefined>;
 
 export const ME = {
   account: { id: 1, display_name: "Cô Lan" },
@@ -21,7 +21,7 @@ export async function renderApp(path: string, handler: Handler) {
       input instanceof Request ? input : new Request(new URL(String(input), location.origin), init);
     calls.push(request);
     const { pathname } = new URL(request.url);
-    let reply = handler(request);
+    let reply = await handler(request);
     if (!reply && pathname === "/api/auth/school/") reply = { status: 200, body: ME.school };
     if (!reply && pathname === "/api/auth/csrf/") {
       document.cookie = "csrftoken=t0ken";

@@ -1974,9 +1974,6 @@ export interface components {
             code: components["schemas"]["CodeEnum"];
             current: components["schemas"]["CurrentEntry"] | null;
         };
-        CellErrors: {
-            cells: components["schemas"]["CellError"][];
-        };
         /**
          * @description One cell to save: a scored subject's `value`, a comment-only subject's `result`, neither
          *     to clear it. `expected` is the id of the cell's current entry as the client last saw it (null
@@ -2382,6 +2379,17 @@ export interface components {
             subject: number;
             school_class: number;
         };
+        /**
+         * @description The 400 of opening a gradebook: `gradebook` (`no_profile_version`, `no_subject_load`),
+         *     `term` (`not_in_class_year`), `constraint`, or a field error of the body.
+         */
+        OpenRefused: {
+            term?: string[];
+            subject?: string[];
+            school_class?: string[];
+            gradebook?: string[];
+            constraint?: string[];
+        };
         Overview: {
             class_name: string;
             students: components["schemas"]["OverviewStudent"][];
@@ -2647,10 +2655,15 @@ export interface components {
          * @enum {string}
          */
         RelationEnum: "mother" | "father" | "grandparent" | "other";
-        /** @description The 400 `incomplete`: the enrolled students the column still lacks a score for. */
-        ReleaseIncomplete: {
-            column: string[];
-            students: components["schemas"]["StudentName"][];
+        /**
+         * @description The 400 of a release: `column` (`incomplete`, with the enrolled `students` the column still
+         *     lacks a score for, or `already_released`), `gradebook` (`not_draft`) or `constraint`.
+         */
+        ReleaseRefused: {
+            column?: string[];
+            students?: components["schemas"]["StudentName"][];
+            gradebook?: string[];
+            constraint?: string[];
         };
         /**
          * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,
@@ -2747,6 +2760,17 @@ export interface components {
         };
         SaveCells: {
             cells: components["schemas"]["CellInput"][];
+        };
+        /**
+         * @description The 400 of a save, by what refused it: `cells` (each failing cell, nothing saved), `request`
+         *     (`unknown_column`, `duplicate_cell`), `gradebook` (`not_draft`) or `constraint` (a rule only
+         *     the database holds). A malformed body is DRF's own field errors under `cells`.
+         */
+        SaveRefused: {
+            cells?: components["schemas"]["CellError"][];
+            request?: string[];
+            gradebook?: string[];
+            constraint?: string[];
         };
         /** @description `PUT attendance/{entry}/{on}/`: a mark for every student enrolled that day, no more. */
         SaveSheet: {
@@ -3799,6 +3823,14 @@ export interface operations {
                     "application/json": components["schemas"]["GradebookDetail"];
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRefused"];
+                };
+            };
         };
     };
     setup_gradebooks_retrieve: {
@@ -3852,7 +3884,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CellErrors"];
+                    "application/json": components["schemas"]["SaveRefused"];
                 };
             };
         };
@@ -3882,7 +3914,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReleaseIncomplete"];
+                    "application/json": components["schemas"]["ReleaseRefused"];
                 };
             };
         };

@@ -10,7 +10,14 @@ from django.db import DataError, IntegrityError, ProgrammingError, connection
 from django.utils import timezone
 
 from grades.models import Gradebook, GradebookColumn, ScoreEntry
-from schools.models import Enrollment, Grade, SchoolYear, SubjectLoad, Term
+from schools.models import (
+    AssessmentProfileVersion,
+    Enrollment,
+    Grade,
+    SchoolYear,
+    SubjectLoad,
+    Term,
+)
 from schools.tests.factories import make_class, make_primary_class, make_student
 from tenancy.rls import school_scope
 from testing import owner_role
@@ -114,7 +121,21 @@ def test_only_the_status_of_a_gradebook_changes_and_none_is_deleted(schools, w, 
     with school_scope(a.pk):
         assert Gradebook.objects.filter(pk=book.pk).update(status="draft") == 1
     # ... and a trigger holds it against any role: the profile version above all.
-    for field, value in (("opened_by", w["t2"]), ("term", w["hk2"]), ("subject", w["pe"])):
+    old = book.profile_version
+    with owner_role():
+        AssessmentProfileVersion.objects.filter(pk=old.pk).update(effective_to=timezone.localdate())
+        other = AssessmentProfileVersion.objects.create(
+            level_kind="lower_secondary",
+            effective_from=timezone.localdate() + DAY,
+            source="Circular 89/2026",
+            rules=old.rules,
+        )
+    for field, value in (
+        ("opened_by", w["t2"]),
+        ("term", w["hk2"]),
+        ("subject", w["pe"]),
+        ("profile_version", other),
+    ):
         with (
             pytest.raises(IntegrityError, match="gradebook_only_status_changes"),
             owner_role(),
@@ -356,6 +377,27 @@ def test_an_entry_in_flight_holds_its_gradebook_and_enrollment_against_changes(
         )
     second_conn.execute("ROLLBACK")
     app_conn.execute("ROLLBACK")
+
+
+def test_an_entry_is_never_dated_before_the_cells_latest_one(schools, w, raw_book, refused):
+    a, _ = schools
+    columns = raw_book["columns"]
+    first, other = columns["regular", 1], columns["regular", 2]
+    at = timezone.now()
+    with school_scope(a.pk):
+        entry(a, w, first, w["an"], value=Decimal("5"), entered_at=at)
+        # The same time is fine (the later id wins); so is an earlier one in another cell.
+        entry(a, w, first, w["an"], value=Decimal("6"), entered_at=at)
+        entry(a, w, other, w["an"], value=Decimal("4"), entered_at=at - DAY)
+        entry(a, w, first, w["bao"], value=Decimal("4"), entered_at=at - DAY)
+        entry(a, w, first, w["an"], value=Decimal("7"), entered_at=at + DAY)
+    refused(
+        "scoreentry_in_order",
+        a,
+        lambda: entry(a, w, first, w["an"], value=Decimal("9"), entered_at=at),
+    )
+    with school_scope(a.pk):
+        assert ScoreEntry.objects.filter(column=first, student=w["an"]).count() == 3
 
 
 def test_the_history_cannot_be_rewritten_or_deleted(schools, w, raw_book):
