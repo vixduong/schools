@@ -1,0 +1,36 @@
+# The same gate as the local pre-push hook (`make check`): backend lint and tests, frontend lint,
+# types, API contract and tests, then the smoke run. Docker and docker compose come with the runner.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.4.2 # the version that wrote frontend/pnpm-lock.yaml
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: make db-up # backend-check needs the compose database; `make` creates .env from .env.example
+      - run: make check
