@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react", "jsx-a11y"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    // Newer than the Biome rule set this replaced: React Compiler's checks (the screens read
+    // `Date` and refs during render and set state in effects on purpose) and two a11y style rules
+    // (`role="status"` on a div; the empty `<option>` of a select). Turn one on only with its fixes.
+    "react/purity": "off",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/control-has-associated-label": "off"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true
+  },
+  "ignorePatterns": [
+    "dist",
+    "src/routeTree.gen.ts",
+    "src/api/openapi.json",
+    "src/api/schema.d.ts",
+    "src/styles"
+  ]
+}

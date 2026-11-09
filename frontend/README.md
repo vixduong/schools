@@ -1,6 +1,6 @@
 # Frontend
 
-React SPA: Vite, TypeScript (strict), Tailwind v4, shadcn/ui, TanStack Router/Query/Form, Zod. Lint and format with Biome, tests with Vitest. Design rules: `../DESIGN.md`.
+React SPA: Vite, TypeScript (strict), Tailwind v4, shadcn/ui, TanStack Router/Query/Form, Zod. Lint with oxlint, format with oxfmt, tests with Vitest. Design rules: `../DESIGN.md`.
 
 From the repo root:
 

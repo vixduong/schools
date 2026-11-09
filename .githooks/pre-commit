@@ -7,5 +7,5 @@ if [ -n "$py" ]; then
   (cd backend && uv run ruff check --force-exclude $py && uv run ruff format --check --force-exclude $py)
 fi
 if git diff --cached --name-only --diff-filter=ACMR | grep -q '^frontend/'; then
-  pnpm --dir frontend exec biome check . && pnpm --dir frontend exec tsc -b
+  pnpm --dir frontend lint && pnpm --dir frontend typecheck
 fi

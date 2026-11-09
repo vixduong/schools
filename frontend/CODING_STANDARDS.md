@@ -1,6 +1,6 @@
 # Frontend coding standards (for review)
 
-Read during review, not implementation. Judgement calls no automated check covers; lint (Biome), types and the tests in `src/test/` already run in `make frontend-check`, and `make smoke` runs the app against the API. Rules came from the slice 8 review; `docs/slices/slice-8.md` holds the reasons. Design rules are `DESIGN.md`.
+Read during review, not implementation. Judgement calls no automated check covers; lint and format (oxlint, oxfmt), types and the tests in `src/test/` already run in `make frontend-check`, and `make smoke` runs the app against the API. Rules came from the slice 8 review; `docs/slices/slice-8.md` holds the reasons. Design rules are `DESIGN.md`.
 
 ## API and session
 
