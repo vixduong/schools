@@ -190,6 +190,26 @@ def test_a_status_is_a_known_one(schools, w, raw_book, refused):
     )
 
 
+def test_a_gradebook_is_inserted_as_a_draft_only(schools, w, raw_book, refused):
+    a, _ = schools
+    version = raw_book["book"].profile_version_id
+    for status in ("submitted", "approved"):  # a status skipping the lifecycle rules
+        refused(
+            "gradebook_starts_as_draft",
+            a,
+            lambda status=status: Gradebook.objects.create(
+                school=a,
+                school_year=w["year"],
+                term=w["hk1"],
+                subject=w["pe"],
+                school_class=w["7A"],
+                profile_version_id=version,
+                opened_by=w["t1"],
+                status=status,
+            ),
+        )
+
+
 # --- GradebookColumn -------------------------------------------------------------------------
 
 

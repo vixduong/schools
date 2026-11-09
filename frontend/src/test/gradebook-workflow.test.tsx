@@ -147,6 +147,42 @@ test("Duyệt asks first; a refusal for one's own submission has its words", asy
   expect(new URL(posts[0]?.url ?? "").pathname).toBe("/api/setup/gradebooks/7/approve/");
 });
 
+const DRF_DENIED = { detail: "You do not have permission to perform this action." };
+
+test.each([
+  ["a lost role", 403, DRF_DENIED, /không còn quyền/],
+  [
+    "a failed CSRF check",
+    403,
+    { detail: "CSRF Failed: CSRF token missing." },
+    /Không thực hiện được/,
+  ],
+  ["a concurrent enrolment", 400, { constraint: ["gradebook_incomplete"] }, /vừa đổi trạng thái/],
+])("Duyệt refused for %s says it in words", async (_name, status, body, words) => {
+  await openBook({ status: "submitted", can: ["approve"] }, () => ({ status, body }));
+  fireEvent.click(await screen.findByRole("button", { name: "Duyệt" }));
+  const dialog = await screen.findByRole("dialog", { name: "Duyệt sổ điểm?" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Duyệt" }));
+  const alert = await within(dialog).findByRole("alert");
+  expect(alert).toHaveTextContent(words);
+  expect(alert).not.toHaveTextContent("liên hệ nhà trường");
+});
+
+test("a reason over 500 characters is told so, not asked for again", async () => {
+  await openBook({ status: "submitted", can: ["approve", "return"] }, () => ({
+    status: 400,
+    body: { comment: ["too_long"] },
+  }));
+  fireEvent.click(await screen.findByRole("button", { name: "Trả lại" }));
+  const dialog = await screen.findByRole("dialog", { name: "Trả lại sổ điểm?" });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Lý do trả lại" }), {
+    target: { value: "x" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Trả lại" }));
+  expect(await within(dialog).findByText(/tối đa 500 ký tự/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/Cần ghi lý do/)).not.toBeInTheDocument();
+});
+
 test("Trả lại needs a comment, and sends it", async () => {
   const posts = await openBook({ status: "submitted", can: ["approve", "return"] });
   fireEvent.click(await screen.findByRole("button", { name: "Trả lại" }));

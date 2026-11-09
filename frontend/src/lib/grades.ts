@@ -70,21 +70,30 @@ export const STEP_LABEL: Record<StepAction, string> = {
 
 const STALE = "Sổ điểm vừa đổi trạng thái. Tải lại trang để xem.";
 const OWN_SUBMISSION = "Bạn đã nộp sổ này nên không tự duyệt hoặc trả lại được. Nhờ người khác.";
+const DRF_DENIED = "You do not have permission to perform this action.";
 const NO_RIGHT = "Bạn không còn quyền với bước này. Tải lại trang để xem.";
 const NEEDS_TEXT = "Cần ghi lý do.";
+const TOO_LONG = "Lý do tối đa 500 ký tự.";
 const RULE = "Sổ điểm không đổi được vì một quy định của hệ thống. Hãy liên hệ nhà trường.";
 
 /** A refused step in Vietnamese; a missing comment or reason comes back as a field of the body. */
 export function stepFailure(status: number, body: unknown, generic: string): Error {
-  if (status === 403) return new FormFailure(NO_RIGHT, {});
+  // The role refusal is DRF's own 403; any other (a failed CSRF check) is not about the role.
+  if (status === 403) {
+    const detail = (body as { detail?: string } | undefined)?.detail;
+    return new FormFailure(detail === DRF_DENIED ? NO_RIGHT : generic, {});
+  }
   if (status !== 400) return refusal(status, body, generic);
   const refused = body as
     | { status?: string[]; comment?: string[]; reason?: string[]; constraint?: string[] }
     | undefined;
   if (refused?.status?.includes("own_submission")) return new FormFailure(OWN_SUBMISSION, {});
   if (refused?.status?.length) return new FormFailure(STALE, {});
-  if (refused?.comment?.length || refused?.reason?.length)
-    return new FormFailure(undefined, { text: NEEDS_TEXT });
+  const text = [...(refused?.comment ?? []), ...(refused?.reason ?? [])];
+  if (text.length)
+    return new FormFailure(undefined, { text: text.includes("too_long") ? TOO_LONG : NEEDS_TEXT });
+  // A student enrolled meanwhile: the book changed under the reviewer, as for a status change.
+  if (refused?.constraint?.includes("gradebook_incomplete")) return new FormFailure(STALE, {});
   if (refused?.constraint?.length) return new FormFailure(RULE, {});
   return new FormFailure(generic, {});
 }

@@ -3042,8 +3042,8 @@ export interface components {
             comment: string;
         };
         /**
-         * @description The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty
-         *     cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
+         * @description The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit or approve:
+         *     each empty cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
          *     `constraint` (a rule only the database holds).
          */
         StepRefused: {

@@ -1,4 +1,12 @@
-import { cleanup, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  configure,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { DRAFT_LIFETIME_MS, draftKey, readDraft } from "@/lib/drafts";
 import { ME, type Reply, renderApp } from "./render-app";
 
@@ -561,6 +569,30 @@ test("leaving the page with unsaved cells asks first, naming how many", async ()
   confirm.mockReturnValue(true);
   history.push("/gradebook");
   await waitFor(() => expect(history.location.pathname).toBe("/gradebook"));
+});
+
+test("typed cells are dropped, with the leave-page prompt, when the gradebook locks meanwhile; the local draft stays", async () => {
+  const confirm = vi.fn((_message: string) => false);
+  vi.stubGlobal("confirm", confirm);
+  const detail: Record<string, unknown> = {};
+  const { history, queryClient } = await renderApp(
+    "/gradebook/7",
+    gradebookApi([], undefined, detail),
+  );
+  fireEvent.change(await cell("An, TX1"), { target: { value: "7" } });
+  // A co-teacher submits the book: the refetch shows it submitted.
+  Object.assign(detail, { status: "submitted" });
+  await queryClient.invalidateQueries({ queryKey: ["gradebook", 7] });
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Lưu" })).not.toBeInTheDocument(),
+  );
+  await act(async () => {}); // the effect that clears the edits, and the blocker it releases
+  history.push("/gradebook");
+  await waitFor(() => expect(history.location.pathname).toBe("/gradebook"));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(readDraft(draftKey(ME.account.id, 7))).toEqual({
+    [AN_TX1]: { text: "7", expected: null },
+  });
 });
 
 test("Dùng số đang có drops the typed number and shows the one the server has", async () => {

@@ -457,7 +457,9 @@ class GradebookStepView(GradebookMixin, GenericAPIView):
                 submit = steps.filter(action=GradebookStep.Action.SUBMIT).last()
                 if submit and submit.by_id == request.membership.pk:
                     raise ValidationError({"status": ["own_submission"]})
-            if self.step == GradebookStep.Action.SUBMIT and (
+            # An approve too: a student may have joined since the submit, and the reviewer then
+            # returns the book rather than releasing a column that cannot be released.
+            if self.step in (GradebookStep.Action.SUBMIT, GradebookStep.Action.APPROVE) and (
                 missing := empty_cells(gradebook, today)
             ):
                 return Response({"cells": missing}, status=status.HTTP_400_BAD_REQUEST)

@@ -147,6 +147,12 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const names = useMemo(() => new Map(book.students.map((s) => [s.id, s.name])), [book]);
   const labels = useMemo(() => new Map(book.columns.map((c) => [c.id, columnLabel(c)])), [book]);
 
+  // Locked meanwhile (another tab or a co-teacher submitted): the typed cells cannot be saved, and
+  // the leave-page prompt must not hold them; the stored draft stays.
+  useEffect(() => {
+    if (!editable) setEdits((current) => (Object.keys(current).length ? {} : current));
+  }, [editable]);
+
   const dirty = Object.keys(edits).length;
   const failed = Object.keys(problems).length;
 

@@ -9,7 +9,10 @@ from django.db import connections
 
 from audit.models import AuditEvent
 from grades.models import GradebookColumn, GradebookStep, ScoreEntry
+from schools.models import Student
+from schools.tests.factories import make_student
 from tenancy.rls import school_scope
+from testing import enroll
 
 TEACHER, GROUP_LEADER, BOSS, BOARD = (
     "t1@example.com",
@@ -245,6 +248,25 @@ def test_approving_releases_the_columns_still_unreleased_in_the_approvers_name(
     with school_scope(schools[0].pk):  # every release is later than every score
         latest = ScoreEntry.objects.latest("entered_at").entered_at
         assert min(times) >= latest
+
+
+def test_approve_names_the_empty_cells_of_a_student_who_joined_after_the_submit(
+    schools, w, submitted, step, reviewers, columns
+):
+    with school_scope(schools[0].pk):
+        enroll(schools[0], make_student(schools[0], "Hoa"), w["7A"])
+        hoa = Student.objects.get(full_name="Hoa").pk
+    response = step(GROUP_LEADER, submitted, "approve")
+    assert response.status_code == 400
+    assert response.json() == {
+        "cells": [
+            {"column": column, "student": hoa, "code": "incomplete"}
+            for column in columns(submitted).values()
+        ]
+    }
+    with school_scope(schools[0].pk):  # nothing approved, nothing released
+        assert [s.action for s in GradebookStep.objects.all()] == ["submit"]
+        assert not GradebookColumn.objects.filter(released_at__isnull=False).exists()
 
 
 def test_reopening_needs_the_duty_and_a_reason_and_edits_after_it_are_logged(

@@ -239,8 +239,8 @@ class EmptyCellSerializer(serializers.Serializer):
 
 
 class StepRefusedSerializer(serializers.Serializer):
-    """The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty
-    cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
+    """The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit or approve:
+    each empty cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
     `constraint` (a rule only the database holds)."""
 
     status = serializers.ListField(child=serializers.CharField(), required=False)

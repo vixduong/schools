@@ -8508,7 +8508,7 @@
             },
             "StepRefused": {
                 "type": "object",
-                "description": "The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty\ncell of a student still in the class), `comment` / `reason` (`required`, `too_long`),\n`constraint` (a rule only the database holds).",
+                "description": "The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit or approve:\neach empty cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),\n`constraint` (a rule only the database holds).",
                 "properties": {
                     "status": {
                         "type": "array",
