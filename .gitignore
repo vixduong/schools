@@ -5,6 +5,7 @@ node_modules/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.codebase-memory
 # Scratch space: only the planning map is versioned (review diffs come from `make review-diff`).
 .scratch/*
 !.scratch/school-platform/
