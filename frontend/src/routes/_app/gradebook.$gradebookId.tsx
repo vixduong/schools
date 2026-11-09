@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { gradebookQuery } from "@/api/grades";
 import { GradebookGrid } from "@/components/gradebook-grid";
+import { LifecycleChips } from "@/components/gradebook-steps";
 
 export const Route = createFileRoute("/_app/gradebook/$gradebookId")({ component: Screen });
 
@@ -17,13 +18,7 @@ function Screen() {
       </p>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
         <h1 className="font-serif text-4xl font-light">Sổ điểm</h1>
-        {book.data && (
-          // The lifecycle shows its first state only until the workflow arrives.
-          <span className="rounded-full border-[1.5px] border-foreground bg-foreground px-3 py-0.5 text-sm text-background">
-            <span className="sr-only">Trạng thái: </span>
-            Đang nhập
-          </span>
-        )}
+        {book.data && <LifecycleChips status={book.data.status} />}
       </div>
       {book.isPending && <p className="italic text-ink-3">Đang tải sổ điểm…</p>}
       {book.isError && !book.data && (

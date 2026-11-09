@@ -1,4 +1,5 @@
-import type { CellError, GradebookColumn } from "@/api/grades";
+import type { CellError, GradebookColumn, GradebookDetail, StepAction } from "@/api/grades";
+import { FormFailure, refusal } from "@/lib/messages";
 
 /** TX1…TXn for the regular columns, GK for mid-term, CK for end-term. */
 export function columnLabel(column: Pick<GradebookColumn, "kind" | "index">): string {
@@ -40,6 +41,8 @@ export const CELL_ERROR: Record<CellError["code"], string> = {
   not_enrolled: "Học sinh không còn trong lớp.",
 };
 
+export const INCOMPLETE = "Chưa có điểm";
+
 export const NOT_A_NUMBER = "Chưa phải số điểm.";
 
 /** "2026-11-04T15:40:00Z" as "22:40 04/11/2026" in the browser's zone. */
@@ -47,4 +50,41 @@ export function stamp(iso: string): string {
   const at = new Date(iso);
   const time = at.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
   return `${time} ${at.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+}
+
+/** The three states of a gradebook, in lifecycle order (DESIGN.md, Gradebook grid). */
+export const LIFECYCLE: { status: GradebookDetail["status"]; label: string }[] = [
+  { status: "draft", label: "Đang nhập" },
+  { status: "submitted", label: "Chờ duyệt" },
+  { status: "approved", label: "Đã khoá" },
+];
+
+/** A step as the list under the grid words it. */
+export const STEP_LABEL: Record<StepAction, string> = {
+  submit: "Đã nộp",
+  withdraw: "Đã rút lại",
+  return: "Trả lại",
+  approve: "Đã duyệt",
+  reopen: "Mở lại",
+};
+
+const STALE = "Sổ điểm vừa đổi trạng thái. Tải lại trang để xem.";
+const OWN_SUBMISSION = "Bạn đã nộp sổ này nên không tự duyệt hoặc trả lại được. Nhờ người khác.";
+const NO_RIGHT = "Bạn không còn quyền với bước này. Tải lại trang để xem.";
+const NEEDS_TEXT = "Cần ghi lý do.";
+const RULE = "Sổ điểm không đổi được vì một quy định của hệ thống. Hãy liên hệ nhà trường.";
+
+/** A refused step in Vietnamese; a missing comment or reason comes back as a field of the body. */
+export function stepFailure(status: number, body: unknown, generic: string): Error {
+  if (status === 403) return new FormFailure(NO_RIGHT, {});
+  if (status !== 400) return refusal(status, body, generic);
+  const refused = body as
+    | { status?: string[]; comment?: string[]; reason?: string[]; constraint?: string[] }
+    | undefined;
+  if (refused?.status?.includes("own_submission")) return new FormFailure(OWN_SUBMISSION, {});
+  if (refused?.status?.length) return new FormFailure(STALE, {});
+  if (refused?.comment?.length || refused?.reason?.length)
+    return new FormFailure(undefined, { text: NEEDS_TEXT });
+  if (refused?.constraint?.length) return new FormFailure(RULE, {});
+  return new FormFailure(generic, {});
 }

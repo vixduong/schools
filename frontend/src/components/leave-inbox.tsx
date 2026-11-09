@@ -10,15 +10,12 @@ import { leaveActionFailure, leaveDays } from "@/lib/leave";
 
 const GENERIC = "Không xử lý được đơn. Đơn có thể đã được xử lý: tải lại trang để xem.";
 
-/** "Cần cô xử lý" on the teacher home: one pinned ticket per waiting leave request, with Duyệt
- * and Từ chối; Từ chối asks for the reason first. */
-export function LeaveInbox() {
+/** The leave part of "Cần cô xử lý" on the teacher home: one pinned ticket per waiting leave
+ * request, with Duyệt and Từ chối; Từ chối asks for the reason first. */
+export function LeaveTickets() {
   const waiting = useQuery(leaveRequestsQuery({ status: "waiting", to_decide: 1 }));
   return (
-    <aside aria-labelledby="inbox" className="grid content-start gap-4">
-      <h2 id="inbox" className="font-serif text-2xl font-light">
-        Cần cô xử lý
-      </h2>
+    <>
       {waiting.isPending && <p className="italic text-ink-3">Đang tải các đơn xin nghỉ…</p>}
       {waiting.isError && (
         <p role="alert" className="text-destructive">
@@ -31,7 +28,7 @@ export function LeaveInbox() {
       {waiting.data?.map((leave) => (
         <InboxTicket key={leave.id} leave={leave} />
       ))}
-    </aside>
+    </>
   );
 }
 

@@ -32,6 +32,9 @@ function DETAIL(over: Record<string, unknown> = {}) {
     opened_at: "2026-11-04T08:00:00+07:00",
     profile_source: "Circular 22/2021/TT-BGDĐT",
     can_enter: true,
+    steps: [],
+    return_comment: null,
+    can: [],
     columns: COLUMNS,
     students: [
       { id: 11, name: "An", in_class: true, cells: [] },
@@ -335,7 +338,9 @@ test("a cell's history opens in a popover, oldest first", async () => {
   });
   fireEvent.click(await screen.findByRole("button", { name: "Lịch sử Bảo, TX1" }));
   await screen.findByText(/Cô Lan/);
-  const items = within(await screen.findByRole("list")).getAllByRole("listitem");
+  const items = within(await screen.findByRole("list", { name: "Các lần nhập" })).getAllByRole(
+    "listitem",
+  );
   expect(items[0]).toHaveTextContent("6");
   expect(items[0]).toHaveTextContent("Cô Lan");
   expect(items[1]).toHaveTextContent("6,5");

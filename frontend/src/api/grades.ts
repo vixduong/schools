@@ -15,6 +15,10 @@ export type HistoryEntry = components["schemas"]["HistoryEntry"];
 export type SubjectLoad = components["schemas"]["SubjectLoad"];
 export type Term = components["schemas"]["Term"];
 export type Grade = components["schemas"]["Grade"];
+export type GradebookStep = components["schemas"]["Step"];
+export type StepAction = components["schemas"]["GradebookStepActionEnum"];
+export type EmptyCell = components["schemas"]["EmptyCell"];
+export type ReviewItem = components["schemas"]["ReviewItem"];
 
 export const GRADEBOOK_KEY = ["gradebook"] as const;
 
@@ -22,6 +26,13 @@ export const GRADEBOOK_KEY = ["gradebook"] as const;
 export const myGradebooksQuery = queryOptions({
   queryKey: [...GRADEBOOK_KEY, "mine"],
   queryFn: () => ok(api.GET("/api/setup/gradebooks/mine/"), "my gradebooks"),
+});
+
+/** The submitted gradebooks this member may review, newest submit first. */
+export const gradebooksToReviewQuery = queryOptions({
+  queryKey: [...GRADEBOOK_KEY, "to-review"],
+  queryFn: () =>
+    ok(api.GET("/api/setup/gradebooks/", { params: { query: { to_review: 1 } } }), "to review"),
 });
 
 export const gradebookQuery = (id: number) =>

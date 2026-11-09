@@ -8,6 +8,7 @@ import {
   type CellInput,
   type CurrentEntry,
   cellHistoryQuery,
+  type EmptyCell,
   GRADEBOOK_KEY,
   type GradebookCell,
   type GradebookColumn,
@@ -17,6 +18,7 @@ import {
 } from "@/api/grades";
 import { meQuery } from "@/api/queries";
 import { FormError } from "@/components/auth-page";
+import { ReturnNote, StepActions, StepList } from "@/components/gradebook-steps";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,6 +34,7 @@ import {
   CELL_ERROR,
   columnLabel,
   formatScore,
+  INCOMPLETE,
   NOT_A_NUMBER,
   type Parsed,
   parseScore,
@@ -46,7 +49,10 @@ const GENERIC =
   "Không lưu được điểm. Danh sách lớp có thể đã thay đổi: tải lại trang rồi lưu lại; các ô bạn nhập vẫn còn.";
 
 type Edit = DraftEdit;
-type Problem = { code: CellError["code"] | "invalid"; current?: CurrentEntry | null };
+type Problem = {
+  code: CellError["code"] | "invalid" | "incomplete";
+  current?: CurrentEntry | null;
+};
 
 const keyOf = (column: number, student: number) => `${column}:${student}`;
 
@@ -103,7 +109,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const queryClient = useQueryClient();
   const { data: me } = useSuspenseQuery(meQuery);
   const commentOnly = book.assessment === "comment_only";
-  const editable = book.can_enter;
+  const canEnter = book.can_enter;
+  // Only a draft takes entries; a submitted or approved one locks its cells.
+  const editable = canEnter && book.status === "draft";
   const draftId = draftKey(me.account.id, book.id);
 
   const [edits, setEdits] = useState<Record<string, Edit>>({});
@@ -263,6 +271,15 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
     save.mutate(edits);
   }
 
+  /** A refused submit named the empty cells: mark them and move to the first. */
+  function markIncomplete(cells: EmptyCell[]) {
+    setProblems(
+      Object.fromEntries(cells.map((c) => [keyOf(c.column, c.student), { code: "incomplete" }])),
+    );
+    const first = cells[0];
+    setRefusedFirst(first ? keyOf(first.column, first.student) : null);
+  }
+
   function focusAt(row: number, column: number, step: [number, number]) {
     const [dr, dc] = step;
     let r = row + dr;
@@ -338,6 +355,7 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
           </Button>
         </section>
       )}
+      <ReturnNote book={book} />
       {/* One scroll box in both directions: a sticky head and a pinned name column only work
           against the box that scrolls, so it is as tall as the window under the top bar. */}
       <div className="max-h-[calc(100dvh-8rem)] overflow-auto">
@@ -359,7 +377,7 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                   {column.released_at ? (
                     <span className="block text-xs font-normal italic text-ink-3">đã công bố</span>
                   ) : (
-                    editable && (
+                    canEnter && (
                       <Button
                         variant="quiet"
                         className="h-auto text-xs font-normal"
@@ -451,7 +469,11 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                       </div>
                       {problem && (
                         <p id={`err-${key}`} className="text-xs text-destructive">
-                          {problem.code === "invalid" ? NOT_A_NUMBER : CELL_ERROR[problem.code]}
+                          {problem.code === "invalid" && NOT_A_NUMBER}
+                          {problem.code === "incomplete" && INCOMPLETE}
+                          {problem.code !== "invalid" &&
+                            problem.code !== "incomplete" &&
+                            CELL_ERROR[problem.code]}
                           {problem.code === "conflict" && problem.current && (
                             <span className="block tabular-nums">
                               Hiện có: {currentText(problem.current, commentOnly)}
@@ -518,21 +540,25 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
         </ul>
       )}
       <FormError message={failure} />
-      {editable ? (
-        <div className="flex items-center gap-4">
-          <Button type="button" onClick={submit} disabled={save.isPending || dirty === 0}>
-            Lưu
-          </Button>
-          <p
-            role="status"
-            className={cn("text-sm italic", failed ? "text-destructive" : "text-ink-3")}
-          >
-            {status}
-          </p>
-        </div>
-      ) : (
-        <p className="italic text-ink-3">Bạn chỉ xem được sổ điểm này.</p>
-      )}
+      <div className="flex flex-wrap items-center gap-4">
+        {editable && (
+          <>
+            <Button type="button" onClick={submit} disabled={save.isPending || dirty === 0}>
+              Lưu
+            </Button>
+            <p
+              role="status"
+              className={cn("text-sm italic", failed ? "text-destructive" : "text-ink-3")}
+            >
+              {status}
+            </p>
+          </>
+        )}
+        <StepActions book={book} busy={dirty > 0 || save.isPending} onIncomplete={markIncomplete} />
+      </div>
+      {!canEnter && <p className="italic text-ink-3">Bạn chỉ xem được sổ điểm này.</p>}
+      {canEnter && !editable && <p className="italic text-ink-3">Các ô đang khoá.</p>}
+      <StepList steps={book.steps} />
       <ReleaseDialog book={book} column={releasing} onClose={() => setReleasing(null)} />
     </div>
   );
@@ -709,7 +735,7 @@ function HistoryList({
           Không tải được lịch sử.
         </p>
       )}
-      <ol className="grid gap-1">
+      <ol aria-label="Các lần nhập" className="grid gap-1">
         {history.data?.map((entry) => (
           <li key={entry.id} className="grid grid-cols-[3rem_1fr] gap-2">
             <span className="tabular-nums font-semibold">

@@ -3,7 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { meQuery } from "@/api/queries";
 import { myPeriodsQuery } from "@/api/timetable";
-import { LeaveInbox } from "@/components/leave-inbox";
+import { ReturnedTickets, ReviewTickets } from "@/components/gradebook-inbox";
+import { LeaveTickets } from "@/components/leave-inbox";
 import { TeacherBoard } from "@/components/teacher-board";
 import { Button } from "@/components/ui/button";
 import { resultLabel } from "@/lib/attendance";
@@ -30,13 +31,15 @@ function Screen() {
   const today = now.toLocaleDateString("sv"); // yyyy-mm-dd, local
   const decidesLeave = !!me.data && reach(me.data, "leave_request.approve") === "write";
   const entersScores = !!me.data && reach(me.data, "scores.enter") === "write";
+  const reviewsGradebooks = !!me.data && reach(me.data, "gradebook.review") !== undefined;
+  const hasInbox = decidesLeave || entersScores || reviewsGradebooks;
   const homerooms = me.data?.role_assignments.filter((r) => r.role === "homeroom_teacher") ?? [];
   return (
     <section>
       <h1 className="font-serif text-4xl font-light">Hôm nay</h1>
       <div
         className={cn(
-          decidesLeave && "mt-4 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]",
+          hasInbox && "mt-4 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]",
         )}
       >
         <div>
@@ -102,7 +105,16 @@ function Screen() {
             </p>
           ))}
         </div>
-        {decidesLeave && <LeaveInbox />}
+        {hasInbox && (
+          <aside aria-labelledby="inbox" className="grid content-start gap-4">
+            <h2 id="inbox" className="font-serif text-2xl font-light">
+              Cần cô xử lý
+            </h2>
+            {decidesLeave && <LeaveTickets />}
+            {entersScores && <ReturnedTickets />}
+            {reviewsGradebooks && <ReviewTickets />}
+          </aside>
+        )}
       </div>
       {entersScores && <TeacherBoard />}
     </section>
