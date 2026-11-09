@@ -19,10 +19,11 @@ from schools.models import (
     AssessmentProfileVersion,
     Enrollment,
     GuardianLink,
+    Subject,
     SubjectLoad,
     Term,
 )
-from schools.tests.factories import make_membership, make_student, make_subject
+from schools.tests.factories import make_group, make_membership, make_student, make_subject
 from tenancy.rls import school_scope
 from testing import A, enroll, make_account, member, owner_role, sign_in
 
@@ -40,8 +41,11 @@ def refused():
     """`refused("constraint_name", school, lambda: ...)`: the database refuses it by that name."""
 
     def check(constraint, school, make):
-        with pytest.raises(IntegrityError, match=constraint), school_scope(school.pk):
+        with pytest.raises(IntegrityError) as raised, school_scope(school.pk):
             make()
+        # The name the API reports (`database_rules`), not a word of the message: one trigger
+        # function may raise several rules.
+        assert raised.value.__cause__.diag.constraint_name == constraint
 
     return check
 
@@ -162,6 +166,49 @@ def client_of():
 def board_member(schools):
     member(schools[0], make_account("board@example.com", display_name="Board"), "principal_board")
     return "board@example.com"
+
+
+def lead(school, membership, group):
+    return RoleAssignment.objects.create(
+        school=school,
+        membership=membership,
+        role=RoleAssignment.Role.GROUP_LEADER,
+        subject_group=group,
+        valid_from=TODAY - 30 * DAY,
+    )
+
+
+@pytest.fixture
+def reviewers(schools, w):
+    """The workflow's other roles: `gl@example.com` leads MATH's subject group (reviews MATH),
+    `gl2@example.com` leads another group (reviews nothing here), `boss@example.com` is principal
+    board with `can_reopen_gradebooks`. `board_member` (no duty) reviews too but cannot reopen."""
+    a = schools[0]
+    gl, gl2, boss = (staff(a, f"{name}@example.com") for name in ("gl", "gl2", "boss"))
+    with school_scope(a.pk):
+        group = make_group(a, "Toán")
+        Subject.objects.filter(pk=w["math"].pk).update(subject_group=group)
+        lead(a, gl, group)
+        lead(a, gl2, make_group(a, "Văn"))
+        RoleAssignment.objects.create(
+            school=a,
+            membership=boss,
+            role=RoleAssignment.Role.PRINCIPAL_BOARD,
+            can_reopen_gradebooks=True,
+            valid_from=TODAY - 30 * DAY,
+        )
+    return {"group": group, "gl": gl, "boss": boss}
+
+
+@pytest.fixture
+def lead_math(schools, reviewers):
+    """`lead_math(membership)`: that member also leads MATH's subject group."""
+
+    def make(membership):
+        with school_scope(schools[0].pk):
+            lead(schools[0], membership, reviewers["group"])
+
+    return make
 
 
 @pytest.fixture

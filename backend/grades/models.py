@@ -9,12 +9,16 @@ class Gradebook(TenantModel):
     """One subject's scores for one class in one term (Circular 22/2021, Lower and Upper
     Secondary). Opened once per (term, subject, class) with its columns, under the assessment
     profile version in force on the school year's first day; nothing but `status` changes
-    afterwards (trigger `gradebook_only_status_changes`). Slice 4 leaves every gradebook `draft`.
+    afterwards (trigger `gradebook_only_status_changes`). The status follows the gradebook's steps
+    (`GradebookStep`, triggers `gradebookstep_applies` and `gradebook_lifecycle`): a bare write of
+    it is refused.
     The term and the class belong to `school_year` (composite foreign keys); the class's Level is
     Lower or Upper Secondary (trigger `gradebook_secondary_level`). Opening is audited."""
 
     class Status(models.TextChoices):
         DRAFT = "draft"
+        SUBMITTED = "submitted"
+        APPROVED = "approved"
 
     school_year = models.ForeignKey(
         "schools.SchoolYear", on_delete=models.PROTECT, db_constraint=False
@@ -44,7 +48,8 @@ class Gradebook(TenantModel):
                 name="gradebook_once_per_term_subject_class",
             ),
             models.CheckConstraint(
-                condition=Q(status__in=["draft"]), name="gradebook_status_is_known"
+                condition=Q(status__in=["draft", "submitted", "approved"]),
+                name="gradebook_status_is_known",
             ),
         ]
 
@@ -138,3 +143,48 @@ class ScoreEntry(TenantModel):
 
     def __str__(self):
         return f"{self.column_id}/{self.student_id}: {self.value or self.result}"
+
+
+class GradebookStep(TenantModel):
+    """One step of a gradebook's workflow. Append-only: the app role has INSERT and SELECT only.
+    The step drives the status (trigger `gradebookstep_applies`); the status follows only a step
+    (trigger `gradebook_lifecycle`, which also holds `gradebook_incomplete`,
+    `gradebook_unreleased_columns` and `gradebook_own_submission`). `return` and `reopen` carry a
+    comment (the reason of a reopen), the others none (`gradebookstep_comment_when_needed`). The
+    comment is hidden from the audit log: the School admin reads it and must not read a reason
+    about scores."""
+
+    class Action(models.TextChoices):
+        SUBMIT = "submit"
+        WITHDRAW = "withdraw"
+        RETURN = "return"
+        APPROVE = "approve"
+        REOPEN = "reopen"
+
+    gradebook = models.ForeignKey(Gradebook, on_delete=models.PROTECT, db_constraint=False)
+    action = models.CharField(max_length=10, choices=Action)
+    by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    # now(), the transaction's start (see `Gradebook.opened_at`): `gradebook_lifecycle` looks for
+    # the step of the transaction that changes the status.
+    at = models.DateTimeField(db_default=Func(function="now", output_field=models.DateTimeField()))
+    comment = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="gradebookstep_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(action__in=["submit", "withdraw", "return", "approve", "reopen"]),
+                name="gradebookstep_action_is_known",
+            ),
+            models.CheckConstraint(
+                condition=(Q(action__in=["return", "reopen"]) & ~Q(comment__regex=r"^\s*$"))
+                | (Q(action__in=["submit", "withdraw", "approve"]) & Q(comment="")),
+                name="gradebookstep_comment_when_needed",
+            ),
+        ]
+        indexes = [models.Index(fields=["school", "gradebook", "id"], name="gradebookstep_book")]
+
+    def __str__(self):
+        return f"{self.gradebook_id}: {self.action}"

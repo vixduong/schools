@@ -9,7 +9,8 @@ import pytest
 from django.db import DataError, IntegrityError, ProgrammingError, connection
 from django.utils import timezone
 
-from grades.models import Gradebook, GradebookColumn, ScoreEntry
+from audit.models import AuditEvent
+from grades.models import Gradebook, GradebookColumn, GradebookStep, ScoreEntry
 from schools.models import (
     AssessmentProfileVersion,
     Enrollment,
@@ -47,6 +48,32 @@ def hold_book(a, w, **fields):
         profile_version_id=fields.pop("profile_version_id"),
         opened_by=w["t1"],
     )
+
+
+def step(a, w, book, action, by="t1", comment="", **fields):
+    return GradebookStep.objects.create(
+        school=a, gradebook=book, action=action, by=w[by], comment=comment, **fields
+    )
+
+
+def status_of(a, book):
+    with school_scope(a.pk):
+        return Gradebook.objects.get(pk=book.pk).status
+
+
+def fill(a, w, columns, students=("an", "bao", "eve")):
+    """A score in every column for these students (the ones in 7A today)."""
+    with school_scope(a.pk):
+        for column in columns.values():
+            for student in students:
+                entry(a, w, column, w[student], value=Decimal("7"))
+
+
+def release_all(a, w, columns):
+    with school_scope(a.pk):
+        GradebookColumn.objects.filter(pk__in=[c.pk for c in columns.values()]).update(
+            released_at=timezone.now(), released_by=w["t1"]
+        )
 
 
 # --- Gradebook -------------------------------------------------------------------------------
@@ -118,9 +145,8 @@ def test_only_the_status_of_a_gradebook_changes_and_none_is_deleted(schools, w, 
             change(Gradebook.objects.filter(pk=book.pk))
     with pytest.raises(ProgrammingError, match="permission denied"), school_scope(a.pk):
         run("DELETE FROM grades_gradebook")
-    with school_scope(a.pk):
-        assert Gradebook.objects.filter(pk=book.pk).update(status="draft") == 1
-    # ... and a trigger holds it against any role: the profile version above all.
+    # ... and a trigger holds it against any role: the profile version above all. (The status
+    # itself follows a step only: `gradebook_lifecycle`, below.)
     old = book.profile_version
     with owner_role():
         AssessmentProfileVersion.objects.filter(pk=old.pk).update(effective_to=timezone.localdate())
@@ -146,8 +172,22 @@ def test_only_the_status_of_a_gradebook_changes_and_none_is_deleted(schools, w, 
 
 def test_a_status_is_a_known_one(schools, w, raw_book, refused):
     a, _ = schools
-    with pytest.raises(IntegrityError, match="gradebook_status_is_known"), school_scope(a.pk):
-        Gradebook.objects.filter(pk=raw_book["book"].pk).update(status="locked")
+    version = raw_book["book"].profile_version_id
+    # Made unknown on insert: an update of the status meets `gradebook_lifecycle` first.
+    refused(
+        "gradebook_status_is_known",
+        a,
+        lambda: Gradebook.objects.create(
+            school=a,
+            school_year=w["year"],
+            term=w["hk2"],
+            subject=w["math"],
+            school_class=w["7A"],
+            profile_version_id=version,
+            opened_by=w["t1"],
+            status="locked",
+        ),
+    )
 
 
 # --- GradebookColumn -------------------------------------------------------------------------
@@ -416,22 +456,222 @@ def test_the_history_cannot_be_rewritten_or_deleted(schools, w, raw_book):
         assert ScoreEntry.objects.get(pk=saved.pk).value == Decimal("7")
 
 
-def test_an_entry_needs_a_draft_gradebook(schools, w, raw_book):
-    """Slice 5 adds the other statuses; until then the check on `status` is lifted inside a
-    rolled-back transaction to show the trigger refuses an entry for a gradebook that is not one."""
+def test_an_entry_needs_a_draft_gradebook(schools, w, raw_book, refused):
     a, _ = schools
-    column, book = raw_book["columns"]["regular", 1], raw_book["book"]
+    columns = raw_book["columns"]
+    fill(a, w, columns)
+    with school_scope(a.pk):
+        step(a, w, raw_book["book"], "submit")
+    refused(
+        "scoreentry_gradebook_open",
+        a,
+        lambda: entry(a, w, columns["regular", 1], w["an"], value=Decimal("9")),
+    )
+    with school_scope(a.pk):
+        step(a, w, raw_book["book"], "withdraw")
+        entry(a, w, columns["regular", 1], w["an"], value=Decimal("9"))
+
+
+# --- GradebookStep ---------------------------------------------------------------------------
+
+
+def test_the_steps_drive_the_status_through_the_whole_cycle(schools, w, raw_book):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    cycle = [
+        ("submit", "t1", "", "submitted"),
+        ("withdraw", "t1", "", "draft"),
+        ("submit", "t1", "", "submitted"),
+        ("return", "t2", "column 2 is wrong", "draft"),
+        ("submit", "t1", "", "submitted"),
+        ("approve", "t2", "", "approved"),
+        ("reopen", "t3", "a typo", "draft"),
+    ]
+    for action, by, comment, expected in cycle:
+        if action == "approve":
+            release_all(a, w, columns)
+        with school_scope(a.pk):
+            step(a, w, book, action, by, comment)
+        assert status_of(a, book) == expected, action
+    with school_scope(a.pk):
+        steps = GradebookStep.objects.filter(gradebook=book).order_by("id")
+        assert [s.action for s in steps] == [c[0] for c in cycle]
+        assert all(s.at is not None for s in steps)
+
+
+def test_a_step_is_refused_unless_it_is_a_transition_from_the_status(schools, w, raw_book, refused):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    release_all(a, w, columns)
+    comment = {"return": "no", "reopen": "why"}
+
+    def refuse(*actions):
+        for action in actions:
+            refused(
+                "gradebook_lifecycle",
+                a,
+                lambda action=action: step(a, w, book, action, "t2", comment.get(action, "")),
+            )
+
+    def take(action, by="t2"):
+        with school_scope(a.pk):
+            step(a, w, book, action, by, comment.get(action, ""))
+
+    refuse("withdraw", "return", "approve", "reopen")  # from draft only a submit
+    take("submit", "t1")
+    refuse("submit", "reopen")  # from submitted: withdraw, return, approve
+    take("approve")
+    refuse("submit", "withdraw", "return", "approve")  # from approved only a reopen
+    take("reopen", "t3")
+    assert status_of(a, book) == "draft"
+
+
+def test_the_status_follows_only_a_step_of_the_same_transaction(schools, w, raw_book, refused):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    bare = lambda status: Gradebook.objects.filter(pk=book.pk).update(status=status)  # noqa: E731
+    # No step, any writer: the app role (which may update the status) and the owner.
+    for new in ("submitted", "approved", "draft"):
+        refused("gradebook_lifecycle", a, lambda new=new: bare(new))
     with (
-        pytest.raises(IntegrityError, match="scoreentry_gradebook_open"),
+        pytest.raises(IntegrityError, match="gradebook_lifecycle"),
         owner_role(),
         school_scope(a.pk),
     ):
-        with connection.cursor() as cursor:
-            cursor.execute("ALTER TABLE grades_gradebook DROP CONSTRAINT gradebook_status_is_known")
-            cursor.execute(
-                "UPDATE grades_gradebook SET status = 'submitted' WHERE id = %s", [book.pk]
-            )
-        entry(a, w, column, w["an"], value=Decimal("7"))
+        bare("submitted")
+    # A step of another action, or one made earlier, is no step for this change.
+    with pytest.raises(IntegrityError, match="gradebook_lifecycle"), school_scope(a.pk):
+        step(a, w, book, "submit")
+        bare("draft")
+    refused(
+        "gradebook_lifecycle",
+        a,
+        lambda: step(a, w, book, "submit", at=timezone.now() - DAY),
+    )
+    assert status_of(a, book) == "draft"
+
+
+def test_a_gradebook_is_submitted_only_with_a_score_in_every_column_for_every_student_in_class(
+    schools, w, raw_book, make_raw_book, refused
+):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    second = columns["regular", 2]
+    fill(a, w, {k: c for k, c in columns.items() if c != second})
+    with school_scope(a.pk):  # Bao and An have it, Eve has none (Dung left: not asked)
+        for student in ("an", "bao"):
+            entry(a, w, second, w[student], value=Decimal("5"))
+    refused("gradebook_incomplete", a, lambda: step(a, w, book, "submit"))
+    with school_scope(a.pk):  # a cleared cell is no score
+        entry(a, w, second, w["eve"], value=Decimal("5"))
+        entry(a, w, second, w["eve"])
+    refused("gradebook_incomplete", a, lambda: step(a, w, book, "submit"))
+    with school_scope(a.pk):
+        entry(a, w, second, w["eve"], value=Decimal("6"))
+        step(a, w, book, "submit")
+    # A comment-only subject needs a result, not a value.
+    comment_book = make_raw_book(subject=w["pe"])
+    with school_scope(a.pk):
+        for column in comment_book["columns"].values():
+            for student in ("an", "bao"):
+                entry(a, w, column, w[student], result="pass")
+    refused("gradebook_incomplete", a, lambda: step(a, w, comment_book["book"], "submit"))
+    with school_scope(a.pk):
+        for column in comment_book["columns"].values():
+            entry(a, w, column, w["eve"], result="fail")
+        step(a, w, comment_book["book"], "submit")
+
+
+def test_a_gradebook_is_approved_only_with_every_column_released(schools, w, raw_book, refused):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    with school_scope(a.pk):
+        step(a, w, book, "submit")
+        GradebookColumn.objects.filter(pk__in=[c.pk for c in columns.values()]).exclude(
+            pk=columns["end_term", 1].pk
+        ).update(released_at=timezone.now(), released_by=w["t1"])
+    refused("gradebook_unreleased_columns", a, lambda: step(a, w, book, "approve", "t2"))
+    with school_scope(a.pk):
+        GradebookColumn.objects.filter(pk=columns["end_term", 1].pk).update(
+            released_at=timezone.now(), released_by=w["t1"]
+        )
+        step(a, w, book, "approve", "t2")
+    assert status_of(a, book) == "approved"
+
+
+def test_nobody_returns_or_approves_the_gradebook_they_submitted(schools, w, raw_book, refused):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    release_all(a, w, columns)
+    with school_scope(a.pk):
+        step(a, w, book, "submit", "t1")
+    refused("gradebook_own_submission", a, lambda: step(a, w, book, "return", "t1", "no"))
+    refused("gradebook_own_submission", a, lambda: step(a, w, book, "approve", "t1"))
+    with school_scope(a.pk):  # the one who submitted may still take it back; another may return it
+        step(a, w, book, "withdraw", "t1")
+        step(a, w, book, "submit", "t3")
+        step(a, w, book, "return", "t1", "no")  # the latest submit is t3's
+        step(a, w, book, "submit", "t1")
+    refused("gradebook_own_submission", a, lambda: step(a, w, book, "approve", "t1"))
+
+
+def test_a_step_has_a_known_action_and_a_comment_exactly_when_it_returns_or_reopens(
+    schools, w, raw_book, refused
+):
+    a, _ = schools
+    book = raw_book["book"]
+    refused("gradebookstep_action_is_known", a, lambda: step(a, w, book, "cancel"))
+    for action, comment in (
+        ("return", ""),
+        ("return", "  \n"),
+        ("reopen", ""),
+        ("submit", "a note"),
+        ("withdraw", "a note"),
+        ("approve", "a note"),
+    ):
+        refused(
+            "gradebookstep_comment_when_needed",
+            a,
+            lambda action=action, comment=comment: step(a, w, book, action, "t2", comment),
+        )
+    with pytest.raises(DataError), school_scope(a.pk):
+        step(a, w, book, "return", "t2", "x" * 501)
+
+
+def test_a_step_is_never_changed_or_deleted(schools, w, raw_book):
+    a, _ = schools
+    fill(a, w, raw_book["columns"])
+    with school_scope(a.pk):
+        saved = step(a, w, raw_book["book"], "submit")
+    for change in (
+        lambda steps: steps.update(action="approve"),
+        lambda steps: steps.update(comment="x"),
+        lambda steps: steps.delete(),
+    ):
+        with pytest.raises(ProgrammingError, match="permission denied"), school_scope(a.pk):
+            change(GradebookStep.objects.filter(pk=saved.pk))
+
+
+def test_a_step_is_audited_without_its_comment(schools, w, raw_book):
+    a, _ = schools
+    book, columns = raw_book["book"], raw_book["columns"]
+    fill(a, w, columns)
+    with school_scope(a.pk):
+        step(a, w, book, "submit")
+        step(a, w, book, "return", "t2", "Bao's mid-term mark looks wrong")
+    with school_scope(a.pk):
+        events = list(AuditEvent.objects.filter(target_table="grades_gradebookstep"))
+        status_changes = AuditEvent.objects.filter(target_table="grades_gradebook", action="update")
+        assert [e.action for e in events] == ["insert", "insert"]
+        assert [e.details["action"] for e in events] == ["submit", "return"]
+        assert all("comment" not in e.details for e in events)
+        assert "mid-term" not in str(list(AuditEvent.objects.values_list("details", flat=True)))
+        assert status_changes.count() == 2  # the status update each step caused is logged too
 
 
 # --- SubjectLoad -----------------------------------------------------------------------------

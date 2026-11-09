@@ -2,7 +2,7 @@ from decimal import Decimal, DecimalException
 
 from django.db import connection, models
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import IntegerField
@@ -27,7 +27,7 @@ from schools.models import (
 from schools.views import database_rules
 
 from . import serializers
-from .models import Gradebook, GradebookColumn, ScoreEntry
+from .models import Gradebook, GradebookColumn, GradebookStep, ScoreEntry
 
 SECONDARY = (Level.Kind.LOWER_SECONDARY, Level.Kind.UPPER_SECONDARY)
 SCALE_MAX = Decimal(10)
@@ -42,6 +42,18 @@ COLUMN_ORDER = (
     ),
     "index",
 )
+
+
+# The five steps: (matrix action on the gradebook's subject x class, the status it starts from).
+STEPS = {
+    GradebookStep.Action.SUBMIT: ("scores.enter", Gradebook.Status.DRAFT),
+    GradebookStep.Action.WITHDRAW: ("scores.enter", Gradebook.Status.SUBMITTED),
+    GradebookStep.Action.RETURN: ("gradebook.review", Gradebook.Status.SUBMITTED),
+    GradebookStep.Action.APPROVE: ("gradebook.review", Gradebook.Status.SUBMITTED),
+    GradebookStep.Action.REOPEN: ("gradebook.reopen", Gradebook.Status.APPROVED),
+}
+# A reviewer never reviews the gradebook they submitted (`gradebook_own_submission`).
+REVIEWS = (GradebookStep.Action.RETURN, GradebookStep.Action.APPROVE)
 
 
 def pair_of(gradebook):
@@ -64,6 +76,13 @@ class CanUseGradebook(CanPermission):
     def has_permission(self, request, view):
         action = "scores.view" if request.method in SAFE_METHODS else "scores.enter"
         return Can(action, gradebook_pair)().has_permission(request, view)
+
+
+class CanTakeStep(CanPermission):
+    """A step by the matrix action it needs, on the gradebook's subject x class."""
+
+    def has_permission(self, request, view):
+        return Can(STEPS[view.step][0], gradebook_pair)().has_permission(request, view)
 
 
 class CanListOrOpen(CanPermission):
@@ -129,21 +148,32 @@ class GradebookMixin:
         return self.gradebook
 
     @staticmethod
-    def lock(gradebook):
-        """Saves, releases (and slice 5's submit) of one gradebook take turns; a score entry in
+    def lock(gradebook, states=(Gradebook.Status.DRAFT,), refusal=None):
+        """Saves, releases and the workflow's steps of one gradebook take turns; a score entry in
         flight holds it FOR SHARE (a trigger) and so conflicts with a lock taken this way.
-        Returns (today, clock) read once, after the lock: the School's day, the value
-        `scoreentry_student_in_class` uses (the transaction's `now()`), and the database clock, the
-        one source of every entry and release time, so those follow the order of the locks."""
+        Refuses (`refusal`, by default 400 `not_draft`) unless its status, read under the lock, is
+        one of `states`. Returns (today, clock) read once, after the lock: the School's day, the
+        value `scoreentry_student_in_class` uses (the transaction's `now()`), and the database
+        clock, the one source of every entry and release time, so those follow the order of the
+        locks."""
         Gradebook.objects.select_for_update(no_key=True).get(pk=gradebook.pk)
         gradebook.refresh_from_db(fields=["status"])
-        if gradebook.status != Gradebook.Status.DRAFT:
-            raise ValidationError({"gradebook": ["not_draft"]})
+        if gradebook.status not in states:
+            raise ValidationError(refusal or {"gradebook": ["not_draft"]})
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, clock_timestamp()"
             )
             return cursor.fetchone()
+
+
+def release_time(gradebook, clock):
+    """When a column is released: the database clock, never earlier than an entry of the
+    gradebook, so only a later entry is "after the release" (`changed_after_release`)."""
+    latest = ScoreEntry.objects.filter(column__gradebook=gradebook).aggregate(
+        latest=models.Max("entered_at")
+    )["latest"]
+    return max(clock, latest) if latest else clock
 
 
 def regular_columns(rules, subject, periods_per_year):
@@ -173,18 +203,50 @@ class GradebooksView(GradebookMixin, GenericAPIView):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(name, int, description=f"Only this {name}")
-            for name in ("term", "school_class", "subject")
+            *(
+                OpenApiParameter(name, int, description=f"Only this {name}")
+                for name in ("term", "school_class", "subject")
+            ),
+            OpenApiParameter(
+                "to_review",
+                int,
+                description="1: only the submitted gradebooks this member may review (not the "
+                "ones they submitted), newest submit first",
+            ),
         ],
-        responses=serializers.GradebookSerializer(many=True),
+        responses=serializers.ReviewItemSerializer(many=True),  # the plain list omits the extras
     )
     def get(self, request):
+        if request.query_params.get("to_review") == "1":
+            return Response(
+                serializers.ReviewItemSerializer(self.to_review(request), many=True).data
+            )
         books = Gradebook.objects.filter(visible_pairs(Actor.of(request), "scores.view"))
         for name in ("term", "school_class", "subject"):
             if name in request.query_params:
                 books = books.filter(**{f"{name}_id": int_param(request, name)})
         books = books.select_related("term", "subject", "school_class").order_by("-id")
         return Response(serializers.GradebookSerializer(books, many=True).data)
+
+    @staticmethod
+    def to_review(request):
+        submits = GradebookStep.objects.filter(
+            gradebook=models.OuterRef("pk"), action=GradebookStep.Action.SUBMIT
+        ).order_by("-id")
+        return (
+            Gradebook.objects.filter(
+                visible_pairs(Actor.of(request), "gradebook.review"),
+                status=Gradebook.Status.SUBMITTED,
+            )
+            .annotate(
+                submitted_by=models.Subquery(submits.values("by_id")[:1]),
+                submitted_by_name=models.Subquery(submits.values("by__account__display_name")[:1]),
+                submitted_at=models.Subquery(submits.values("at")[:1]),
+            )
+            .exclude(submitted_by=request.membership.pk)
+            .select_related("term", "subject", "school_class")
+            .order_by("-submitted_at", "-id")
+        )
 
     @extend_schema(
         request=serializers.OpenGradebookSerializer,
@@ -266,9 +328,25 @@ class GradebooksView(GradebookMixin, GenericAPIView):
         return gradebook
 
 
+def can_take(request, gradebook, steps):
+    """The steps this member may take now: the checks of the endpoints (matrix action, status, and
+    no review of one's own submission), not the completeness `submit` meets when taken."""
+    submitter = next(
+        (s.by_id for s in reversed(steps) if s.action == GradebookStep.Action.SUBMIT), None
+    )
+    actor = Actor.of(request)
+    return [
+        action
+        for action, (matrix, status_) in STEPS.items()
+        if gradebook.status == status_
+        and can(actor, matrix, pair_of(gradebook))
+        and not (action in REVIEWS and submitter == request.membership.pk)
+    ]
+
+
 def detail(request, gradebook):
     """The grid: header, columns, and a row per student enrolled in the class during the term with
-    each cell's current entry."""
+    each cell's current entry; the steps so far and the ones this member may take."""
     today = timezone.localdate()
     students, in_class = roster(gradebook, today)
     released = {
@@ -292,6 +370,20 @@ def detail(request, gradebook):
                 "changed_after_release": (entry.column_id, entry.student_id) in released,
             }
         )
+    steps = list(gradebook.gradebookstep_set.select_related("by__account").order_by("id"))
+    gradebook.steps = [
+        {
+            "action": step.action,
+            "by_name": step.by.account.display_name,
+            "at": step.at,
+            "comment": step.comment,
+        }
+        for step in steps
+    ]
+    gradebook.return_comment = (
+        steps[-1].comment if steps and steps[-1].action == GradebookStep.Action.RETURN else None
+    )
+    gradebook.can = can_take(request, gradebook, steps)
     gradebook.profile_source = gradebook.profile_version.source
     gradebook.can_enter = can(Actor.of(request), "scores.enter", pair_of(gradebook))
     gradebook.columns = gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
@@ -309,6 +401,107 @@ class GradebookView(GradebookMixin, GenericAPIView):
     @extend_schema(responses=serializers.GradebookDetailSerializer)
     def get(self, request, pk):
         return Response(detail(request, self.get_gradebook()))
+
+
+def empty_cells(gradebook, today):
+    """Every cell of a student still in the class that has no score (nothing, or a cleared cell),
+    column by column: what `gradebook_incomplete` would refuse a submit for."""
+    students, in_class = roster(gradebook, today)
+    scored = {
+        (entry.column_id, entry.student_id)
+        for entry in current_entries(gradebook)
+        if entry.value is not None or entry.result is not None
+    }
+    return [
+        {"column": column.pk, "student": student, "code": "incomplete"}
+        for column in gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
+        for student, _ in students
+        if student in in_class and (column.pk, student) not in scored
+    ]
+
+
+STEP_RESPONSES = {
+    200: serializers.GradebookDetailSerializer,
+    400: serializers.StepRefusedSerializer,
+}
+
+
+class GradebookStepView(GradebookMixin, GenericAPIView):
+    """One step of the workflow (the five subclasses below): the member's matrix action first
+    (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+    starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+    submit, a score in every cell (`cells`). The step is inserted and the database moves the
+    status (`gradebookstep_applies`); the API never writes `status`. Returns the detail."""
+
+    permission_classes = [HasMembership, CanTakeStep]
+    serializer_class = serializers.GradebookDetailSerializer
+    step: str
+    text_serializer: type | None = None  # the body: a return's comment, a reopen's reason
+
+    @extend_schema(request=None, responses=STEP_RESPONSES)
+    def post(self, request, pk):
+        gradebook = self.get_gradebook()
+        comment = ""
+        if self.text_serializer:
+            body = self.text_serializer(data=request.data)
+            body.is_valid(raise_exception=True)
+            (comment,) = body.validated_data.values()
+        with database_rules():
+            today, clock = self.lock(
+                gradebook,
+                states=(STEPS[self.step][1],),
+                refusal={"status": ["wrong_state"]},
+            )
+            steps = gradebook.gradebookstep_set.order_by("id")
+            if self.step in REVIEWS:
+                submit = steps.filter(action=GradebookStep.Action.SUBMIT).last()
+                if submit and submit.by_id == request.membership.pk:
+                    raise ValidationError({"status": ["own_submission"]})
+            if self.step == GradebookStep.Action.SUBMIT and (
+                missing := empty_cells(gradebook, today)
+            ):
+                return Response({"cells": missing}, status=status.HTTP_400_BAD_REQUEST)
+            if self.step == GradebookStep.Action.APPROVE:  # approval releases the rest
+                GradebookColumn.objects.filter(
+                    gradebook=gradebook, released_at__isnull=True
+                ).update(released_at=release_time(gradebook, clock), released_by=request.membership)
+            GradebookStep.objects.create(
+                school=request.school,
+                gradebook=gradebook,
+                action=self.step,
+                by=request.membership,
+                comment=comment,
+            )
+        gradebook.refresh_from_db(fields=["status"])
+        return Response(detail(request, gradebook))
+
+
+class SubmitView(GradebookStepView):
+    step = GradebookStep.Action.SUBMIT
+
+
+class WithdrawView(GradebookStepView):
+    step = GradebookStep.Action.WITHDRAW
+
+
+@extend_schema_view(
+    post=extend_schema(request=serializers.ReturnSerializer, responses=STEP_RESPONSES)
+)
+class ReturnView(GradebookStepView):
+    step = GradebookStep.Action.RETURN
+    text_serializer = serializers.ReturnSerializer
+
+
+class ApproveView(GradebookStepView):
+    step = GradebookStep.Action.APPROVE
+
+
+@extend_schema_view(
+    post=extend_schema(request=serializers.ReopenSerializer, responses=STEP_RESPONSES)
+)
+class ReopenView(GradebookStepView):
+    step = GradebookStep.Action.REOPEN
+    text_serializer = serializers.ReopenSerializer
 
 
 def judge(cell, assessment):
@@ -453,7 +646,10 @@ class ColumnReleaseView(GradebookMixin, GenericAPIView):
     def post(self, request, pk, column):
         gradebook = self.get_gradebook()
         with database_rules():
-            today, clock = self.lock(gradebook)
+            # Release stays open while the gradebook is submitted: it changes no score.
+            today, clock = self.lock(
+                gradebook, states=(Gradebook.Status.DRAFT, Gradebook.Status.SUBMITTED)
+            )
             students, in_class = roster(gradebook, today)
             released = GradebookColumn.objects.filter(gradebook=gradebook, pk=column).first()
             if released is None:
@@ -477,12 +673,7 @@ class ColumnReleaseView(GradebookMixin, GenericAPIView):
                     {"column": ["incomplete"], "students": missing},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # Never earlier than an entry of the gradebook, so only a later one is "after the
-            # release" (`changed_after_release`).
-            latest = ScoreEntry.objects.filter(column__gradebook=gradebook).aggregate(
-                latest=models.Max("entered_at")
-            )["latest"]
-            released.released_at = max(clock, latest) if latest else clock
+            released.released_at = release_time(gradebook, clock)
             released.released_by = request.membership
             released.save(update_fields=["released_at", "released_by"])
         return Response(serializers.ColumnSerializer(released).data)
@@ -544,9 +735,12 @@ class MyGradebooksView(GenericAPIView):
         terms = {}
         for term in Term.objects.filter(school_year__in=[k.school_year_id for k in classes]):
             terms.setdefault(term.school_year_id, []).append(term)
+        latest_step = GradebookStep.objects.filter(gradebook=models.OuterRef("pk")).order_by("-id")
         books = {
             (book.subject_id, book.school_class_id, book.term_id): book
-            for book in Gradebook.objects.filter(school_class__in=classes)
+            for book in Gradebook.objects.filter(school_class__in=classes).annotate(
+                latest_action=models.Subquery(latest_step.values("action")[:1])
+            )
         }
         data = [
             {
@@ -560,6 +754,8 @@ class MyGradebooksView(GenericAPIView):
                         "term_name": term.name,
                         "gradebook": book.pk if book else None,
                         "status": book.status if book else None,
+                        "returned": bool(book)
+                        and book.latest_action == GradebookStep.Action.RETURN,
                     }
                     for term in sorted(
                         terms.get(klass.school_year_id, []), key=lambda t: t.starts_on

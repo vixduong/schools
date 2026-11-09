@@ -490,6 +490,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/gradebooks/{id}/approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One step of the workflow (the five subclasses below): the member's matrix action first
+         *     (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+         *     starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+         *     submit, a score in every cell (`cells`). The step is inserted and the database moves the
+         *     status (`gradebookstep_applies`); the API never writes `status`. Returns the detail.
+         */
+        post: operations["setup_gradebooks_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/gradebooks/{id}/cells/": {
         parameters: {
             query?: never;
@@ -543,6 +566,98 @@ export interface paths {
         get: operations["setup_gradebooks_history_list"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One step of the workflow (the five subclasses below): the member's matrix action first
+         *     (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+         *     starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+         *     submit, a score in every cell (`cells`). The step is inserted and the database moves the
+         *     status (`gradebookstep_applies`); the API never writes `status`. Returns the detail.
+         */
+        post: operations["setup_gradebooks_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/return/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One step of the workflow (the five subclasses below): the member's matrix action first
+         *     (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+         *     starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+         *     submit, a score in every cell (`cells`). The step is inserted and the database moves the
+         *     status (`gradebookstep_applies`); the API never writes `status`. Returns the detail.
+         */
+        post: operations["setup_gradebooks_return_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/submit/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One step of the workflow (the five subclasses below): the member's matrix action first
+         *     (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+         *     starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+         *     submit, a score in every cell (`cells`). The step is inserted and the database moves the
+         *     status (`gradebookstep_applies`); the API never writes `status`. Returns the detail.
+         */
+        post: operations["setup_gradebooks_submit_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/withdraw/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description One step of the workflow (the five subclasses below): the member's matrix action first
+         *     (403), the comment or reason (400 `required`), then, with the gradebook locked, the status it
+         *     starts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a
+         *     submit, a score in every cell (`cells`). The step is inserted and the database moves the
+         *     status (`gradebookstep_applies`); the API never writes `status`. Returns the detail.
+         */
+        post: operations["setup_gradebooks_withdraw_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1971,9 +2086,18 @@ export interface components {
         CellError: {
             column: number;
             student: number;
-            code: components["schemas"]["CodeEnum"];
+            code: components["schemas"]["CellErrorCodeEnum"];
             current: components["schemas"]["CurrentEntry"] | null;
         };
+        /**
+         * @description * `conflict` - conflict
+         *     * `out_of_range` - out_of_range
+         *     * `too_many_decimals` - too_many_decimals
+         *     * `wrong_form` - wrong_form
+         *     * `not_enrolled` - not_enrolled
+         * @enum {string}
+         */
+        CellErrorCodeEnum: "conflict" | "out_of_range" | "too_many_decimals" | "wrong_form" | "not_enrolled";
         /**
          * @description One cell to save: a scored subject's `value`, a comment-only subject's `result`, neither
          *     to clear it. `expected` is the id of the cell's current entry as the client last saw it (null
@@ -1986,15 +2110,6 @@ export interface components {
             result?: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
             expected: number | null;
         };
-        /**
-         * @description * `conflict` - conflict
-         *     * `out_of_range` - out_of_range
-         *     * `too_many_decimals` - too_many_decimals
-         *     * `wrong_form` - wrong_form
-         *     * `not_enrolled` - not_enrolled
-         * @enum {string}
-         */
-        CodeEnum: "conflict" | "out_of_range" | "too_many_decimals" | "wrong_form" | "not_enrolled";
         Column: {
             readonly id: number;
             readonly kind: components["schemas"]["ColumnKindEnum"];
@@ -2028,6 +2143,16 @@ export interface components {
         DeclineLeaveRequest: {
             comment: string;
         };
+        EmptyCell: {
+            column: number;
+            student: number;
+            code: components["schemas"]["EmptyCellCodeEnum"];
+        };
+        /**
+         * @description * `incomplete` - incomplete
+         * @enum {string}
+         */
+        EmptyCellCodeEnum: "incomplete";
         /**
          * @description A student's period in a class. Student, year, start and `reason_started` never change;
          *     `valid_to` (with `reason_ended`) only ends the period, never clears it, and the only reason
@@ -2072,22 +2197,11 @@ export interface components {
             level: number;
             number: number;
         };
-        /** @description A gradebook in a list. */
-        Gradebook: {
-            readonly id: number;
-            readonly school_year: number;
-            readonly term: number;
-            term_name: string;
-            readonly subject: number;
-            subject_name: string;
-            readonly assessment: components["schemas"]["AssessmentEnum"];
-            readonly school_class: number;
-            class_name: string;
-            readonly status: components["schemas"]["GradebookStatusEnum"];
-            /** Format: date-time */
-            readonly opened_at: string;
-        };
-        /** @description The grid: header, columns, and a row per student enrolled in the class during the term. */
+        /**
+         * @description The grid: header, columns, and a row per student enrolled in the class during the term;
+         *     the workflow's `steps`, the `return_comment` of a draft whose latest step is a return, and
+         *     `can`, the steps this member may take now.
+         */
         GradebookDetail: {
             readonly id: number;
             readonly school_year: number;
@@ -2103,14 +2217,28 @@ export interface components {
             readonly opened_at: string;
             profile_source: string;
             can_enter: boolean;
+            steps: components["schemas"]["Step"][];
+            return_comment: string | null;
+            can: components["schemas"]["GradebookStepActionEnum"][];
             columns: components["schemas"]["Column"][];
             students: components["schemas"]["Row"][];
         };
         /**
          * @description * `draft` - Draft
+         *     * `submitted` - Submitted
+         *     * `approved` - Approved
          * @enum {string}
          */
-        GradebookStatusEnum: "draft";
+        GradebookStatusEnum: "draft" | "submitted" | "approved";
+        /**
+         * @description * `submit` - Submit
+         *     * `withdraw` - Withdraw
+         *     * `return` - Return
+         *     * `approve` - Approve
+         *     * `reopen` - Reopen
+         * @enum {string}
+         */
+        GradebookStepActionEnum: "submit" | "withdraw" | "return" | "approve" | "reopen";
         /**
          * @description A Guardian's link to a student. End it with `valid_to`; to link again later, create a new
          *     one. Never deleted. The relation can be corrected until the link has ended. A student's own
@@ -2370,6 +2498,7 @@ export interface components {
             term_name: string;
             gradebook: number | null;
             status: (components["schemas"]["GradebookStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            returned: boolean;
         };
         /** @enum {unknown} */
         NullEnum: null;
@@ -2665,6 +2794,10 @@ export interface components {
             gradebook?: string[];
             constraint?: string[];
         };
+        /** @description `POST gradebooks/{id}/reopen/`: the reason is kept as the step's comment. */
+        Reopen: {
+            reason: string;
+        };
         /**
          * @description `POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,
          *     inside the class's year). The class comes from the URL, not from the body.
@@ -2680,6 +2813,31 @@ export interface components {
          * @enum {string}
          */
         ResultEnum: "pass" | "fail";
+        /** @description `POST gradebooks/{id}/return/`. */
+        Return: {
+            comment: string;
+        };
+        /**
+         * @description A gradebook in the reviewer's queue (`?to_review=1`) with its latest submit. The plain list
+         *     leaves both fields out.
+         */
+        ReviewItem: {
+            readonly id: number;
+            readonly school_year: number;
+            readonly term: number;
+            term_name: string;
+            readonly subject: number;
+            subject_name: string;
+            readonly assessment: components["schemas"]["AssessmentEnum"];
+            readonly school_class: number;
+            class_name: string;
+            readonly status: components["schemas"]["GradebookStatusEnum"];
+            /** Format: date-time */
+            readonly opened_at: string;
+            submitted_by_name?: string;
+            /** Format: date-time */
+            submitted_at?: string;
+        };
         RoleAssignment: {
             readonly id: number;
             role: components["schemas"]["RoleEnum"];
@@ -2871,6 +3029,29 @@ export interface components {
             name: string;
             mark: components["schemas"]["Mark"] | null;
             leave: components["schemas"]["SheetLeave"] | null;
+        };
+        /**
+         * @description A step of the workflow, oldest first in the detail. `comment` is a return's comment or a
+         *     reopen's reason (blank for the other steps).
+         */
+        Step: {
+            action: components["schemas"]["GradebookStepActionEnum"];
+            by_name: string;
+            /** Format: date-time */
+            at: string;
+            comment: string;
+        };
+        /**
+         * @description The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty
+         *     cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
+         *     `constraint` (a rule only the database holds).
+         */
+        StepRefused: {
+            status?: string[];
+            cells?: components["schemas"]["EmptyCell"][];
+            comment?: string[];
+            reason?: string[];
+            constraint?: string[];
         };
         /**
          * @description `status` is the status today and `scheduled_change` the next change after today (or null),
@@ -3775,6 +3956,8 @@ export interface operations {
                 subject?: number;
                 /** @description Only this term */
                 term?: number;
+                /** @description 1: only the submitted gradebooks this member may review (not the ones they submitted), newest submit first */
+                to_review?: number;
             };
             header?: never;
             path?: never;
@@ -3787,7 +3970,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Gradebook"][];
+                    "application/json": components["schemas"]["ReviewItem"][];
                 };
             };
         };
@@ -3850,6 +4033,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepRefused"];
                 };
             };
         };
@@ -3939,6 +4151,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryEntry"][];
+                };
+            };
+        };
+    };
+    setup_gradebooks_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Reopen"];
+                "application/x-www-form-urlencoded": components["schemas"]["Reopen"];
+                "multipart/form-data": components["schemas"]["Reopen"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_return_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Return"];
+                "application/x-www-form-urlencoded": components["schemas"]["Return"];
+                "multipart/form-data": components["schemas"]["Return"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_submit_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_withdraw_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepRefused"];
                 };
             };
         };

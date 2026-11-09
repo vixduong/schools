@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from schools.models import SchoolClass, Subject, Term
 
-from .models import Gradebook, GradebookColumn, ScoreEntry
+from .models import Gradebook, GradebookColumn, GradebookStep, ScoreEntry
 
 MAX_CELLS_PER_SAVE = 2000
 
@@ -116,6 +116,18 @@ class GradebookSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ReviewItemSerializer(GradebookSerializer):
+    """A gradebook in the reviewer's queue (`?to_review=1`) with its latest submit. The plain list
+    leaves both fields out."""
+
+    submitted_by_name = serializers.CharField(required=False)
+    submitted_at = serializers.DateTimeField(required=False)
+
+    class Meta(GradebookSerializer.Meta):
+        fields = [*GradebookSerializer.Meta.fields, "submitted_by_name", "submitted_at"]
+        read_only_fields = fields
+
+
 class ColumnSerializer(serializers.ModelSerializer):
     class Meta:
         model = GradebookColumn
@@ -143,11 +155,26 @@ class RowSerializer(serializers.Serializer):
     cells = CellSerializer(many=True)
 
 
+class StepSerializer(serializers.Serializer):
+    """A step of the workflow, oldest first in the detail. `comment` is a return's comment or a
+    reopen's reason (blank for the other steps)."""
+
+    action = serializers.ChoiceField(choices=GradebookStep.Action.choices)
+    by_name = serializers.CharField()
+    at = serializers.DateTimeField()
+    comment = serializers.CharField(allow_blank=True)
+
+
 class GradebookDetailSerializer(GradebookSerializer):
-    """The grid: header, columns, and a row per student enrolled in the class during the term."""
+    """The grid: header, columns, and a row per student enrolled in the class during the term;
+    the workflow's `steps`, the `return_comment` of a draft whose latest step is a return, and
+    `can`, the steps this member may take now."""
 
     profile_source = serializers.CharField()
     can_enter = serializers.BooleanField()
+    steps = StepSerializer(many=True)
+    return_comment = serializers.CharField(allow_null=True)
+    can = serializers.ListField(child=serializers.ChoiceField(choices=GradebookStep.Action.choices))
     columns = ColumnSerializer(many=True)
     students = RowSerializer(many=True)
 
@@ -156,6 +183,9 @@ class GradebookDetailSerializer(GradebookSerializer):
             *GradebookSerializer.Meta.fields,
             "profile_source",
             "can_enter",
+            "steps",
+            "return_comment",
+            "can",
             "columns",
             "students",
         ]
@@ -174,6 +204,49 @@ class ReleaseRefusedSerializer(serializers.Serializer):
     column = serializers.ListField(child=serializers.CharField(), required=False)
     students = StudentNameSerializer(many=True, required=False)
     gradebook = serializers.ListField(child=serializers.CharField(), required=False)
+    constraint = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+def required_text(max_length=500):
+    """A comment or reason: absent, null or blank answers `required`."""
+    return serializers.CharField(
+        max_length=max_length,
+        error_messages={
+            "required": "required",
+            "null": "required",
+            "blank": "required",
+            "max_length": "too_long",
+        },
+    )
+
+
+class ReturnSerializer(serializers.Serializer):
+    """`POST gradebooks/{id}/return/`."""
+
+    comment = required_text()
+
+
+class ReopenSerializer(serializers.Serializer):
+    """`POST gradebooks/{id}/reopen/`: the reason is kept as the step's comment."""
+
+    reason = required_text()
+
+
+class EmptyCellSerializer(serializers.Serializer):
+    column = serializers.IntegerField()
+    student = serializers.IntegerField()
+    code = serializers.ChoiceField(choices=["incomplete"])
+
+
+class StepRefusedSerializer(serializers.Serializer):
+    """The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty
+    cell of a student still in the class), `comment` / `reason` (`required`, `too_long`),
+    `constraint` (a rule only the database holds)."""
+
+    status = serializers.ListField(child=serializers.CharField(), required=False)
+    cells = EmptyCellSerializer(many=True, required=False)
+    comment = serializers.ListField(child=serializers.CharField(), required=False)
+    reason = serializers.ListField(child=serializers.CharField(), required=False)
     constraint = serializers.ListField(child=serializers.CharField(), required=False)
 
 
@@ -203,6 +276,7 @@ class MyTermSerializer(serializers.Serializer):
     term_name = serializers.CharField()
     gradebook = serializers.IntegerField(allow_null=True)
     status = serializers.ChoiceField(choices=Gradebook.Status.choices, allow_null=True)
+    returned = serializers.BooleanField()  # the latest step is a return (a comment to answer)
 
 
 class MyPairSerializer(serializers.Serializer):

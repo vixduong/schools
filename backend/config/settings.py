@@ -121,6 +121,7 @@ SPECTACULAR_SETTINGS = {
         "ImportBatchKindEnum": "schools.models.ImportBatch.Kind",
         "AttendanceStatusEnum": "timetable.models.AttendanceMark.Status",
         "GradebookStatusEnum": "grades.models.Gradebook.Status",
+        "GradebookStepActionEnum": "grades.models.GradebookStep.Action",
     },
 }
 

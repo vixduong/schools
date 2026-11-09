@@ -1326,6 +1326,14 @@
                             "type": "integer"
                         },
                         "description": "Only this term"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to_review",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1: only the submitted gradebooks this member may review (not the ones they submitted), newest submit first"
                     }
                 ],
                 "tags": [
@@ -1343,7 +1351,7 @@
                                 "schema": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/Gradebook"
+                                        "$ref": "#/components/schemas/ReviewItem"
                                     }
                                 }
                             }
@@ -1445,6 +1453,52 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/approve/": {
+            "post": {
+                "operationId": "setup_gradebooks_approve_create",
+                "description": "One step of the workflow (the five subclasses below): the member's matrix action first\n(403), the comment or reason (400 `required`), then, with the gradebook locked, the status it\nstarts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a\nsubmit, a score in every cell (`cells`). The step is inserted and the database moves the\nstatus (`gradebookstep_applies`); the API never writes `status`. Returns the detail.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StepRefused"
                                 }
                             }
                         },
@@ -1620,6 +1674,230 @@
                                     "items": {
                                         "$ref": "#/components/schemas/HistoryEntry"
                                     }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/reopen/": {
+            "post": {
+                "operationId": "setup_gradebooks_reopen_create",
+                "description": "One step of the workflow (the five subclasses below): the member's matrix action first\n(403), the comment or reason (400 `required`), then, with the gradebook locked, the status it\nstarts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a\nsubmit, a score in every cell (`cells`). The step is inserted and the database moves the\nstatus (`gradebookstep_applies`); the API never writes `status`. Returns the detail.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Reopen"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Reopen"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Reopen"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StepRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/return/": {
+            "post": {
+                "operationId": "setup_gradebooks_return_create",
+                "description": "One step of the workflow (the five subclasses below): the member's matrix action first\n(403), the comment or reason (400 `required`), then, with the gradebook locked, the status it\nstarts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a\nsubmit, a score in every cell (`cells`). The step is inserted and the database moves the\nstatus (`gradebookstep_applies`); the API never writes `status`. Returns the detail.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Return"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Return"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Return"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StepRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/submit/": {
+            "post": {
+                "operationId": "setup_gradebooks_submit_create",
+                "description": "One step of the workflow (the five subclasses below): the member's matrix action first\n(403), the comment or reason (400 `required`), then, with the gradebook locked, the status it\nstarts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a\nsubmit, a score in every cell (`cells`). The step is inserted and the database moves the\nstatus (`gradebookstep_applies`); the API never writes `status`. Returns the detail.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StepRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/withdraw/": {
+            "post": {
+                "operationId": "setup_gradebooks_withdraw_create",
+                "description": "One step of the workflow (the five subclasses below): the member's matrix action first\n(403), the comment or reason (400 `required`), then, with the gradebook locked, the status it\nstarts from (`wrong_state`), no review of one's own submission (`own_submission`) and, for a\nsubmit, a score in every cell (`cells`). The step is inserted and the database moves the\nstatus (`gradebookstep_applies`); the API never writes `status`. Returns the detail.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StepRefused"
                                 }
                             }
                         },
@@ -5681,7 +5959,7 @@
                         "type": "integer"
                     },
                     "code": {
-                        "$ref": "#/components/schemas/CodeEnum"
+                        "$ref": "#/components/schemas/CellErrorCodeEnum"
                     },
                     "current": {
                         "allOf": [
@@ -5698,6 +5976,17 @@
                     "current",
                     "student"
                 ]
+            },
+            "CellErrorCodeEnum": {
+                "enum": [
+                    "conflict",
+                    "out_of_range",
+                    "too_many_decimals",
+                    "wrong_form",
+                    "not_enrolled"
+                ],
+                "type": "string",
+                "description": "* `conflict` - conflict\n* `out_of_range` - out_of_range\n* `too_many_decimals` - too_many_decimals\n* `wrong_form` - wrong_form\n* `not_enrolled` - not_enrolled"
             },
             "CellInput": {
                 "type": "object",
@@ -5734,17 +6023,6 @@
                     "expected",
                     "student"
                 ]
-            },
-            "CodeEnum": {
-                "enum": [
-                    "conflict",
-                    "out_of_range",
-                    "too_many_decimals",
-                    "wrong_form",
-                    "not_enrolled"
-                ],
-                "type": "string",
-                "description": "* `conflict` - conflict\n* `out_of_range` - out_of_range\n* `too_many_decimals` - too_many_decimals\n* `wrong_form` - wrong_form\n* `not_enrolled` - not_enrolled"
             },
             "Column": {
                 "type": "object",
@@ -5855,6 +6133,32 @@
                     "comment"
                 ]
             },
+            "EmptyCell": {
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "integer"
+                    },
+                    "student": {
+                        "type": "integer"
+                    },
+                    "code": {
+                        "$ref": "#/components/schemas/EmptyCellCodeEnum"
+                    }
+                },
+                "required": [
+                    "code",
+                    "column",
+                    "student"
+                ]
+            },
+            "EmptyCellCodeEnum": {
+                "enum": [
+                    "incomplete"
+                ],
+                "type": "string",
+                "description": "* `incomplete` - incomplete"
+            },
             "Enrollment": {
                 "type": "object",
                 "description": "A student's period in a class. Student, year, start and `reason_started` never change;\n`valid_to` (with `reason_ended`) only ends the period, never clears it, and the only reason\naccepted here is `year_end`: a class change goes through `enrollments/{id}/move/` and a\nleave through `students/{id}/leave/`, so the history and the student's status stay\nconsistent. The class changes in place only for a period that is open and has not started\nyet; `reason_ended` changes only in the request that sets `valid_to`. Only a student who is\nstudying on the first day can start a period (a student who left and returns first gets a\n`studying` status event, then a `return` period).",
@@ -5956,78 +6260,9 @@
                     "number"
                 ]
             },
-            "Gradebook": {
-                "type": "object",
-                "description": "A gradebook in a list.",
-                "properties": {
-                    "id": {
-                        "type": "integer",
-                        "readOnly": true
-                    },
-                    "school_year": {
-                        "type": "integer",
-                        "readOnly": true
-                    },
-                    "term": {
-                        "type": "integer",
-                        "readOnly": true
-                    },
-                    "term_name": {
-                        "type": "string"
-                    },
-                    "subject": {
-                        "type": "integer",
-                        "readOnly": true
-                    },
-                    "subject_name": {
-                        "type": "string"
-                    },
-                    "assessment": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/AssessmentEnum"
-                            }
-                        ],
-                        "readOnly": true
-                    },
-                    "school_class": {
-                        "type": "integer",
-                        "readOnly": true
-                    },
-                    "class_name": {
-                        "type": "string"
-                    },
-                    "status": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/GradebookStatusEnum"
-                            }
-                        ],
-                        "readOnly": true
-                    },
-                    "opened_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "assessment",
-                    "class_name",
-                    "id",
-                    "opened_at",
-                    "school_class",
-                    "school_year",
-                    "status",
-                    "subject",
-                    "subject_name",
-                    "term",
-                    "term_name"
-                ]
-            },
             "GradebookDetail": {
                 "type": "object",
-                "description": "The grid: header, columns, and a row per student enrolled in the class during the term.",
+                "description": "The grid: header, columns, and a row per student enrolled in the class during the term;\nthe workflow's `steps`, the `return_comment` of a draft whose latest step is a return, and\n`can`, the steps this member may take now.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -6085,6 +6320,22 @@
                     "can_enter": {
                         "type": "boolean"
                     },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Step"
+                        }
+                    },
+                    "return_comment": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "can": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/GradebookStepActionEnum"
+                        }
+                    },
                     "columns": {
                         "type": "array",
                         "items": {
@@ -6100,15 +6351,18 @@
                 },
                 "required": [
                     "assessment",
+                    "can",
                     "can_enter",
                     "class_name",
                     "columns",
                     "id",
                     "opened_at",
                     "profile_source",
+                    "return_comment",
                     "school_class",
                     "school_year",
                     "status",
+                    "steps",
                     "students",
                     "subject",
                     "subject_name",
@@ -6118,10 +6372,23 @@
             },
             "GradebookStatusEnum": {
                 "enum": [
-                    "draft"
+                    "draft",
+                    "submitted",
+                    "approved"
                 ],
                 "type": "string",
-                "description": "* `draft` - Draft"
+                "description": "* `draft` - Draft\n* `submitted` - Submitted\n* `approved` - Approved"
+            },
+            "GradebookStepActionEnum": {
+                "enum": [
+                    "submit",
+                    "withdraw",
+                    "return",
+                    "approve",
+                    "reopen"
+                ],
+                "type": "string",
+                "description": "* `submit` - Submit\n* `withdraw` - Withdraw\n* `return` - Return\n* `approve` - Approve\n* `reopen` - Reopen"
             },
             "GuardianLink": {
                 "type": "object",
@@ -6893,10 +7160,14 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "returned": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
                     "gradebook",
+                    "returned",
                     "status",
                     "term",
                     "term_name"
@@ -7535,6 +7806,19 @@
                     }
                 }
             },
+            "Reopen": {
+                "type": "object",
+                "description": "`POST gradebooks/{id}/reopen/`: the reason is kept as the step's comment.",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "reason"
+                ]
+            },
             "ReplaceTimetable": {
                 "type": "object",
                 "description": "`POST classes/{id}/timetable/`: the class's week, applied from `valid_from` (after today,\ninside the class's year). The class comes from the URL, not from the body.",
@@ -7562,6 +7846,95 @@
                 ],
                 "type": "string",
                 "description": "* `pass` - Pass\n* `fail` - Fail"
+            },
+            "Return": {
+                "type": "object",
+                "description": "`POST gradebooks/{id}/return/`.",
+                "properties": {
+                    "comment": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "comment"
+                ]
+            },
+            "ReviewItem": {
+                "type": "object",
+                "description": "A gradebook in the reviewer's queue (`?to_review=1`) with its latest submit. The plain list\nleaves both fields out.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "school_year": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "term_name": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "assessment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssessmentEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/GradebookStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "submitted_by_name": {
+                        "type": "string"
+                    },
+                    "submitted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "assessment",
+                    "class_name",
+                    "id",
+                    "opened_at",
+                    "school_class",
+                    "school_year",
+                    "status",
+                    "subject",
+                    "subject_name",
+                    "term",
+                    "term_name"
+                ]
             },
             "RoleAssignment": {
                 "type": "object",
@@ -8107,6 +8480,67 @@
                     "mark",
                     "name"
                 ]
+            },
+            "Step": {
+                "type": "object",
+                "description": "A step of the workflow, oldest first in the detail. `comment` is a return's comment or a\nreopen's reason (blank for the other steps).",
+                "properties": {
+                    "action": {
+                        "$ref": "#/components/schemas/GradebookStepActionEnum"
+                    },
+                    "by_name": {
+                        "type": "string"
+                    },
+                    "at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "comment": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "action",
+                    "at",
+                    "by_name",
+                    "comment"
+                ]
+            },
+            "StepRefused": {
+                "type": "object",
+                "description": "The 400 of a step: `status` (`wrong_state`, `own_submission`), `cells` (submit: each empty\ncell of a student still in the class), `comment` / `reason` (`required`, `too_long`),\n`constraint` (a rule only the database holds).",
+                "properties": {
+                    "status": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EmptyCell"
+                        }
+                    },
+                    "comment": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "reason": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
             },
             "Student": {
                 "type": "object",
