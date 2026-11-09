@@ -1,0 +1,11 @@
+#!/bin/sh
+# PreToolUse (Edit|Write|MultiEdit): a migration already in HEAD is applied somewhere, so it is
+# never edited. Schema changes go in a new migration (backend/CODING_STANDARDS.md, History).
+f=$(jq -r '.tool_input.file_path // empty')
+case "$f" in
+*/migrations/[0-9][0-9][0-9][0-9]_*.py) ;;
+*) exit 0 ;;
+esac
+[ -n "$(git -C "$(dirname "$f")" ls-tree --name-only HEAD -- "$(basename "$f")" 2>/dev/null)" ] || exit 0
+echo "Blocked: $f is committed. Add a new migration instead; edit this one only if the user says so explicitly." >&2
+exit 2
