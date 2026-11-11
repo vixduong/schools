@@ -40,6 +40,7 @@ Deferred past the MVP: clerical staff (văn thư), accountant (kế toán), scho
 | Send a leave request | ✘ | ✘ | ✘ | ✘ | ✘ | ✘ | ✘ | ✔ linked |
 | Approve a leave request | ✘ | ✘ | ✔ | ✘ | ✔ own class | ✘ | ✘ | ✘ |
 | Enter scores, submit gradebook | ✘ | ✘ | ✘ | ✘ | ✘ | ✔ own subject × class | ✘ | ✘ |
+| Enter carried results of an arriving student | ✘ | ✘ | ✘ | ✘ | ✔ own class | ✘ | ✘ | ✘ |
 | Approve or return a gradebook | ✘ | ✘ | ✔ | ✔ own group | ✘ | ✘ | ✘ | ✘ |
 | Reopen a locked gradebook (reason required, logged) | ✘ | ✘ | ✔ named by School | ✘ | ✘ | ✘ | ✘ | ✘ |
 | See scores | ✘ | ✘ | 👁 all | 👁 all | 👁 all | 👁 all | 👁 self, once released | 👁 linked, once released |
@@ -59,7 +60,7 @@ Deferred past the MVP: clerical staff (văn thư), accountant (kế toán), scho
 
 ## Rules behind the matrix
 
-- **Gradebook**: subject teacher enters and submits; the group leader (or the principal board) approves or returns with a comment; approval locks it; only the principal board member the School names may reopen, with a reason; every edit after a reopen is logged. The homeroom teacher sees all subjects of the class but edits none.
+- **Gradebook**: subject teacher enters and submits; the group leader (or the principal board) approves or returns with a comment; approval locks it; only the principal board member the School names may reopen, with a reason; every edit after a reopen is logged. The homeroom teacher sees all subjects of the class but edits none, except an arriving student's carried results (the scores brought from the previous School, with the source School and the transfer document; phase 1a slice 6).
 - **Online tests**: regular tests, including 15 and 30-minute quizzes, are published by the subject teacher alone; periodic tests need the group leader's approval first. Every test has a time window and a duration, a limit on attempts, and shuffled questions and answers; no proctoring or browser lock in the MVP. Results reach students and Guardians only when the teacher releases them; answers and worked solutions only if the teacher chooses. A result enters the gradebook only when the teacher pushes it into a chosen column; from there the gradebook workflow applies.
 - **Leave request**: a Guardian sends it; the homeroom teacher approves or declines; it is a ticket with a lifecycle (waiting, approved, declined).
 - **Teachers read across classes**: any member with a teaching role in force (subject teacher, homeroom teacher, group leader) may see the profiles and scores of every student of the School (the matrix's "all"), read only; everything they write stays within their own scope (own class, own subject × class, own group). Sensitive details (national ID, Ministry IDs, Guardian contact details, later health data) are a separate action, visible only to the student's own homeroom teacher, the principal board and the School admin. Cross-class reads are audited from slice 7.

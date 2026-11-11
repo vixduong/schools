@@ -3,9 +3,10 @@ from rest_framework import serializers
 
 from schools.models import SchoolClass, Subject, Term
 
-from .models import Gradebook, GradebookColumn, GradebookStep, ScoreEntry
+from .models import CarriedResult, Gradebook, GradebookColumn, GradebookStep, ScoreEntry
 
 MAX_CELLS_PER_SAVE = 2000
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 
 class OpenGradebookSerializer(serializers.Serializer):
@@ -148,10 +149,35 @@ class CellSerializer(serializers.Serializer):
     changed_after_release = serializers.BooleanField()
 
 
+class CarriedSerializer(serializers.Serializer):
+    """The current carried result of one kind and index (a cleared one is left out)."""
+
+    kind = serializers.ChoiceField(choices=CarriedResult.Kind.choices)
+    index = serializers.IntegerField()
+    value = serializers.DecimalField(
+        max_digits=3, decimal_places=1, allow_null=True, coerce_to_string=False
+    )
+    result = serializers.ChoiceField(choices=ScoreEntry.Result.choices, allow_null=True)
+
+
+class ArrivalSerializer(serializers.Serializer):
+    """A student who arrived during the term: the day, and, once recorded, the source School and
+    the transfer document's name (null before)."""
+
+    arrived_on = serializers.DateField()
+    source_school = serializers.CharField(allow_null=True)
+    document_name = serializers.CharField(allow_null=True)
+    recorded_at = serializers.DateTimeField(allow_null=True)
+
+
 class RowSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
     in_class = serializers.BooleanField()
+    left_on = serializers.DateField(allow_null=True)
+    can_carry = serializers.BooleanField()
+    arrival = ArrivalSerializer(allow_null=True)
+    carried = CarriedSerializer(many=True)
     cells = CellSerializer(many=True)
 
 
@@ -285,3 +311,64 @@ class MyPairSerializer(serializers.Serializer):
     school_class = serializers.IntegerField()
     class_name = serializers.CharField()
     terms = MyTermSerializer(many=True)
+
+
+class TransferInputSerializer(serializers.Serializer):
+    """`POST gradebooks/{id}/students/{student}/transfer/` (multipart). The file's type is judged by
+    its first bytes in the view, its size by the request's length before it is read."""
+
+    source_school = serializers.CharField(
+        max_length=200,
+        error_messages={
+            "required": "required",
+            "null": "required",
+            "blank": "required",
+            "max_length": "too_long",
+        },
+    )
+    document = serializers.FileField(
+        error_messages={"required": "required", "null": "required", "empty": "required"}
+    )
+
+
+class CarriedInputSerializer(serializers.Serializer):
+    """One carried result to save: a scored subject's `value`, a comment-only subject's `result`,
+    neither to clear it."""
+
+    kind = serializers.ChoiceField(choices=CarriedResult.Kind.choices)
+    index = serializers.IntegerField(min_value=1)
+    value = ScoreValueField(required=False, allow_null=True, default=None)
+    result = serializers.ChoiceField(
+        choices=ScoreEntry.Result.choices, required=False, allow_null=True, default=None
+    )
+
+
+class SaveCarriedSerializer(serializers.Serializer):
+    results = CarriedInputSerializer(many=True, allow_empty=False, max_length=100)
+
+    def validate(self, attrs):
+        keys = [(r["kind"], r["index"]) for r in attrs["results"]]
+        if len(set(keys)) != len(keys):
+            raise serializers.ValidationError({"results": ["duplicate"]})
+        return attrs
+
+
+class CarriedErrorSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=CarriedResult.Kind.choices)
+    index = serializers.IntegerField()
+    code = serializers.ChoiceField(
+        choices=["out_of_range", "too_many_decimals", "wrong_form", "unknown_column"]
+    )
+
+
+class TransferRefusedSerializer(serializers.Serializer):
+    """The 400 of `transfer/` and `carried/`: `student` (`not_arrived`), `source_school`,
+    `document` (`required`, `too_long`, `too_large`, `unsupported_type`), `results` (each failing
+    result, nothing saved; or `duplicate`), `gradebook` (`not_draft`) or `constraint`."""
+
+    student = serializers.ListField(child=serializers.CharField(), required=False)
+    source_school = serializers.ListField(child=serializers.CharField(), required=False)
+    document = serializers.ListField(child=serializers.CharField(), required=False)
+    results = CarriedErrorSerializer(many=True, required=False)
+    gradebook = serializers.ListField(child=serializers.CharField(), required=False)
+    constraint = serializers.ListField(child=serializers.CharField(), required=False)

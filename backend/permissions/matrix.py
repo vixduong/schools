@@ -164,6 +164,10 @@ MATRIX: dict[str, Row] = {
         "Enter scores, submit gradebook",
         subject_teacher=W(S.TEACHING_PAIR, "own subject × class"),
     ),
+    "carried_results_enter": row(
+        "Enter carried results of an arriving student",
+        homeroom_teacher=W(S.HOMEROOM_CLASS, "own class"),
+    ),
     "gradebook_review": row(
         "Approve or return a gradebook",
         principal_board=W(S.SCHOOL),
@@ -280,6 +284,7 @@ ACTIONS: dict[str, ActionDef] = {
     "leave_request.send": _write("leave_request_send"),
     "leave_request.approve": _write("leave_request_approve"),
     "scores.enter": _write("scores_enter"),
+    "carried_results.enter": _write("carried_results_enter"),
     "gradebook.review": _write("gradebook_review"),
     "gradebook.reopen": _write("gradebook_reopen"),
     "scores.view": _read("scores_view"),

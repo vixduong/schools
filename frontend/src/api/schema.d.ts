@@ -618,6 +618,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/gradebooks/{id}/students/{student}/carried/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * @description Save an arriving student's carried results for the gradebook's term and subject, all or
+         *     nothing: a row is appended for every result that differs from the current one.
+         */
+        put: operations["setup_gradebooks_students_carried_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/students/{student}/transfer/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST: record the source School and the transfer document of an arriving student (a new
+         *     row corrects the one before). GET `document/`: the current document, to the gradebook's
+         *     readers; each read is logged.
+         */
+        post: operations["setup_gradebooks_students_transfer_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/gradebooks/{id}/students/{student}/transfer/document/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A student of the gradebook's roster (404 otherwise) who arrived during its term. */
+        get: operations["setup_gradebooks_students_transfer_document_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/gradebooks/{id}/submit/": {
         parameters: {
             query?: never;
@@ -1997,6 +2055,18 @@ export interface components {
             display_name?: string;
         };
         /**
+         * @description A student who arrived during the term: the day, and, once recorded, the source School and
+         *     the transfer document's name (null before).
+         */
+        Arrival: {
+            /** Format: date */
+            arrived_on: string;
+            source_school: string | null;
+            document_name: string | null;
+            /** Format: date-time */
+            recorded_at: string | null;
+        };
+        /**
          * @description * `scored` - Scored
          *     * `comment_only` - Comment Only
          * @enum {string}
@@ -2070,6 +2140,37 @@ export interface components {
             subjects?: number[];
             students?: number[];
             pairs?: components["schemas"]["TeachingPair"][];
+        };
+        /** @description The current carried result of one kind and index (a cleared one is left out). */
+        Carried: {
+            kind: components["schemas"]["ColumnKindEnum"];
+            index: number;
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
+        CarriedError: {
+            kind: components["schemas"]["ColumnKindEnum"];
+            index: number;
+            code: components["schemas"]["CarriedErrorCodeEnum"];
+        };
+        /**
+         * @description * `out_of_range` - out_of_range
+         *     * `too_many_decimals` - too_many_decimals
+         *     * `wrong_form` - wrong_form
+         *     * `unknown_column` - unknown_column
+         * @enum {string}
+         */
+        CarriedErrorCodeEnum: "out_of_range" | "too_many_decimals" | "wrong_form" | "unknown_column";
+        /**
+         * @description One carried result to save: a scored subject's `value`, a comment-only subject's `result`,
+         *     neither to clear it.
+         */
+        CarriedInput: {
+            kind: components["schemas"]["ColumnKindEnum"];
+            index: number;
+            value?: number | null;
+            result?: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
         };
         /**
          * @description A cell with a current entry (an empty cell has none). A cleared cell has an entry with
@@ -2914,7 +3015,15 @@ export interface components {
             id: number;
             name: string;
             in_class: boolean;
+            /** Format: date */
+            left_on: string | null;
+            can_carry: boolean;
+            arrival: components["schemas"]["Arrival"] | null;
+            carried: components["schemas"]["Carried"][];
             cells: components["schemas"]["Cell"][];
+        };
+        SaveCarried: {
+            results: components["schemas"]["CarriedInput"][];
         };
         SaveCells: {
             cells: components["schemas"]["CellInput"][];
@@ -3214,6 +3323,28 @@ export interface components {
          * @enum {string}
          */
         TitleEnum: "principal" | "vice_principal";
+        /**
+         * @description `POST gradebooks/{id}/students/{student}/transfer/` (multipart). The file's type is judged by
+         *     its first bytes in the view, its size by the request's length before it is read.
+         */
+        TransferInput: {
+            source_school: string;
+            /** Format: uri */
+            document: string;
+        };
+        /**
+         * @description The 400 of `transfer/` and `carried/`: `student` (`not_arrived`), `source_school`,
+         *     `document` (`required`, `too_long`, `too_large`, `unsupported_type`), `results` (each failing
+         *     result, nothing saved; or `duplicate`), `gradebook` (`not_draft`) or `constraint`.
+         */
+        TransferRefused: {
+            student?: string[];
+            source_school?: string[];
+            document?: string[];
+            results?: components["schemas"]["CarriedError"][];
+            gradebook?: string[];
+            constraint?: string[];
+        };
     };
     responses: never;
     parameters: never;
@@ -4221,6 +4352,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StepRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_students_carried_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                student: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCarried"];
+                "application/x-www-form-urlencoded": components["schemas"]["SaveCarried"];
+                "multipart/form-data": components["schemas"]["SaveCarried"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_students_transfer_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                student: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["TransferInput"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradebookDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRefused"];
+                };
+            };
+        };
+    };
+    setup_gradebooks_students_transfer_document_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                student: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
         };

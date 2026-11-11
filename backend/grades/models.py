@@ -188,3 +188,102 @@ class GradebookStep(TenantModel):
 
     def __str__(self):
         return f"{self.gradebook_id}: {self.action}"
+
+
+def transfer_path(instance, filename):
+    """The view names the file (`<school_id>/transfers/<uuid>.<ext>`); the client's name is never
+    a storage key."""
+    return filename
+
+
+class TransferIn(TenantModel):
+    """A student's arrival from another School, as recorded by the homeroom teacher: the source
+    School and the transfer document (a file in the storage backend, never served by URL).
+    Append-only: INSERT and SELECT only; the latest row of an Enrollment is the current one, so a
+    wrong file is corrected by a new row. The enrollment is the student's `transfer_in` one
+    (trigger `transferin_is_an_arrival`). Audited with the file's name hidden (it often carries
+    the student's name)."""
+
+    student = models.ForeignKey("schools.Student", on_delete=models.PROTECT, db_constraint=False)
+    enrollment = models.ForeignKey(
+        "schools.Enrollment", on_delete=models.PROTECT, db_constraint=False
+    )
+    source_school = models.CharField(max_length=200)
+    document = models.FileField(upload_to=transfer_path, max_length=255)
+    document_name = models.CharField(max_length=200)
+    recorded_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    recorded_at = models.DateTimeField(
+        db_default=Func(function="now", output_field=models.DateTimeField())
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="transferin_school_id_key"),
+            models.CheckConstraint(
+                condition=~Q(source_school__regex=r"^\s*$"), name="transferin_source_not_blank"
+            ),
+        ]
+        indexes = [models.Index(fields=["school", "enrollment", "id"], name="transferin_enrol")]
+
+    def __str__(self):
+        return f"{self.student_id}: from {self.source_school}"
+
+
+class CarriedResult(TenantModel):
+    """One row in the history of a carried result: a score a student who arrived during a term
+    brings from the previous School (a student x term x subject x kind x index; the term is the
+    one of the arrival). Append-only: INSERT and SELECT only; the latest row of a cell, by id, is
+    its current score, and a row with neither `value` nor `result` clears it. Kept apart from
+    `ScoreEntry`: no score of this School is replaced by one. A scored subject's rows carry
+    `value`, a comment-only subject's `result` (trigger `carriedresult_fits_subject`); the student
+    arrived in the term (`carriedresult_student_arrived_in_term`) and no gradebook of the term and
+    subject for the student's class is submitted or approved (`carriedresult_gradebook_open`).
+    Not copied into the audit log, as `ScoreEntry`."""
+
+    class Kind(models.TextChoices):
+        REGULAR = "regular"
+        MID_TERM = "mid_term"
+        END_TERM = "end_term"
+
+    student = models.ForeignKey("schools.Student", on_delete=models.PROTECT, db_constraint=False)
+    term = models.ForeignKey("schools.Term", on_delete=models.PROTECT, db_constraint=False)
+    subject = models.ForeignKey("schools.Subject", on_delete=models.PROTECT, db_constraint=False)
+    kind = models.CharField(max_length=10, choices=Kind)
+    index = models.PositiveSmallIntegerField()
+    value = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    result = models.CharField(max_length=10, choices=ScoreEntry.Result, null=True, blank=True)  # noqa: DJ001
+    entered_by = models.ForeignKey(
+        "accounts.Membership", on_delete=models.PROTECT, db_constraint=False, related_name="+"
+    )
+    entered_at = models.DateTimeField(
+        db_default=Func(function="now", output_field=models.DateTimeField())
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "id"], name="carriedresult_school_id_key"),
+            models.CheckConstraint(
+                condition=Q(value__isnull=True) | Q(value__gte=0, value__lte=10),
+                name="carriedresult_value_in_scale",
+            ),
+            models.CheckConstraint(
+                condition=Q(result__isnull=True) | Q(result__in=["pass", "fail"]),
+                name="carriedresult_result_is_known",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=["regular", "mid_term", "end_term"]),
+                name="carriedresult_kind_is_known",
+            ),
+            models.CheckConstraint(condition=Q(index__gte=1), name="carriedresult_index_from_1"),
+            models.CheckConstraint(
+                condition=Q(kind="regular") | Q(index=1), name="carriedresult_periodic_is_single"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["school", "student", "term", "subject"], name="carriedresult_cell")
+        ]
+
+    def __str__(self):
+        return f"{self.student_id}/{self.term_id}/{self.subject_id}: {self.kind} {self.index}"

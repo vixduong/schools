@@ -23,6 +23,21 @@ urlpatterns = [
         name="gradebook-column-release",
     ),
     path(
+        "gradebooks/<int:pk>/students/<int:student>/transfer/",
+        views.TransferView.as_view(),
+        name="gradebook-transfer",
+    ),
+    path(
+        "gradebooks/<int:pk>/students/<int:student>/transfer/document/",
+        views.TransferDocumentView.as_view(),
+        name="gradebook-transfer-document",
+    ),
+    path(
+        "gradebooks/<int:pk>/students/<int:student>/carried/",
+        views.CarriedView.as_view(),
+        name="gradebook-carried",
+    ),
+    path(
         "gradebooks/<int:pk>/history/",
         views.GradebookHistoryView.as_view(),
         name="gradebook-history",

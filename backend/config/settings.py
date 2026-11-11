@@ -83,6 +83,30 @@ OWNER_DB_USER = os.environ["DB_OWNER_USER"]
 OWNER_DB_PASSWORD = os.environ["DB_OWNER_PASSWORD"]
 _owner = os.environ.get("DB_ROLE", "app") == "owner"
 
+# Uploaded files (transfer documents, docs/slices/1a-slice-6.md): the file system in development,
+# an S3-compatible bucket (Cloudflare R2, ADR 0004) when R2_BUCKET is set. A file is served only
+# through a view that checks the permission, never by URL: the bucket is private.
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "media"))
+if os.environ.get("R2_BUCKET"):
+    _files = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ["R2_BUCKET"],
+            "endpoint_url": os.environ["R2_ENDPOINT_URL"],
+            "access_key": os.environ["R2_ACCESS_KEY_ID"],
+            "secret_key": os.environ["R2_SECRET_ACCESS_KEY"],
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+        },
+    }
+else:
+    _files = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+STORAGES = {
+    "default": _files,
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -122,6 +146,8 @@ SPECTACULAR_SETTINGS = {
         "AttendanceStatusEnum": "timetable.models.AttendanceMark.Status",
         "GradebookStatusEnum": "grades.models.Gradebook.Status",
         "GradebookStepActionEnum": "grades.models.GradebookStep.Action",
+        # A column's and a carried result's kinds are the same three values.
+        "ColumnKindEnum": "grades.models.CarriedResult.Kind",
     },
 }
 

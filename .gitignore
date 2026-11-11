@@ -10,3 +10,5 @@ __pycache__/
 .scratch/*
 !.scratch/school-platform/
 backups/
+# Uploaded files in development (the file-system storage, see config/settings.py).
+backend/media/

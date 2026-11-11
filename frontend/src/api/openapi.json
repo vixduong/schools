@@ -1814,6 +1814,189 @@
                 }
             }
         },
+        "/api/setup/gradebooks/{id}/students/{student}/carried/": {
+            "put": {
+                "operationId": "setup_gradebooks_students_carried_update",
+                "description": "Save an arriving student's carried results for the gradebook's term and subject, all or\nnothing: a row is appended for every result that differs from the current one.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "student",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCarried"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCarried"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SaveCarried"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TransferRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/students/{student}/transfer/": {
+            "post": {
+                "operationId": "setup_gradebooks_students_transfer_create",
+                "description": "POST: record the source School and the transfer document of an arriving student (a new\nrow corrects the one before). GET `document/`: the current document, to the gradebook's\nreaders; each read is logged.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "student",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferInput"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GradebookDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TransferRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/gradebooks/{id}/students/{student}/transfer/document/": {
+            "get": {
+                "operationId": "setup_gradebooks_students_transfer_document_retrieve",
+                "description": "A student of the gradebook's roster (404 otherwise) who arrived during its term.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "student",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/gradebooks/{id}/submit/": {
             "post": {
                 "operationId": "setup_gradebooks_submit_create",
@@ -5671,6 +5854,35 @@
                     "password"
                 ]
             },
+            "Arrival": {
+                "type": "object",
+                "description": "A student who arrived during the term: the day, and, once recorded, the source School and\nthe transfer document's name (null before).",
+                "properties": {
+                    "arrived_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "source_school": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "document_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "recorded_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "arrived_on",
+                    "document_name",
+                    "recorded_at",
+                    "source_school"
+                ]
+            },
             "AssessmentEnum": {
                 "enum": [
                     "scored",
@@ -5905,6 +6117,105 @@
                     "access",
                     "kind",
                     "once_released"
+                ]
+            },
+            "Carried": {
+                "type": "object",
+                "description": "The current carried result of one kind and index (a cleared one is left out).",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/ColumnKindEnum"
+                    },
+                    "index": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "index",
+                    "kind",
+                    "result",
+                    "value"
+                ]
+            },
+            "CarriedError": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/ColumnKindEnum"
+                    },
+                    "index": {
+                        "type": "integer"
+                    },
+                    "code": {
+                        "$ref": "#/components/schemas/CarriedErrorCodeEnum"
+                    }
+                },
+                "required": [
+                    "code",
+                    "index",
+                    "kind"
+                ]
+            },
+            "CarriedErrorCodeEnum": {
+                "enum": [
+                    "out_of_range",
+                    "too_many_decimals",
+                    "wrong_form",
+                    "unknown_column"
+                ],
+                "type": "string",
+                "description": "* `out_of_range` - out_of_range\n* `too_many_decimals` - too_many_decimals\n* `wrong_form` - wrong_form\n* `unknown_column` - unknown_column"
+            },
+            "CarriedInput": {
+                "type": "object",
+                "description": "One carried result to save: a scored subject's `value`, a comment-only subject's `result`,\nneither to clear it.",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/ColumnKindEnum"
+                    },
+                    "index": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "value": {
+                        "type": "number",
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "index",
+                    "kind"
                 ]
             },
             "Cell": {
@@ -8125,6 +8436,28 @@
                     "in_class": {
                         "type": "boolean"
                     },
+                    "left_on": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "can_carry": {
+                        "type": "boolean"
+                    },
+                    "arrival": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Arrival"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "carried": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Carried"
+                        }
+                    },
                     "cells": {
                         "type": "array",
                         "items": {
@@ -8133,10 +8466,28 @@
                     }
                 },
                 "required": [
+                    "arrival",
+                    "can_carry",
+                    "carried",
                     "cells",
                     "id",
                     "in_class",
+                    "left_on",
                     "name"
+                ]
+            },
+            "SaveCarried": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CarriedInput"
+                        }
+                    }
+                },
+                "required": [
+                    "results"
                 ]
             },
             "SaveCells": {
@@ -9015,6 +9366,66 @@
                 ],
                 "type": "string",
                 "description": "* `principal` - Principal\n* `vice_principal` - Vice Principal"
+            },
+            "TransferInput": {
+                "type": "object",
+                "description": "`POST gradebooks/{id}/students/{student}/transfer/` (multipart). The file's type is judged by\nits first bytes in the view, its size by the request's length before it is read.",
+                "properties": {
+                    "source_school": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "document": {
+                        "type": "string",
+                        "format": "uri"
+                    }
+                },
+                "required": [
+                    "document",
+                    "source_school"
+                ]
+            },
+            "TransferRefused": {
+                "type": "object",
+                "description": "The 400 of `transfer/` and `carried/`: `student` (`not_arrived`), `source_school`,\n`document` (`required`, `too_long`, `too_large`, `unsupported_type`), `results` (each failing\nresult, nothing saved; or `duplicate`), `gradebook` (`not_draft`) or `constraint`.",
+                "properties": {
+                    "student": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "source_school": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "document": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CarriedError"
+                        }
+                    },
+                    "gradebook": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
         },
         "securitySchemes": {

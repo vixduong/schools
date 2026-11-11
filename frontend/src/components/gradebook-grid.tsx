@@ -19,6 +19,8 @@ import {
 import { meQuery } from "@/api/queries";
 import { FormError } from "@/components/auth-page";
 import { ReturnNote, StepActions, StepList } from "@/components/gradebook-steps";
+import { TransferDialog } from "@/components/transfer-dialog";
+import { viDate } from "@/lib/attendance";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -119,6 +121,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const [failure, setFailure] = useState<string>();
   const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [releasing, setReleasing] = useState<GradebookColumn | null>(null);
+  const [carrying, setCarrying] = useState<number | null>(null);
+  const hasArrivals = book.students.some((s) => s.arrival);
+  const carryingStudent = book.students.find((s) => s.id === carrying);
   const [refusedFirst, setRefusedFirst] = useState<string | null>(null);
   const inputs = useRef(new Map<string, HTMLInputElement | HTMLSelectElement>());
   const latest = useRef(edits);
@@ -398,6 +403,11 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                   )}
                 </th>
               ))}
+              {hasArrivals && (
+                <th scope="col" className="border-l border-border px-2 py-2 text-left align-bottom">
+                  Từ trường cũ
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -411,7 +421,30 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                   className="sticky left-0 z-[5] bg-background px-2 py-1 text-left font-normal whitespace-nowrap"
                 >
                   {student.name}
-                  {!student.in_class && <span className="ml-2 text-xs italic">đã rời lớp</span>}
+                  {!student.in_class && (
+                    <span className="ml-2 text-xs italic">
+                      đã rời lớp{student.left_on && ` từ ${viDate(student.left_on, false)}`}
+                    </span>
+                  )}
+                  {student.arrival && (
+                    <>
+                      <span className="ml-2 rounded-full border border-foreground px-2 text-xs">
+                        Chuyển đến {viDate(student.arrival.arrived_on, false)}
+                      </span>
+                      {student.arrival.source_school && (
+                        <span className="block text-xs text-ink-3">
+                          {student.arrival.source_school}
+                          {" · "}
+                          <a
+                            className="underline"
+                            href={`/api/setup/gradebooks/${book.id}/students/${student.id}/transfer/document/`}
+                          >
+                            Hồ sơ chuyển
+                          </a>
+                        </span>
+                      )}
+                    </>
+                  )}
                 </th>
                 {book.columns.map((column, col) => {
                   const key = keyOf(column.id, student.id);
@@ -490,6 +523,37 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                     </td>
                   );
                 })}
+                {hasArrivals && (
+                  <td className="border-l border-border px-2 py-1 align-top text-sm">
+                    {student.arrival && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span
+                          className="tabular-nums"
+                          aria-label={`Kết quả mang sang của ${student.name}`}
+                        >
+                          {student.carried.length
+                            ? student.carried
+                                .map(
+                                  (c) =>
+                                    `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`,
+                                )
+                                .join(" · ")
+                            : "–"}
+                        </span>
+                        {student.can_carry && (
+                          <Button
+                            variant="secondary"
+                            className="h-auto px-2 py-1 text-xs"
+                            aria-label={`Nhập kết quả mang sang, ${student.name}`}
+                            onClick={() => setCarrying(student.id)}
+                          >
+                            Nhập kết quả mang sang
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -566,6 +630,14 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
       {canEnter && !editable && <p className="italic text-ink-3">Các ô đang khoá.</p>}
       <StepList steps={book.steps} />
       <ReleaseDialog book={book} column={releasing} onClose={() => setReleasing(null)} />
+      {carryingStudent && (
+        <TransferDialog
+          key={carryingStudent.id}
+          book={book}
+          student={carryingStudent}
+          onClose={() => setCarrying(null)}
+        />
+      )}
     </div>
   );
 }

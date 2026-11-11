@@ -15,7 +15,7 @@ DOC = Path(__file__).resolve().parents[3] / "docs" / "roles.md"
 # The plan's action list (docs/slices/slice-5.md), written out once more on purpose.
 PLANNED_ACTIONS = """school.configure accounts.manage guardian_invite.issue student_profile.view
 student_profile.view_sensitive attendance.take attendance.view leave_request.send
-leave_request.approve scores.enter
+leave_request.approve scores.enter carried_results.enter
 gradebook.review gradebook.reopen scores.view conduct.rate lessons.author lessons.view
 tests.author tests.publish_regular tests.approve_periodic tests.take tests.grade notices.send
 report_card.sign_subject report_card.sign_class report_card.sign_principal

@@ -1,16 +1,22 @@
+import os
 from decimal import Decimal, DecimalException
+from uuid import uuid4
 
 from django.db import connection, models
+from django.http import FileResponse
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import IntegerField
 from rest_framework.generics import GenericAPIView
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
 from accounts.permissions import HasMembership
+from audit import log as audit
 from permissions.actor import Actor, TeachingPair
 from permissions.drf import Can, CanPermission
 from permissions.engine import can, visible_pairs
@@ -27,7 +33,15 @@ from schools.models import (
 from schools.views import database_rules
 
 from . import serializers
-from .models import Gradebook, GradebookColumn, GradebookStep, ScoreEntry
+from .models import (
+    CarriedResult,
+    Gradebook,
+    GradebookColumn,
+    GradebookStep,
+    ScoreEntry,
+    TransferIn,
+)
+from .serializers import MAX_DOCUMENT_BYTES
 
 SECONDARY = (Level.Kind.LOWER_SECONDARY, Level.Kind.UPPER_SECONDARY)
 SCALE_MAX = Decimal(10)
@@ -387,11 +401,94 @@ def detail(request, gradebook):
     gradebook.profile_source = gradebook.profile_version.source
     gradebook.can_enter = can(Actor.of(request), "scores.enter", pair_of(gradebook))
     gradebook.columns = gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
+    transfers = transfer_view(request, gradebook, [pk for pk, _ in students], in_class)
     gradebook.students = [
-        {"id": pk, "name": name, "in_class": pk in in_class, "cells": cells.get(pk, [])}
+        {
+            "id": pk,
+            "name": name,
+            "in_class": pk in in_class,
+            "cells": cells.get(pk, []),
+            **transfers[pk],
+        }
         for pk, name in students
     ]
     return serializers.GradebookDetailSerializer(gradebook).data
+
+
+def arrival_enrollments(gradebook, student_ids=None):
+    """{student id: the Enrollment that started as a transfer_in inside the gradebook's term}."""
+    term = gradebook.term
+    found = Enrollment.objects.filter(
+        reason_started=Enrollment.ReasonStarted.TRANSFER_IN,
+        valid_from__gte=term.starts_on,
+        valid_from__lte=term.ends_on,
+    ).order_by("valid_from", "id")
+    if student_ids is not None:
+        found = found.filter(student_id__in=student_ids)
+    return {enrollment.student_id: enrollment for enrollment in found}
+
+
+def current_transfers(enrollments):
+    """{enrollment id: its latest TransferIn}: a new row corrects the one before."""
+    rows = (
+        TransferIn.objects.filter(enrollment__in=enrollments)
+        .order_by("enrollment_id", "-id")
+        .distinct("enrollment_id")
+    )
+    return {row.enrollment_id: row for row in rows}
+
+
+def current_carried(gradebook, student_ids=None):
+    """The latest row of every carried cell of the gradebook's term and subject that is not
+    cleared, by student."""
+    rows = CarriedResult.objects.filter(term=gradebook.term, subject=gradebook.subject)
+    if student_ids is not None:
+        rows = rows.filter(student_id__in=student_ids)
+    rows = rows.order_by("student_id", "kind", "index", "-id").distinct(
+        "student_id", "kind", "index"
+    )
+    carried: dict[int, list] = {}
+    for row in rows:
+        if row.value is not None or row.result is not None:
+            carried.setdefault(row.student_id, []).append(row)
+    return carried
+
+
+def transfer_view(request, gradebook, student_ids, in_class):
+    """Per student the grid's extras: when they left the class, the arrival with its transfer
+    record, their carried results, and whether this member may enter them."""
+    arrivals = arrival_enrollments(gradebook, student_ids)
+    records = current_transfers(arrivals.values())
+    carried = current_carried(gradebook, student_ids)
+    left = {}
+    for enrollment in Enrollment.objects.filter(
+        school_class=gradebook.school_class, student_id__in=set(student_ids) - in_class
+    ).order_by("valid_from"):
+        left[enrollment.student_id] = enrollment.valid_to
+    actor = Actor.of(request)
+    students = {s.pk: s for s in Student.objects.filter(pk__in=arrivals)}
+    out = {}
+    for pk in student_ids:
+        enrollment = arrivals.get(pk)
+        record = records.get(enrollment.pk) if enrollment else None
+        out[pk] = {
+            "left_on": left.get(pk),
+            "can_carry": enrollment is not None
+            and can(actor, "carried_results.enter", students[pk]),
+            "arrival": None
+            if enrollment is None
+            else {
+                "arrived_on": enrollment.valid_from,
+                "source_school": record.source_school if record else None,
+                "document_name": record.document_name if record else None,
+                "recorded_at": record.recorded_at if record else None,
+            },
+            "carried": [
+                {"kind": r.kind, "index": r.index, "value": r.value, "result": r.result}
+                for r in carried.get(pk, [])
+            ],
+        }
+    return out
 
 
 class GradebookView(GradebookMixin, GenericAPIView):
@@ -771,3 +868,197 @@ class MyGradebooksView(GenericAPIView):
             )
         ]
         return Response(serializers.MyPairSerializer(data, many=True).data)
+
+
+DOCUMENT_TYPES = (  # (first bytes, extension, content type): a file is judged by what it holds
+    (b"%PDF-", "pdf", "application/pdf"),
+    (b"\xff\xd8\xff", "jpg", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "png", "image/png"),
+)
+# The multipart envelope adds a little to the file.
+ENVELOPE_BYTES = 64 * 1024
+
+
+def document_type(file):
+    head = file.read(8)
+    file.seek(0)
+    return next((t for t in DOCUMENT_TYPES if head.startswith(t[0])), None)
+
+
+class TransferMixin(GradebookMixin):
+    """A student of the gradebook's roster (404 otherwise) who arrived during its term."""
+
+    def get_student(self):
+        if not hasattr(self, "student"):
+            students, _ = roster(self.get_gradebook(), timezone.localdate())
+            if self.kwargs["student"] not in {pk for pk, _ in students}:
+                raise NotFound
+            self.student = Student.objects.get(pk=self.kwargs["student"])
+        return self.student
+
+    def arrival(self):
+        enrollment = arrival_enrollments(self.get_gradebook(), [self.get_student().pk]).get(
+            self.get_student().pk
+        )
+        if enrollment is None:
+            raise ValidationError({"student": ["not_arrived"]})
+        return enrollment
+
+
+def student_target(request, view):
+    return view.get_student()
+
+
+class TransferView(TransferMixin, GenericAPIView):
+    """POST: record the source School and the transfer document of an arriving student (a new
+    row corrects the one before). GET `document/`: the current document, to the gradebook's
+    readers; each read is logged."""
+
+    permission_classes = [HasMembership, Can("carried_results.enter", student_target)]
+    serializer_class = serializers.TransferInputSerializer
+    parser_classes = [MultiPartParser]
+
+    @extend_schema(
+        request={"multipart/form-data": serializers.TransferInputSerializer},
+        responses={
+            201: serializers.GradebookDetailSerializer,
+            400: serializers.TransferRefusedSerializer,
+        },
+    )
+    def post(self, request, pk, student):
+        gradebook = self.get_gradebook()
+        # Before the body is parsed: the parser spools the whole upload to disk.
+        if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_DOCUMENT_BYTES + ENVELOPE_BYTES:
+            raise ValidationError({"document": ["too_large"]})
+        body = self.get_serializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        enrollment = self.arrival()
+        file = body.validated_data["document"]
+        if file.size > MAX_DOCUMENT_BYTES:
+            raise ValidationError({"document": ["too_large"]})
+        kind = document_type(file)
+        if kind is None:
+            raise ValidationError({"document": ["unsupported_type"]})
+        record = TransferIn(
+            school=request.school,
+            student=self.get_student(),
+            enrollment=enrollment,
+            source_school=body.validated_data["source_school"].strip(),
+            document_name=os.path.basename(file.name)[:200],
+            recorded_by=request.membership,
+        )
+        record.document.save(
+            f"{request.school.pk}/transfers/{uuid4().hex}.{kind[1]}", file, save=False
+        )
+        try:
+            with database_rules():
+                record.save()
+        except ValidationError:
+            record.document.delete(save=False)  # no row points at the file
+            raise
+        return Response(detail(request, gradebook), status=status.HTTP_201_CREATED)
+
+
+class TransferDocumentView(TransferMixin, GenericAPIView):
+    permission_classes = [HasMembership, CanUseGradebook]
+    serializer_class = serializers.TransferInputSerializer
+
+    @extend_schema(
+        responses={(200, "application/octet-stream"): OpenApiTypes.BINARY},
+    )
+    def get(self, request, pk, student):
+        enrollment = arrival_enrollments(self.get_gradebook(), [self.get_student().pk]).get(
+            self.get_student().pk
+        )
+        record = current_transfers([enrollment]).get(enrollment.pk) if enrollment else None
+        if record is None:
+            raise NotFound
+        audit.record("transfer_document.view", record)
+        extension = record.document.name.rsplit(".", 1)[-1]
+        content_type = next(
+            (t[2] for t in DOCUMENT_TYPES if t[1] == extension), "application/octet-stream"
+        )
+        response = FileResponse(
+            record.document.open("rb"),
+            as_attachment=True,
+            filename=f"transfer-{record.pk}.{extension}",
+            content_type=content_type,
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = "sandbox"
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class CarriedView(TransferMixin, GenericAPIView):
+    """Save an arriving student's carried results for the gradebook's term and subject, all or
+    nothing: a row is appended for every result that differs from the current one."""
+
+    permission_classes = [HasMembership, Can("carried_results.enter", student_target)]
+    serializer_class = serializers.SaveCarriedSerializer
+
+    @extend_schema(
+        request=serializers.SaveCarriedSerializer,
+        responses={
+            200: serializers.GradebookDetailSerializer,
+            400: serializers.TransferRefusedSerializer,
+        },
+    )
+    def put(self, request, pk, student):
+        gradebook = self.get_gradebook()
+        body = self.get_serializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        self.arrival()
+        columns = {(c.kind, c.index) for c in gradebook.gradebookcolumn_set.all()}
+        term, student_ = gradebook.term, self.get_student()
+        with database_rules():
+            # Every gradebook of the term and subject for a class the student was in, in id order
+            # (the trigger `carriedresult_gradebook_open` locks the same set): a step or a save
+            # in one of them takes turns with this one, and a signed one refuses it.
+            classes = Enrollment.objects.filter(
+                models.Q(valid_to__isnull=True) | models.Q(valid_to__gte=term.starts_on),
+                student=student_,
+                valid_from__lte=term.ends_on,
+            ).values("school_class_id")
+            books = (
+                Gradebook.objects.select_for_update(no_key=True)
+                .filter(term=term, subject=gradebook.subject, school_class_id__in=classes)
+                .order_by("id")
+            )
+            if any(book.status != Gradebook.Status.DRAFT for book in books):
+                raise ValidationError({"gradebook": ["not_draft"]})
+            now = {
+                (r.kind, r.index): r
+                for r in current_carried(gradebook, [student_.pk]).get(student_.pk, [])
+            }
+            errors, rows = [], []
+            for given in body.validated_data["results"]:
+                key = (given["kind"], given["index"])
+                if key not in columns:
+                    code, value = "unknown_column", None
+                else:
+                    code, value = judge(given, gradebook.subject.assessment)
+                if code is not None:
+                    errors.append({"kind": key[0], "index": key[1], "code": code})
+                    continue
+                before = now.get(key)
+                if (value, given["result"]) != (
+                    (before.value, before.result) if before else (None, None)
+                ):
+                    rows.append(
+                        CarriedResult(
+                            school=request.school,
+                            student=student_,
+                            term=term,
+                            subject=gradebook.subject,
+                            kind=key[0],
+                            index=key[1],
+                            value=value,
+                            result=given["result"],
+                            entered_by=request.membership,
+                        )
+                    )
+            if errors:
+                return Response({"results": errors}, status=status.HTTP_400_BAD_REQUEST)
+            CarriedResult.objects.bulk_create(rows)
+        return Response(detail(request, gradebook))
