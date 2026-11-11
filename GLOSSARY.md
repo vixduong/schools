@@ -62,6 +62,10 @@ _Avoid_: Registration, admission
 
 ### Assessment
 
+**Carried results**:
+The scores a student who arrives during a term brings from the previous School, entered by the homeroom teacher with the source School and the transfer document. They sit beside this School's own scores in the gradebook and never replace one; they are never read from another School's data.
+_Avoid_: Imported scores, transferred grades
+
 **Assessment Profile**:
 The rules for how students in one Level are assessed: numeric scores with weights, achievement levels with comments, or developmental observation. Attached to a Level, never to a School as a whole.
 _Avoid_: Grading scheme, grading config
