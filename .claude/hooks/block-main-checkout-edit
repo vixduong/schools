@@ -1,0 +1,28 @@
+#!/bin/sh
+# PreToolUse (Edit|Write|MultiEdit): a session running in a linked worktree edits files only inside
+# that worktree, never in the main checkout it was branched from. Fails open on any unexpected input.
+input=$(cat)
+command -v jq >/dev/null 2>&1 || exit 0
+f=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0
+[ -n "$f" ] || exit 0
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null) || exit 0
+[ -n "$cwd" ] || cwd=$PWD
+[ -d "$cwd" ] || exit 0
+case "$f" in
+  /*) ;;
+  *) f="$cwd/$f" ;;
+esac
+wt=$(git -C "$cwd" rev-parse --path-format=absolute --show-toplevel 2>/dev/null) || exit 0
+gd=$(git -C "$cwd" rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+cd_=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+[ "$gd" != "$cd_" ] || exit 0 # main checkout: nothing to guard
+main=$(git -C "$wt" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$main" ] || exit 0
+case "$f" in
+  "$wt"/*) exit 0 ;;
+  "$main"/*) ;;
+  *) exit 0 ;;
+esac
+rel=${f#"$main"/}
+echo "Blocked: $f is in the main checkout, but this session works in the worktree $wt. Edit $wt/$rel instead." >&2
+exit 2
