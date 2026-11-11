@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "@/api/client";
 import {
   GRADEBOOK_KEY,
@@ -52,7 +52,10 @@ export function TransferDialog({
   const [texts, setTexts] = useState<Record<string, string>>(() =>
     Object.fromEntries(book.columns.map((c) => [keyOf(c), textOf(current.get(keyOf(c)))])),
   );
-  const hasRecord = student.arrival?.document_name != null;
+  // A record the dialog itself made counts at once: a retry after the results were refused must
+  // not send the file again.
+  const recorded = useRef(false);
+  const hasRecord = student.arrival?.document_name != null || recorded.current;
   const locked = book.status !== "draft";
 
   const save = useMutation({
@@ -61,6 +64,11 @@ export function TransferDialog({
         throw new FormFailure(undefined, { source_school: "Cần ghi trường cũ." });
       if (!file && !hasRecord)
         throw new FormFailure(undefined, { document: "Cần tải hồ sơ chuyển." });
+      // The school and the file are one record: a new school needs its document sent again.
+      if (!file && source.trim() !== (student.arrival?.source_school ?? source.trim()))
+        throw new FormFailure(undefined, {
+          document: "Đổi trường cũ thì cần tải lại hồ sơ chuyển.",
+        });
       const path = { id: book.id, student: student.id };
       if (file) {
         const sent = await api.POST("/api/setup/gradebooks/{id}/students/{student}/transfer/", {
@@ -75,6 +83,8 @@ export function TransferDialog({
           },
         });
         if (!sent.data) throw carriedFailure(sent.response.status, sent.error);
+        recorded.current = true;
+        setFile(null);
       }
       const results = [];
       for (const column of book.columns) {

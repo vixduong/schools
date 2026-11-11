@@ -187,6 +187,18 @@ test("a first record needs the document, and a refused file or score is worded o
   expect(sent).toHaveLength(1);
 });
 
+test("changing only the school of a recorded transfer asks for the document again and sends nothing", async () => {
+  const sent = await openBook({ arrival: RECORDED, can_carry: true });
+  fireEvent.click(await screen.findByRole("button", { name: "Nhập kết quả mang sang, Eve" }));
+  const dialog = await screen.findByRole("dialog", { name: /Kết quả mang sang: Eve/ });
+  fireEvent.change(within(dialog).getByLabelText("Trường cũ"), { target: { value: "THCS Khác" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
+  expect(
+    await within(dialog).findByText("Đổi trường cũ thì cần tải lại hồ sơ chuyển."),
+  ).toBeInTheDocument();
+  expect(sent).toHaveLength(0);
+});
+
 test("a submitted gradebook says so in the dialog and disables Lưu", async () => {
   const sent: Request[] = [];
   await renderApp("/gradebook/7", (r) => {

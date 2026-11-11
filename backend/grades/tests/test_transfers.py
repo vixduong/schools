@@ -298,6 +298,17 @@ def test_an_oversized_request_is_refused_before_it_is_read(w, book, client_of):
     assert (response.status_code, response.json()) == (400, {"document": ["too_large"]})
 
 
+def test_a_request_without_a_usable_length_is_refused_before_it_is_read(w, book, client_of):
+    for length in ("", "abc"):
+        response = client_of(HOMEROOM).post(
+            f"/api/setup/gradebooks/{book['id']}/students/{w['eve'].pk}/transfer/",
+            {"source_school": "x", "document": SimpleUploadedFile("a.pdf", PDF)},
+            HTTP_HOST=A,
+            CONTENT_LENGTH=length,
+        )
+        assert response.status_code == 411, length
+
+
 def test_the_audit_log_shows_a_transfer_record_without_the_file(schools, w, book, upload):
     upload(HOMEROOM, book, w["eve"], name="nguyen-van-eve-hoc-ba.pdf")
     with school_scope(schools[0].pk):

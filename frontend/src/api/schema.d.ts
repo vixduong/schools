@@ -648,9 +648,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description POST: record the source School and the transfer document of an arriving student (a new
-         *     row corrects the one before). GET `document/`: the current document, to the gradebook's
-         *     readers; each read is logged.
+         * @description Record the source School and the transfer document of an arriving student (a new row
+         *     corrects the one before).
          */
         post: operations["setup_gradebooks_students_transfer_create"];
         delete?: never;
@@ -666,7 +665,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description A student of the gradebook's roster (404 otherwise) who arrived during its term. */
+        /** @description The current transfer document, to the gradebook's readers; each read is logged. */
         get: operations["setup_gradebooks_students_transfer_document_retrieve"];
         put?: never;
         post?: never;

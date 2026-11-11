@@ -910,9 +910,8 @@ def student_target(request, view):
 
 
 class TransferView(TransferMixin, GenericAPIView):
-    """POST: record the source School and the transfer document of an arriving student (a new
-    row corrects the one before). GET `document/`: the current document, to the gradebook's
-    readers; each read is logged."""
+    """Record the source School and the transfer document of an arriving student (a new row
+    corrects the one before)."""
 
     permission_classes = [HasMembership, Can("carried_results.enter", student_target)]
     serializer_class = serializers.TransferInputSerializer
@@ -928,7 +927,10 @@ class TransferView(TransferMixin, GenericAPIView):
     def post(self, request, pk, student):
         gradebook = self.get_gradebook()
         # Before the body is parsed: the parser spools the whole upload to disk.
-        if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_DOCUMENT_BYTES + ENVELOPE_BYTES:
+        length = request.META.get("CONTENT_LENGTH", "")
+        if not length.isdigit():  # no length (chunked) or not a number: nothing to bound the spool
+            return Response({"document": ["required"]}, status=status.HTTP_411_LENGTH_REQUIRED)
+        if int(length) > MAX_DOCUMENT_BYTES + ENVELOPE_BYTES:
             raise ValidationError({"document": ["too_large"]})
         body = self.get_serializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -960,8 +962,10 @@ class TransferView(TransferMixin, GenericAPIView):
 
 
 class TransferDocumentView(TransferMixin, GenericAPIView):
+    """The current transfer document, to the gradebook's readers; each read is logged."""
+
     permission_classes = [HasMembership, CanUseGradebook]
-    serializer_class = serializers.TransferInputSerializer
+    serializer_class = None
 
     @extend_schema(
         responses={(200, "application/octet-stream"): OpenApiTypes.BINARY},
