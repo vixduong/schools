@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { sentDay } from "@/lib/notices";
 import { ME, renderApp } from "./render-app";
 
 afterEach(() => {
@@ -166,4 +167,23 @@ test("a sent notice closes the composer and refreshes Đã gửi", async () => {
   fireEvent.change(screen.getByLabelText("Nội dung"), { target: { value: "Xin chào" } });
   fireEvent.click(screen.getByRole("button", { name: "Gửi" }));
   await waitFor(() => expect(screen.queryByLabelText("Tiêu đề")).not.toBeInTheDocument());
+});
+
+const DRF_DENIED = { detail: "You do not have permission to perform this action." };
+
+test.each([
+  ["a lost role", DRF_DENIED, /không còn quyền gửi/],
+  ["a failed CSRF check", { detail: "CSRF Failed: token missing." }, /Không gửi được thông báo/],
+])("a 403 from %s is worded for its cause", async (_name, body, text) => {
+  await renderApp("/notices", noticesApi(AUDIENCES, [], { status: 403, body }));
+  fireEvent.click(await screen.findByRole("button", { name: "Gửi thông báo" }));
+  fireEvent.change(await screen.findByLabelText("Tiêu đề"), { target: { value: "Chào" } });
+  fireEvent.change(screen.getByLabelText("Nội dung"), { target: { value: "Xin chào" } });
+  fireEvent.click(screen.getByRole("button", { name: "Gửi" }));
+  expect(await screen.findByText(text)).toBeInTheDocument();
+});
+
+test("a notice's day is the School's day whatever the browser's zone", () => {
+  expect(sentDay("2026-11-16T20:00:00Z")).toBe("17/11/2026"); // 03:00 on the 17th in Ho Chi Minh City
+  expect(sentDay("2026-11-16T16:59:00Z")).toBe("16/11/2026");
 });

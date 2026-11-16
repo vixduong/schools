@@ -70,7 +70,7 @@ export const STEP_LABEL: Record<StepAction, string> = {
 
 const STALE = "Sổ điểm vừa đổi trạng thái. Tải lại trang để xem.";
 const OWN_SUBMISSION = "Bạn đã nộp sổ này nên không tự duyệt hoặc trả lại được. Nhờ người khác.";
-const DRF_DENIED = "You do not have permission to perform this action.";
+export const DRF_DENIED = "You do not have permission to perform this action.";
 const NO_RIGHT = "Bạn không còn quyền với bước này. Tải lại trang để xem.";
 const NEEDS_TEXT = "Cần ghi lý do.";
 const TOO_LONG = "Lý do tối đa 500 ký tự.";

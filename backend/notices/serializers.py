@@ -24,13 +24,20 @@ class SendNoticeSerializer(serializers.Serializer):
         max_length=MAX_TITLE_LENGTH, error_messages={**REQUIRED, "max_length": "too_long"}
     )
     body = serializers.CharField(
-        max_length=MAX_BODY_LENGTH, error_messages={**REQUIRED, "max_length": "too_long"}
+        max_length=MAX_BODY_LENGTH,
+        trim_whitespace=False,  # the text is sent as typed: indentation and line breaks stay
+        error_messages={**REQUIRED, "max_length": "too_long"},
     )
 
     def validate_audience(self, audience: str) -> str:
         if audience not in Notice.Audience.values:
             raise serializers.ValidationError("unknown")
         return audience
+
+    def validate_body(self, body: str) -> str:
+        if not body.strip():  # no trimming above, so blank is checked here
+            raise serializers.ValidationError("required")
+        return body
 
     def validate_title(self, title: str) -> str:
         if "\n" in title or "\r" in title:  # the title is the mail subject

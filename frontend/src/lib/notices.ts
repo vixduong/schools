@@ -1,8 +1,18 @@
 import type { Audience } from "@/api/notices";
+import { DRF_DENIED } from "@/lib/grades";
 import { FormFailure, refusal } from "@/lib/messages";
 
 export const MAX_TITLE = 200;
 export const MAX_BODY = 5000;
+
+/** "2026-11-16T20:00:00Z" as "17/11/2026": the School's day, not the browser's. */
+export const sentDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
 
 const GENERIC = "Không gửi được thông báo. Kiểm tra lại rồi gửi lại.";
 const NO_RIGHT = "Bạn không còn quyền gửi thông báo đến nhóm này. Tải lại trang để xem.";
@@ -27,7 +37,11 @@ const FIELD: Record<string, Record<string, string>> = {
 /** The refusal of a send in Vietnamese: a code per field under that field (a refused class or
  * group is the audience's), an empty audience or a constraint for the form. */
 export function sendFailure(status: number, body: unknown): Error {
-  if (status === 403) return new FormFailure(NO_RIGHT, {});
+  // The role refusal is DRF's own 403; any other (a failed CSRF check) is not about the role.
+  if (status === 403) {
+    const detail = (body as { detail?: string } | undefined)?.detail;
+    return new FormFailure(detail === DRF_DENIED ? NO_RIGHT : GENERIC, {});
+  }
   if (status !== 400) return refusal(status, body, GENERIC);
   const error = (body ?? {}) as Record<string, string[] | undefined>;
   const fields: Record<string, string> = {};

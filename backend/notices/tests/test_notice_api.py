@@ -116,6 +116,7 @@ def test_a_sender_outside_the_audience_is_refused(world, sender, audience, targe
         ({"title": "a\nb"}, {"title": ["single_line"]}),
         ({"title": "a\rb"}, {"title": ["single_line"]}),
         ({"body": ""}, {"body": ["required"]}),
+        ({"body": " \n  "}, {"body": ["required"]}),
         ({"body": "x" * 5001}, {"body": ["too_long"]}),
     ],
 )
@@ -127,6 +128,14 @@ def test_a_notice_is_validated(world, fields, errors):
     )
     assert response.status_code == 400 and response.json() == errors
     assert count_in(world, Notice) == 0
+
+
+def test_a_body_is_stored_as_typed_indentation_and_trailing_newline_included(world):
+    typed = "  Kính gửi quý phụ huynh,\n    - Họp lúc 7 giờ.\n\n"
+    response = send("admin", "school", body=typed)
+    assert response.status_code == 201
+    with school_scope(world["school"].pk):
+        assert Notice.objects.get().body == typed
 
 
 def test_a_missing_field_is_required(world):

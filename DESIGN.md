@@ -32,7 +32,7 @@ The locked system. Every Hallmark run reads this first and every screen shares i
   --radius-ticket: 2px;  --radius-control: 6px;  --radius-card: 10px;  --rule-hair: 1px;  --rule-pen: 1.5px;  --shadow-card: none;
 }
 ```
-Both faces ship a Vietnamese subset; any replacement face must too. Type scale ratio 1.2 from a 16px body; spacing, easings and durations live in `tokens.css`.
+Both faces ship a Vietnamese subset; any replacement face must too. Type scale ratio 1.2 from a 16px body; spacing, easings and durations live in `tokens.css`. Layers use the `--z-*` tokens there: a dialog, popover or select list stacks at `--z-modal`, above the sticky header (`--z-sticky-nav`), so a dialog's title is never covered at 375px.
 
 ## Type
 - Display face for page titles, section heads and ticket state words only, weight 300.

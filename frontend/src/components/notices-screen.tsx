@@ -32,11 +32,17 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { audienceLabel, audienceValue, MAX_BODY, MAX_TITLE, sendFailure } from "@/lib/notices";
+import {
+  audienceLabel,
+  audienceValue,
+  MAX_BODY,
+  MAX_TITLE,
+  sendFailure,
+  sentDay,
+} from "@/lib/notices";
 import { cn } from "@/lib/utils";
 
 const LOAD_FAILED = "Không tải được thông báo. Kiểm tra mạng rồi tải lại trang.";
-const sentDay = (iso: string) => new Date(iso).toLocaleDateString("en-GB"); // dd/mm/yyyy
 
 /** "Thông báo": what the member received; a member who may send also gets Đã gửi and the composer. */
 export function NoticesScreen() {
