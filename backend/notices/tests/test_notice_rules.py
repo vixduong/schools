@@ -10,11 +10,12 @@ from audit.models import AuditEvent
 from notices.models import Notice, NoticeRecipient
 from notices.services import create_notice
 from permissions.actor import Actor
-from schools.models import Enrollment
+from schools.models import Enrollment, GuardianLink, SchoolYear, Student
+from schools.tests.factories import make_class, make_group, make_student, make_subject
 from tenancy.rls import school_scope
 from testing import make_account
 
-from .conftest import TODAY, Role
+from .conftest import DAY, TODAY, Role, assign, link
 
 Audience = Notice.Audience
 AUDIENCES = {
@@ -110,6 +111,106 @@ def test_notice_reaches_agrees_with_the_python_helpers_for_every_membership(worl
             in_sql = {row[0] for row in cursor.fetchall()}
         assert in_sql == reference(world, notice)
         assert in_sql == {world["m"][n].pk for n in AUDIENCES[case][3]}
+
+
+@pytest.fixture
+def between_years(schools):
+    """School B on the first day of its new school year, the last year having ended yesterday.
+    Alongside the people who count today (g_cur and s_cur of class 8A, t_cur teaching it) are the
+    ones who look in but do not: an Enrollment open (no valid_to) in the year that ended
+    yesterday, with a Guardian (g_old) and a student Account (s_old); and a GuardianLink, an
+    Enrollment and a RoleAssignment that all start tomorrow."""
+    b = schools[1]
+    names = (
+        "admin",
+        "g_cur",
+        "s_cur",
+        "t_cur",
+        "g_old",
+        "s_old",
+        "g_link_future",
+        "g_enrol_future",
+        "s_enrol_future",
+        "t_future",
+    )
+    accounts = {n: make_account(f"{n}@b.example.com", display_name=n) for n in names}
+    with school_scope(b.pk):
+        m = {n: Membership.objects.create(school=b, account=accounts[n]) for n in names}
+        last = SchoolYear.objects.create(
+            school=b, name="last", starts_on=TODAY - 300 * DAY, ends_on=TODAY - DAY
+        )
+        year = SchoolYear.objects.create(
+            school=b, name="now", starts_on=TODAY, ends_on=TODAY + 300 * DAY
+        )
+        old_class, klass = make_class(b, last, "7A"), make_class(b, year, "8A")
+        group = make_group(b, "Math")
+        math = make_subject(b, "MATH", group)
+
+        def student(name, account_name, in_class, valid_from, guardian):
+            person = make_student(b, name)
+            Enrollment.objects.create(
+                school=b,
+                student=person,
+                school_year=in_class.school_year,
+                school_class=in_class,
+                valid_from=valid_from,
+                reason_started=Enrollment.ReasonStarted.NEW_YEAR,
+            )
+            Student.objects.filter(pk=person.pk).update(membership=m[account_name])
+            link(b, m[guardian], person)
+            return person
+
+        current = student("Cur", "s_cur", klass, TODAY, "g_cur")
+        student("Old", "s_old", old_class, TODAY - 200 * DAY, "g_old")  # no valid_to
+        student("Soon", "s_enrol_future", klass, TODAY + DAY, "g_enrol_future")
+        GuardianLink.objects.create(  # a second Guardian of a student enrolled today
+            school=b,
+            membership=m["g_link_future"],
+            student=current,
+            relation=GuardianLink.Relation.FATHER,
+            valid_from=TODAY + DAY,
+        )
+        assign(b, m["admin"], Role.SCHOOL_ADMIN)
+        assign(b, m["t_cur"], Role.SUBJECT_TEACHER, subject=math, school_class=klass)
+        assign(b, m["t_future"], Role.SUBJECT_TEACHER, subject=math, school_class=klass)
+        RoleAssignment.objects.filter(membership=m["t_future"]).update(valid_from=TODAY + DAY)
+    return {"school": b, "m": m, "class": klass, "group": group}
+
+
+OUTSIDE = (
+    "g_old",
+    "s_old",
+    "g_link_future",
+    "g_enrol_future",
+    "s_enrol_future",
+    "t_future",
+)
+
+
+@pytest.mark.parametrize(
+    ("audience", "target", "expected"),
+    [
+        (Audience.SCHOOL, None, {"g_cur", "s_cur"}),
+        (Audience.GROUP, "group", {"t_cur"}),
+        (Audience.HOMEROOM_GUARDIANS, "class", {"g_cur"}),
+        (Audience.CLASS, "class", {"g_cur", "s_cur"}),
+    ],
+)
+def test_nobody_outside_today_or_the_school_year_is_reached_by_sql_or_python(
+    between_years, audience, target, expected
+):
+    scene = between_years
+    with school_scope(scene["school"].pk):
+        notice = send(scene, "admin", audience, target)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT m.id FROM accounts_membership m WHERE notice_reaches(%s, m.id)",
+                [notice.pk],
+            )
+            in_sql = {row[0] for row in cursor.fetchall()}
+        in_python = reference(scene, notice)
+    assert in_sql == in_python == {scene["m"][n].pk for n in expected}
+    assert not in_sql & {scene["m"][n].pk for n in OUTSIDE}
 
 
 def recipient(world, notice, name):

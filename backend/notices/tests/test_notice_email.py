@@ -3,6 +3,7 @@ commit, and a run of the real worker (as the app role, on the task table's narro
 
 import smtplib
 
+import psycopg
 import pytest
 from django.conf import settings
 from django.core import mail
@@ -17,11 +18,11 @@ from accounts.models import Account, Membership
 from notices.models import Notice, NoticeRecipient
 from notices.tasks import NoticeEmailFailed, email_notice
 from schools.models import GuardianLink
-from schools.tests.factories import make_class
+from schools.tests.factories import make_class, make_student
 from tenancy.rls import school_scope
 from testing import A, make_account, owner_role, sign_in
 
-from .conftest import DAY, TODAY, Role, assign
+from .conftest import DAY, TODAY, Role, assign, enroll, link
 from .test_notice_rules import send
 
 Audience = Notice.Audience
@@ -141,11 +142,31 @@ def test_more_than_one_batch_of_failing_recipients_ends_the_loop(world, monkeypa
     assert not any(stamped(world, notice).values())
 
 
-def test_a_notice_without_recipients_to_email_sends_nothing(world):
+def test_a_class_notice_emails_the_guardian_and_the_student_of_the_class(world):
     with school_scope(world["school"].pk):
         notice = send(world, "t_lit", Audience.CLASS, "7B")  # g_binh and s_binh
     run_task(world, notice)
     assert sorted(m.to[0] for m in mail.outbox) == ["g_binh@example.com", "s_binh@example.com"]
+
+
+def test_a_notice_whose_recipients_all_lack_an_email_sends_nothing_and_does_not_fail(world):
+    a = world["school"]
+    phone_only = make_account(None, "0987654321", "Phone only")
+    with school_scope(a.pk):
+        klass = make_class(a, world["7A"].school_year, "7C")
+        assign(a, world["m"]["hr_7a"], Role.HOMEROOM_TEACHER, school_class=klass)
+        student = make_student(a, "Fay")
+        enroll(a, student, klass)
+        membership = Membership.objects.create(school=a, account=phone_only)
+        link(a, membership, student)
+        notice = send({**world, "7C": klass}, "hr_7a", Audience.HOMEROOM_GUARDIANS, "7C")
+        assert list(NoticeRecipient.objects.filter(notice=notice).values_list("membership_id")) == [
+            (membership.pk,)
+        ]
+    assert run_task(world, notice) is None
+    assert mail.outbox == []
+    with school_scope(a.pk):
+        assert NoticeRecipient.objects.get(notice=notice).emailed_at is None
 
 
 # --- the send view -----------------------------------------------------------------------------
@@ -196,6 +217,15 @@ class TestSendEnqueuesTheEmail:
         assert response.status_code == 201
         with school_scope(world["school"].pk):
             assert Notice.objects.count() == 1
+
+
+def test_app_role_cannot_delete_a_task_result(app_conn):
+    """The worker may read, queue and update task rows (migration 0003), never delete them."""
+    table = "django_tasks_database_dbtaskresult"
+    app_conn.execute(f"SELECT id FROM {table} LIMIT 1")
+    app_conn.execute(f"UPDATE {table} SET status = status WHERE false")
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        app_conn.execute(f"DELETE FROM {table} WHERE false")
 
 
 # --- the real worker ---------------------------------------------------------------------------

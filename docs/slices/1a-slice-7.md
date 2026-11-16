@@ -66,6 +66,15 @@ One route `/notices`, in the nav as "Thông báo" for every signed-in member (a 
 
 Backend: engine `scope=` (a homeroom-only teacher refused for `class`, a subject-only teacher refused for `homeroom_guardians`, a group leader of another group refused, every role against every audience); recipients per audience with the sender excluded, an inactive Membership, an ended GuardianLink, an ended Enrollment, a student without an account, a teacher of another group, a pending Role Assignment; `notice_reaches` against the Python helpers; the trigger refuses a recipient outside the audience; `read` once and its set-once trigger; a rolled-back send emails nobody; send as the app role; RLS (School B sees nothing of School A's notices); audit shows no title or body; email: subject, body, no email address skipped, a failing recipient stays unstamped and the rest are stamped, re-run sends only the unstamped; one `db_worker --batch` run, under `as_app_role` and `transactional_db` (it exercises the narrow grant on the tasks tables and shows `school_scope` works inside the worker); more than 50 failing recipients end the loop; the failed task row's text holds no `@`; the trigger refuses the sender and an inactive Membership; a zero-recipient send leaves zero Notice rows and zero audit events; the app role is refused UPDATE and DELETE on `Notice`; `read` as the app role (the column grant); `title` and `body` absent from the audit log (the privacy test's regex does not match a varchar `title`, so a dedicated test); `can()` without `scope=` answers as before. Frontend (vitest): the list, the read mark, the composer with a refused field and focus, the audiences select from the stub.
 
+## Built as (deviations from the text above)
+
+- The `django_tasks_db` app label is `django_tasks_database`; the table is `django_tasks_database_dbtaskresult` (migration dependency, grant, `GLOBAL_TABLES`).
+- The sent list also returns `school_class_name` and `subject_group_name` (null when unused), for the "Tổ <name>" and "Phụ huynh lớp <name>" labels.
+- A class or group audience with no target is 400 `{"school_class": ["required"]}` or `{"subject_group": ["required"]}`; a target the audience does not use is 400 `{"constraint": ["notice_target_fits_audience"]}`.
+- `GET /` has two response shapes (received, sent), declared as a `PolymorphicProxySerializer`.
+- The email task opens one SMTP session per message (`shortcut:` comment in `tasks.py`); batching sessions waits for a provider that rate-limits.
+- The shared dialog, popover and select stack at `--z-modal` (they were `z-50`, under the sticky header at `--z-sticky-nav`, which hid a dialog's title at 375 px).
+
 ## Known limits
 
 - A notice is fixed at sending: a Guardian who joins the class later does not receive it, and one who leaves keeps it. A student or Guardian between two school years (no Enrollment in force) is outside every audience.
