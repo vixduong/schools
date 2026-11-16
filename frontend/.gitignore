@@ -1,5 +1,7 @@
 node_modules
 dist
 *.tsbuildinfo
+# vitest JSON report (rtk runs vitest with a JSON reporter); oxfmt reads this file too
+.vitest/
 # Hallmark render screenshots (sloplint --render)
 .hallmark/
