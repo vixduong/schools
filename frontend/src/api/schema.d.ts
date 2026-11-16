@@ -1300,6 +1300,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/notices/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Notices. GET: the ones the member received, newest first (at most 100); `?sent=1`: the ones
+         *     they sent, with counts. POST: send one to an audience the member may reach; the recipients
+         *     are fixed now, and the email goes out after the commit.
+         */
+        get: operations["setup_notices_list"];
+        put?: never;
+        /**
+         * @description Notices. GET: the ones the member received, newest first (at most 100); `?sent=1`: the ones
+         *     they sent, with counts. POST: send one to an audience the member may reach; the recipients
+         *     are fixed now, and the email goes out after the commit.
+         */
+        post: operations["setup_notices_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/notices/{id}/read/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description The recipient opens a notice: the read mark is set once (a second call answers with the
+         *     first time). A member who is not a recipient finds nothing.
+         */
+        post: operations["setup_notices_read_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setup/notices/audiences/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description What the member may send to: the `notices.send` entry of `capabilities` with names. Empty
+         *     for a member who may send nothing.
+         */
+        get: operations["setup_notices_audiences_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/role-assignments/": {
         parameters: {
             query?: never;
@@ -2094,6 +2160,20 @@ export interface components {
          * @enum {string}
          */
         AttendanceStatusEnum: "present" | "late" | "absent_excused" | "absent_unexcused";
+        /** @description What the member may send to: one entry per audience and target. */
+        Audience: {
+            audience: components["schemas"]["AudienceEnum"];
+            school_class?: components["schemas"]["Named"];
+            subject_group?: components["schemas"]["Named"];
+        };
+        /**
+         * @description * `school` - School
+         *     * `group` - Group
+         *     * `homeroom_guardians` - Homeroom Guardians
+         *     * `class` - Class
+         * @enum {string}
+         */
+        AudienceEnum: "school" | "group" | "homeroom_guardians" | "class";
         AuditEvent: {
             readonly id: number;
             /** Format: date-time */
@@ -2600,6 +2680,11 @@ export interface components {
             status: (components["schemas"]["GradebookStatusEnum"] | components["schemas"]["NullEnum"]) | null;
             returned: boolean;
         };
+        Named: {
+            id: number;
+            name: string;
+        };
+        NoticeList: components["schemas"]["ReceivedNotice"] | components["schemas"]["SentNotice"];
         /** @enum {unknown} */
         NullEnum: null;
         /** @description `POST gradebooks/`: which gradebook to open (or find). */
@@ -2876,6 +2961,18 @@ export interface components {
          * @enum {string}
          */
         ReasonStartedEnum: "new_year" | "transfer_in" | "class_change" | "return";
+        /** @description A notice as its recipient reads it (the view gives a `NoticeRecipient`). */
+        ReceivedNotice: {
+            id: number;
+            title: string;
+            body: string;
+            /** Format: date-time */
+            sent_at: string;
+            sender_name: string;
+            audience: components["schemas"]["AudienceEnum"];
+            /** Format: date-time */
+            read_at: string | null;
+        };
         /**
          * @description * `mother` - Mother
          *     * `father` - Father
@@ -3095,6 +3192,46 @@ export interface components {
             /** Format: date */
             to_on: string;
             reason: string;
+        };
+        /**
+         * @description `POST notices/`. The class or group is looked up by the view, which also decides who may
+         *     send to the audience.
+         */
+        SendNotice: {
+            audience: string;
+            /** Format: int64 */
+            school_class?: number | null;
+            /** Format: int64 */
+            subject_group?: number | null;
+            title: string;
+            body: string;
+        };
+        /** @description The 400 of sending: a field's codes, `recipients` (`none`), or `constraint`. */
+        SendRefused: {
+            audience?: string[];
+            school_class?: string[];
+            subject_group?: string[];
+            title?: string[];
+            body?: string[];
+            recipients?: string[];
+            constraint?: string[];
+        };
+        /**
+         * @description A notice as its sender sees it: counts of recipients and read marks, never who read. The
+         *     view annotates `recipient_count` and `read_count`.
+         */
+        SentNotice: {
+            readonly id: number;
+            readonly title: string;
+            readonly body: string;
+            /** Format: date-time */
+            readonly sent_at: string;
+            sender_name: string;
+            readonly audience: components["schemas"]["AudienceEnum"];
+            school_class_name?: string | null;
+            subject_group_name?: string | null;
+            recipient_count: number;
+            read_count: number;
         };
         /**
          * @description * `morning` - Morning
@@ -5319,6 +5456,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Membership"];
+                };
+            };
+        };
+    };
+    setup_notices_list: {
+        parameters: {
+            query?: {
+                /** @description 1: the notices the member sent */
+                sent?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeList"][];
+                };
+            };
+        };
+    };
+    setup_notices_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendNotice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SendNotice"];
+                "multipart/form-data": components["schemas"]["SendNotice"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SentNotice"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendRefused"];
+                };
+            };
+        };
+    };
+    setup_notices_read_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivedNotice"];
+                };
+            };
+        };
+    };
+    setup_notices_audiences_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Audience"][];
                 };
             };
         };

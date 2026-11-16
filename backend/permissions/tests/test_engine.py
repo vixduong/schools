@@ -16,7 +16,7 @@ from permissions.engine import (
     visible_pairs,
     visible_students,
 )
-from permissions.matrix import ACTIONS
+from permissions.matrix import ACTIONS, Scope
 from schools.models import Enrollment, GuardianLink, SchoolYear, Student, StudentStatusEvent
 from schools.tests.factories import make_class, make_student
 
@@ -643,3 +643,48 @@ def test_a_write_action_lists_only_what_it_may_write_unless_read_is_asked_for(wo
     assert visible_students(board, "conduct.rate", read=True).count() == 3
     assert not visible_classes(board, "conduct.rate").exists()
     assert visible_classes(board, "conduct.rate", read=True).count() == 2
+
+
+# `can(scope=)`: only the cells of that scope count (notices send to four audiences through one
+# matrix row, and two of its scopes reach a SchoolClass).
+SEND_AUDIENCES = {
+    "school": ("school_a", Scope.SCHOOL),
+    "group": ("group_math", Scope.GROUP_SUBJECTS),
+    "homeroom_guardians": ("class_7a", Scope.HOMEROOM_CLASS),
+    "class": ("class_7a", Scope.TEACHING_CLASSES),
+}
+SEND_ALLOWED = {  # the matrix role -> the audiences its row "Send notices" opens for the fixture
+    "school_admin": {"school"},
+    "principal_board": {"school"},
+    "group_leader": {"group"},
+    "homeroom_teacher": {"homeroom_guardians"},
+    "subject_teacher": {"class"},
+    "student": set(),
+    "guardian": set(),
+    "operator": set(),
+    "nobody": set(),
+}
+
+
+@pytest.mark.parametrize("role", SEND_ALLOWED)
+@pytest.mark.parametrize("audience", SEND_AUDIENCES)
+def test_scope_keeps_only_the_cells_of_that_scope(world, role, audience):
+    target, scope = SEND_AUDIENCES[audience]
+    actor = world.actors[role]
+    assert can(actor, "notices.send", world.targets[target], scope=scope) is (
+        audience in SEND_ALLOWED[role]
+    )
+
+
+def test_a_group_leader_of_another_group_is_refused_the_group_audience(world):
+    actor = world.actors["group_leader"]
+    group = world.targets["group_lit"]
+    assert can(actor, "notices.send", group, scope=Scope.GROUP_SUBJECTS) is False
+
+
+def test_without_a_scope_can_answers_as_before(world):
+    hr, teacher = world.actors["homeroom_teacher"], world.actors["subject_teacher"]
+    klass = world.targets["class_7a"]
+    assert can(hr, "notices.send", klass) is True
+    assert can(teacher, "notices.send", klass) is True
+    assert can(hr, "notices.send", world.targets["class_7b"]) is False

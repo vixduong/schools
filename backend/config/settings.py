@@ -29,6 +29,9 @@ INSTALLED_APPS = [
     "audit",
     "timetable",
     "grades",
+    "notices",
+    "django_tasks",
+    "django_tasks_db",
 ]
 
 MIDDLEWARE = [
@@ -150,6 +153,20 @@ SPECTACULAR_SETTINGS = {
         "ColumnKindEnum": "grades.models.CarriedResult.Kind",
     },
 }
+
+# Background work (docs/tech-stack.md "Async work"): the queue is a table, run by
+# `manage.py db_worker` as the app role (DB_ROLE=app, a deploy process; backend/README.md).
+TASKS = {"default": {"BACKEND": "django_tasks_db.DatabaseBackend"}}
+
+# Email (notices): the provider is a deploy setting. Development prints to the console; Django's
+# test runner forces the in-memory backend whatever EMAIL_BACKEND says.
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS") == "1"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@localhost")
 
 USE_TZ = True
 TIME_ZONE = "Asia/Ho_Chi_Minh"

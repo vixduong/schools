@@ -57,13 +57,14 @@ def _school_id(target) -> int | None:
     return target.school_id
 
 
-def _cells(actor: Actor, action: str, *, released: bool, read: bool):
-    """The matrix cells that apply to this actor's roles and are strong enough for the action."""
+def _cells(actor: Actor, action: str, *, released: bool, read: bool, scope: Scope | None = None):
+    """The matrix cells that apply to this actor's roles and are strong enough for the action;
+    with `scope`, only the cells of that scope."""
     definition = ACTIONS[action]
     needs = Access.READ if read else definition.needs
     for role in actor.roles:
         cell = MATRIX[definition.row].cells[role]
-        if cell.access < needs:
+        if cell.access < needs or (scope is not None and cell.scope is not scope):
             continue
         if cell.released and not released:
             continue
@@ -177,14 +178,22 @@ def _matches(actor: Actor, scope: Scope, action: str, target) -> bool:
 
 
 def can(
-    actor: Actor, action: str, target: Target, *, released: bool = False, read: bool = False
+    actor: Actor,
+    action: str,
+    target: Target,
+    *,
+    released: bool = False,
+    read: bool = False,
+    scope: Scope | None = None,
 ) -> bool:
     """May `actor` do `action` on `target` (on `actor.on`)?
 
     `read=True` asks the weaker question "at least read it?": a 👁 cell then counts for a write
     action. It is for callers that gate a read (a GET); a write must never be gated with it
     (`Can(...)` in drf.py applies it to safe methods only). `released=True` says the thing was
-    released to students and Guardians; the "once released" cells refuse without it."""
+    released to students and Guardians; the "once released" cells refuse without it. `scope` keeps
+    only the cells of that scope, for a row whose scopes reach the same target type (notices send
+    to "own class's Guardians" and to "own classes", both a SchoolClass)."""
     if action in CLASS_READS:
         if not isinstance(target, SchoolClass) or target.school_id != actor.school_id:
             return False
@@ -194,7 +203,7 @@ def can(
         return False
     return any(
         _matches(actor, cell.scope, action, target)
-        for cell in _cells(actor, action, released=released, read=read)
+        for cell in _cells(actor, action, released=released, read=read, scope=scope)
     )
 
 

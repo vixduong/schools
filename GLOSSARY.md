@@ -77,3 +77,17 @@ _Avoid_: Mark, rank, grade
 **Assessment Profile Version**:
 One dated edition of an Assessment Profile, tied to the regulation in force from its effective date; a school year is assessed under the version in force for it.
 _Avoid_: Ruleset, config version
+
+### Communication
+
+**Notice**:
+A title and a plain-text body from one sender to an audience; its recipients are fixed at sending, and a sent Notice is never edited or deleted. Each recipient reads it in the app, and is emailed when their Account has an email.
+_Avoid_: Announcement, message, thông báo (in English text)
+
+**Audience**:
+Who a Notice reaches, one of four, each tied to one scope of the "Send notices" row: the whole School (Guardians and students), a group's subject teachers, a class's Guardians, or a class's Guardians and students. The sender is never a recipient.
+_Avoid_: Recipient list, distribution list, target
+
+**Read mark**:
+The first time a recipient opens a Notice; set once, and the sender sees only the count of them, never who read.
+_Avoid_: Seen, read receipt

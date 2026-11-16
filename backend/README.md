@@ -44,4 +44,5 @@ make backend-check  # ruff + pytest (real Postgres, so db-up first)
   `docker compose down -v` then `make db-up`.
 - New tenant table: give it a `school` foreign key and add `enable_tenant_rls("<table>")`
   (`tenancy/rls.py`) to its migration. `test_every_table_with_school_id_has_forced_rls_and_policy` fails otherwise.
+- Background work (notice email): run `DB_ROLE=app uv run python manage.py db_worker` as a separate deploy process next to the web one (`--batch` runs what is queued and exits). It runs as the app role, and the email provider comes from the `EMAIL_*` and `DEFAULT_FROM_EMAIL` variables (`.env.example`).
 - OpenAPI: `uv run python manage.py spectacular --file schema.yml` (from `backend/`, with `.env` exported).

@@ -3542,6 +3542,164 @@
                 }
             }
         },
+        "/api/setup/notices/": {
+            "get": {
+                "operationId": "setup_notices_list",
+                "description": "Notices. GET: the ones the member received, newest first (at most 100); `?sent=1`: the ones\nthey sent, with counts. POST: send one to an audience the member may reach; the recipients\nare fixed now, and the email goes out after the commit.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "sent",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1: the notices the member sent"
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NoticeList"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "setup_notices_create",
+                "description": "Notices. GET: the ones the member received, newest first (at most 100); `?sent=1`: the ones\nthey sent, with counts. POST: send one to an audience the member may reach; the recipients\nare fixed now, and the email goes out after the commit.",
+                "tags": [
+                    "setup"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendNotice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendNotice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SendNotice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SentNotice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SendRefused"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/notices/{id}/read/": {
+            "post": {
+                "operationId": "setup_notices_read_create",
+                "description": "The recipient opens a notice: the read mark is set once (a second call answers with the\nfirst time). A member who is not a recipient finds nothing.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReceivedNotice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/setup/notices/audiences/": {
+            "get": {
+                "operationId": "setup_notices_audiences_list",
+                "description": "What the member may send to: the `notices.send` entry of `capabilities` with names. Empty\nfor a member who may send nothing.",
+                "tags": [
+                    "setup"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Audience"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/role-assignments/": {
             "get": {
                 "operationId": "setup_role_assignments_list",
@@ -5960,6 +6118,34 @@
                 "type": "string",
                 "description": "* `present` - Present\n* `late` - Late\n* `absent_excused` - Absent Excused\n* `absent_unexcused` - Absent Unexcused"
             },
+            "Audience": {
+                "type": "object",
+                "description": "What the member may send to: one entry per audience and target.",
+                "properties": {
+                    "audience": {
+                        "$ref": "#/components/schemas/AudienceEnum"
+                    },
+                    "school_class": {
+                        "$ref": "#/components/schemas/Named"
+                    },
+                    "subject_group": {
+                        "$ref": "#/components/schemas/Named"
+                    }
+                },
+                "required": [
+                    "audience"
+                ]
+            },
+            "AudienceEnum": {
+                "enum": [
+                    "school",
+                    "group",
+                    "homeroom_guardians",
+                    "class"
+                ],
+                "type": "string",
+                "description": "* `school` - School\n* `group` - Group\n* `homeroom_guardians` - Homeroom Guardians\n* `class` - Class"
+            },
             "AuditEvent": {
                 "type": "object",
                 "properties": {
@@ -7484,6 +7670,31 @@
                     "term_name"
                 ]
             },
+            "Named": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "NoticeList": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/ReceivedNotice"
+                    },
+                    {
+                        "$ref": "#/components/schemas/SentNotice"
+                    }
+                ]
+            },
             "NullEnum": {
                 "enum": [
                     null
@@ -8076,6 +8287,45 @@
                 ],
                 "type": "string",
                 "description": "* `new_year` - New Year\n* `transfer_in` - Transfer In\n* `class_change` - Class Change\n* `return` - Return"
+            },
+            "ReceivedNotice": {
+                "type": "object",
+                "description": "A notice as its recipient reads it (the view gives a `NoticeRecipient`).",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "sent_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "sender_name": {
+                        "type": "string"
+                    },
+                    "audience": {
+                        "$ref": "#/components/schemas/AudienceEnum"
+                    },
+                    "read_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "audience",
+                    "body",
+                    "id",
+                    "read_at",
+                    "sender_name",
+                    "sent_at",
+                    "title"
+                ]
             },
             "RelationEnum": {
                 "enum": [
@@ -8700,6 +8950,148 @@
                     "reason",
                     "student",
                     "to_on"
+                ]
+            },
+            "SendNotice": {
+                "type": "object",
+                "description": "`POST notices/`. The class or group is looked up by the view, which also decides who may\nsend to the audience.",
+                "properties": {
+                    "audience": {
+                        "type": "string"
+                    },
+                    "school_class": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 1,
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "subject_group": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 1,
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "body": {
+                        "type": "string",
+                        "maxLength": 5000
+                    }
+                },
+                "required": [
+                    "audience",
+                    "body",
+                    "title"
+                ]
+            },
+            "SendRefused": {
+                "type": "object",
+                "description": "The 400 of sending: a field's codes, `recipients` (`none`), or `constraint`.",
+                "properties": {
+                    "audience": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "school_class": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "subject_group": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "title": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "body": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "recipients": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "constraint": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "SentNotice": {
+                "type": "object",
+                "description": "A notice as its sender sees it: counts of recipients and read marks, never who read. The\nview annotates `recipient_count` and `read_count`.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "body": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "sent_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "sender_name": {
+                        "type": "string"
+                    },
+                    "audience": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AudienceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "school_class_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "subject_group_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "recipient_count": {
+                        "type": "integer"
+                    },
+                    "read_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "audience",
+                    "body",
+                    "id",
+                    "read_count",
+                    "recipient_count",
+                    "sender_name",
+                    "sent_at",
+                    "title"
                 ]
             },
             "SessionEnum": {

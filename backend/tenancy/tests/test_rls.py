@@ -108,6 +108,9 @@ GLOBAL_TABLES = {
     "django_session",
     "schools_assessmentprofileversion",  # SELECT only; no school_id
     "accounts_attempt",  # sign-in rate limits: HMAC keys and counts, no School data
+    # Background tasks (django-tasks-db): SELECT, INSERT, UPDATE for the worker; task rows carry
+    # a School's id and a notice id, never text.
+    "django_tasks_database_dbtaskresult",
 }
 
 
