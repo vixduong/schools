@@ -54,6 +54,9 @@ export function AppShell() {
             <Link to="/gradebook" className={navLink}>
               Sổ điểm
             </Link>
+            <Link to="/notices" className={navLink}>
+              Thông báo
+            </Link>
             {reach(me, "school.configure") && (
               <>
                 <Link to="/timetable" className={navLink}>
