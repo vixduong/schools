@@ -9,4 +9,5 @@ urlpatterns = [
     path("api/setup/", include("timetable.urls")),
     path("api/setup/", include("grades.urls")),
     path("api/setup/", include("notices.urls")),
+    path("api/portal/", include("portal.urls")),
 ]

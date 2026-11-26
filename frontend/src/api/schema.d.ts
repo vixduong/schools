@@ -109,6 +109,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portal/children/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The member's children by name, each with their class today (null when not enrolled) and
+         *     whether they left the School. Empty for anyone with none.
+         */
+        get: operations["portal_children_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/children/{id}/scores/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The child's released scores in `?term=`: one gradebook per class they were enrolled in
+         *     during the term (a class change or a leave included) that has a released column, with the
+         *     child's current entry of each released column. Unreleased columns are absent.
+         */
+        get: operations["portal_children_scores_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/children/{id}/today/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The periods of the class the child is enrolled in on `?on=` (the School's day, default
+         *     today), with the teacher's name and the child's mark. Empty when the member may not read that
+         *     class's records (a child who left) or the class has no periods that day.
+         */
+        get: operations["portal_children_today_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/assessment-profiles/": {
         parameters: {
             query?: never;
@@ -2290,6 +2352,43 @@ export interface components {
             result?: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
             expected: number | null;
         };
+        Child: {
+            id: number;
+            name: string;
+            class_name: string | null;
+            left: boolean;
+        };
+        ChildDay: {
+            /** Format: date */
+            on: string;
+            periods: components["schemas"]["ChildPeriod"][];
+        };
+        ChildGradebook: {
+            subject_name: string;
+            class_name: string;
+            columns: components["schemas"]["ReleasedCell"][];
+        };
+        /**
+         * @description A period of the child's class on the day, with the child's mark (null when not taken or not
+         *     readable). The mark's note is never returned (free text, Least data).
+         */
+        ChildPeriod: {
+            session: components["schemas"]["SessionEnum"];
+            number: number;
+            /** Format: time */
+            starts_at: string;
+            /** Format: time */
+            ends_at: string;
+            subject_name: string;
+            teacher_name: string | null;
+            room_name: string | null;
+            status: (components["schemas"]["AttendanceStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
+        ChildScores: {
+            term: number | null;
+            term_name: string | null;
+            gradebooks: components["schemas"]["ChildGradebook"][];
+        };
         Column: {
             readonly id: number;
             readonly kind: components["schemas"]["ColumnKindEnum"];
@@ -2991,6 +3090,18 @@ export interface components {
             gradebook?: string[];
             constraint?: string[];
         };
+        /**
+         * @description A released column with the child's current entry (value and result null when empty or
+         *     cleared).
+         */
+        ReleasedCell: {
+            kind: components["schemas"]["ColumnKindEnum"];
+            index: number;
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            changed_after_release: boolean;
+        };
         /** @description `POST gradebooks/{id}/reopen/`: the reason is kept as the step's comment. */
         Reopen: {
             reason: string;
@@ -3606,6 +3717,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["School"];
+                };
+            };
+        };
+    };
+    portal_children_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Child"][];
+                };
+            };
+        };
+    };
+    portal_children_scores_retrieve: {
+        parameters: {
+            query?: {
+                /** @description A term of this school year; default today's */
+                term?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildScores"];
+                };
+            };
+        };
+    };
+    portal_children_today_retrieve: {
+        parameters: {
+            query?: {
+                /** @description A date (YYYY-MM-DD); default today */
+                on?: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildDay"];
                 };
             };
         };

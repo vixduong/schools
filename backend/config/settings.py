@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "timetable",
     "grades",
     "notices",
+    "portal",
     "django_tasks",
     "django_tasks_db",
 ]

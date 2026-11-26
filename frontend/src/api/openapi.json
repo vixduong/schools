@@ -141,6 +141,123 @@
                 }
             }
         },
+        "/api/portal/children/": {
+            "get": {
+                "operationId": "portal_children_list",
+                "description": "The member's children by name, each with their class today (null when not enrolled) and\nwhether they left the School. Empty for anyone with none.",
+                "tags": [
+                    "portal"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Child"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/portal/children/{id}/scores/": {
+            "get": {
+                "operationId": "portal_children_scores_retrieve",
+                "description": "The child's released scores in `?term=`: one gradebook per class they were enrolled in\nduring the term (a class change or a leave included) that has a released column, with the\nchild's current entry of each released column. Unreleased columns are absent.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "term",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A term of this school year; default today's"
+                    }
+                ],
+                "tags": [
+                    "portal"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChildScores"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/portal/children/{id}/today/": {
+            "get": {
+                "operationId": "portal_children_today_retrieve",
+                "description": "The periods of the class the child is enrolled in on `?on=` (the School's day, default\ntoday), with the teacher's name and the child's mark. Empty when the member may not read that\nclass's records (a child who left) or the class has no periods that day.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "on",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "A date (YYYY-MM-DD); default today"
+                    }
+                ],
+                "tags": [
+                    "portal"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChildDay"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/setup/assessment-profiles/": {
             "get": {
                 "operationId": "setup_assessment_profiles_list",
@@ -6521,6 +6638,147 @@
                     "student"
                 ]
             },
+            "Child": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "class_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "left": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "id",
+                    "left",
+                    "name"
+                ]
+            },
+            "ChildDay": {
+                "type": "object",
+                "properties": {
+                    "on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periods": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChildPeriod"
+                        }
+                    }
+                },
+                "required": [
+                    "on",
+                    "periods"
+                ]
+            },
+            "ChildGradebook": {
+                "type": "object",
+                "properties": {
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "class_name": {
+                        "type": "string"
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReleasedCell"
+                        }
+                    }
+                },
+                "required": [
+                    "class_name",
+                    "columns",
+                    "subject_name"
+                ]
+            },
+            "ChildPeriod": {
+                "type": "object",
+                "description": "A period of the child's class on the day, with the child's mark (null when not taken or not\nreadable). The mark's note is never returned (free text, Least data).",
+                "properties": {
+                    "session": {
+                        "$ref": "#/components/schemas/SessionEnum"
+                    },
+                    "number": {
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "ends_at": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "teacher_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "room_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "status": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AttendanceStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "ends_at",
+                    "number",
+                    "room_name",
+                    "session",
+                    "starts_at",
+                    "status",
+                    "subject_name",
+                    "teacher_name"
+                ]
+            },
+            "ChildScores": {
+                "type": "object",
+                "properties": {
+                    "term": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "term_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "gradebooks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChildGradebook"
+                        }
+                    }
+                },
+                "required": [
+                    "gradebooks",
+                    "term",
+                    "term_name"
+                ]
+            },
             "Column": {
                 "type": "object",
                 "properties": {
@@ -8366,6 +8624,48 @@
                         }
                     }
                 }
+            },
+            "ReleasedCell": {
+                "type": "object",
+                "description": "A released column with the child's current entry (value and result null when empty or\ncleared).",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/ColumnKindEnum"
+                    },
+                    "index": {
+                        "type": "integer"
+                    },
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "changed_after_release": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "changed_after_release",
+                    "index",
+                    "kind",
+                    "result",
+                    "value"
+                ]
             },
             "Reopen": {
                 "type": "object",

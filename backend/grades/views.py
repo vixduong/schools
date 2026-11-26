@@ -109,14 +109,18 @@ class CanListOrOpen(CanPermission):
         return permission().has_permission(request, view)
 
 
+def latest_per_cell(entries):
+    """The latest of `entries` in every cell (column x student). Narrow `entries` by gradebook,
+    column or student only, never by value: a WHERE runs before DISTINCT ON."""
+    return entries.order_by("column_id", "student_id", "-entered_at", "-id").distinct(
+        "column_id", "student_id"
+    )
+
+
 def current_entries(gradebook):
     """The latest entry of every cell of the gradebook that has one. Narrow it by column or
     student, never by value: a WHERE runs before DISTINCT ON."""
-    return (
-        ScoreEntry.objects.filter(column__gradebook=gradebook)
-        .order_by("column_id", "student_id", "-entered_at", "-id")
-        .distinct("column_id", "student_id")
-    )
+    return latest_per_cell(ScoreEntry.objects.filter(column__gradebook=gradebook))
 
 
 def roster(gradebook, today):
