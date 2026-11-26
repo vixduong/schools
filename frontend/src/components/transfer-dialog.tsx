@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   carriedFailure,
-  columnLabel,
+  carriedLabel,
   formatScore,
   MAX_DOCUMENT_MB,
   parseScore,
@@ -45,12 +45,19 @@ export function TransferDialog({
   const queryClient = useQueryClient();
   const commentOnly = book.assessment === "comment_only";
   const current = new Map<string, Carried>(student.carried.map((c) => [keyOf(c), c]));
+  // A year average exists only in a semester 2 book of a two-term year; a scored one needs the
+  // first semester's figure from the previous School.
+  const year = student.averages.year;
+  const fields: Pick<Carried, "kind" | "index">[] =
+    !commentOnly && year && year.reason !== "terms"
+      ? [...book.columns, { kind: "previous_semester_average", index: 1 }]
+      : book.columns;
   const textOf = (c: Carried | undefined) =>
     commentOnly ? (c?.result ?? "") : formatScore(c?.value);
   const [source, setSource] = useState(student.arrival?.source_school ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [texts, setTexts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(book.columns.map((c) => [keyOf(c), textOf(current.get(keyOf(c)))])),
+    Object.fromEntries(fields.map((c) => [keyOf(c), textOf(current.get(keyOf(c)))])),
   );
   // A record the dialog itself made counts at once: a retry after the results were refused must
   // not send the file again.
@@ -87,7 +94,7 @@ export function TransferDialog({
         setFile(null);
       }
       const results = [];
-      for (const column of book.columns) {
+      for (const column of fields) {
         const key = keyOf(column);
         const text = texts[key] ?? "";
         const before = textOf(current.get(key));
@@ -178,13 +185,13 @@ export function TransferDialog({
           <fieldset className="grid gap-2">
             <legend className="text-sm font-semibold">Điểm đã có ở trường cũ</legend>
             <div className="flex flex-wrap gap-3">
-              {book.columns.map((column) => {
+              {fields.map((column) => {
                 const key = keyOf(column);
                 const id = `carried-${key}`;
                 return (
                   <div key={key} className="grid gap-1">
                     <label htmlFor={id} className="text-xs font-semibold">
-                      {columnLabel(column)}
+                      {carriedLabel(column)}
                     </label>
                     {commentOnly ? (
                       <select

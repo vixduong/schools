@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { ME, type Reply, renderApp } from "./render-app";
+import { ME, type Reply, renderApp, withAverages } from "./render-app";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -14,7 +14,7 @@ const STEP = (action: string, comment = "") => ({
 });
 
 function DETAIL(over: Record<string, unknown> = {}) {
-  return {
+  return withAverages({
     id: 7,
     school_year: 1,
     term: 1,
@@ -42,7 +42,7 @@ function DETAIL(over: Record<string, unknown> = {}) {
       { id: 12, name: "Bảo", in_class: true, cells: [] },
     ],
     ...over,
-  };
+  });
 }
 
 /** The gradebook 7 with `detail`; each step POST is kept (cloned) and answered by `reply`. */

@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { File as NodeFile } from "node:buffer";
-import { ME, type Reply, renderApp } from "./render-app";
+import { ME, type Reply, renderApp, withAverages } from "./render-app";
 
 // Node's File: the FormData the client builds is undici's, which refuses jsdom's File.
 const pdf = (content: string) =>
@@ -19,7 +19,7 @@ const ARRIVAL = {
 };
 
 function DETAIL(eve: Record<string, unknown> = {}, over: Record<string, unknown> = {}) {
-  return {
+  return withAverages({
     id: 7,
     school_year: 1,
     term: 1,
@@ -74,7 +74,7 @@ function DETAIL(eve: Record<string, unknown> = {}, over: Record<string, unknown>
       },
     ],
     ...over,
-  };
+  });
 }
 
 const RECORDED = {
@@ -93,13 +93,14 @@ type Sent = { method: string; path: string; request: Request };
 async function openBook(
   eve: Record<string, unknown>,
   reply: (sent: Sent) => Reply | undefined = () => undefined,
+  over: Record<string, unknown> = {},
 ) {
   const sent: Sent[] = [];
   await renderApp("/gradebook/7", (r) => {
     const { pathname } = new URL(r.url);
     if (pathname === "/api/auth/me/") return { status: 200, body: ME };
     if (r.method === "GET" && pathname === "/api/setup/gradebooks/7/")
-      return { status: 200, body: DETAIL(eve) };
+      return { status: 200, body: DETAIL(eve, over) };
     if (r.method !== "GET") {
       const item = { method: r.method, path: pathname, request: r.clone() };
       sent.push(item);
@@ -216,4 +217,73 @@ test("a submitted gradebook says so in the dialog and disables Lưu", async () =
   expect(within(dialog).getByText("Sổ đã nộp, không sửa được.")).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Lưu" })).toBeDisabled();
   expect(sent).toHaveLength(0);
+});
+
+const AVERAGE = {
+  value: 8,
+  result: null,
+  state: "final",
+  missing: [],
+  carried: false,
+  reason: null,
+};
+const SEMESTER_2 = {
+  semester: AVERAGE,
+  year: { ...AVERAGE, state: "missing", value: null, reason: "no_previous_average" },
+};
+
+async function openDialog(
+  averages: object,
+  over: Record<string, unknown> = {},
+  eve: Record<string, unknown> = {},
+) {
+  const sent = await openBook(
+    { arrival: RECORDED, can_carry: true, averages, ...eve },
+    ({ path }) => (path.endsWith("/carried/") ? { status: 200, body: DETAIL() } : undefined),
+    { term_name: "HK II", ...over },
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Nhập kết quả mang sang, Eve" }));
+  const dialog = await screen.findByRole("dialog", { name: /Kết quả mang sang: Eve/ });
+  return { sent, dialog };
+}
+
+test("a scored semester 2 book asks for the previous semester average and sends it as its own kind", async () => {
+  const { sent, dialog } = await openDialog(SEMESTER_2);
+  fireEvent.change(within(dialog).getByLabelText("TB học kỳ trước"), { target: { value: "6,9" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(await sent[0]?.request.json()).toEqual({
+    results: [{ kind: "previous_semester_average", index: 1, value: 6.9, result: null }],
+  });
+});
+
+test("the previous semester average already entered shows in its field, and not among the carried columns", async () => {
+  const previous = { kind: "previous_semester_average", index: 1, value: 6.9, result: null };
+  const { dialog } = await openDialog(SEMESTER_2, {}, { carried: [previous] });
+  expect(within(dialog).getByLabelText("TB học kỳ trước")).toHaveValue("6,9");
+  // The dialog is open over the grid; the grid's carried cell skips the average.
+  expect(screen.getByLabelText("Kết quả mang sang của Eve")).toHaveTextContent("–");
+});
+
+test("the previous semester average is not asked in a semester 1 book", async () => {
+  const { dialog } = await openDialog({ semester: AVERAGE, year: null }, { term_name: "HK I" });
+  expect(within(dialog).getByLabelText("TX1")).toBeInTheDocument();
+  expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
+});
+
+test("the previous semester average is not asked in a year without exactly two terms", async () => {
+  const { dialog } = await openDialog({
+    semester: AVERAGE,
+    year: { ...AVERAGE, state: "unavailable", value: null, reason: "terms" },
+  });
+  expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
+});
+
+test("the previous semester average is not asked for a comment-only subject", async () => {
+  const pass = { ...AVERAGE, value: null, result: "pass" };
+  const { dialog } = await openDialog(
+    { semester: pass, year: pass },
+    { assessment: "comment_only" },
+  );
+  expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
 });

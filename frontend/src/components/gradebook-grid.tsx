@@ -35,6 +35,7 @@ import { type DraftEdit, draftKey, readDraft, writeDraft } from "@/lib/drafts";
 import {
   CELL_ERROR,
   columnLabel,
+  describeAverage,
   formatScore,
   INCOMPLETE,
   NOT_A_NUMBER,
@@ -123,6 +124,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const [releasing, setReleasing] = useState<GradebookColumn | null>(null);
   const [carrying, setCarrying] = useState<number | null>(null);
   const hasArrivals = book.students.some((s) => s.arrival);
+  // The server sends a year average only in a semester 2 book (or says why there is none).
+  const hasYear = book.students.some((s) => s.averages.year);
+  const averageHead = commentOnly ? "Kết quả" : "ĐTB";
   const carryingStudent = book.students.find((s) => s.id === carrying);
   const [refusedFirst, setRefusedFirst] = useState<string | null>(null);
   const inputs = useRef(new Map<string, HTMLInputElement | HTMLSelectElement>());
@@ -403,6 +407,17 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                   )}
                 </th>
               ))}
+              <th
+                scope="col"
+                className="border-l border-border px-2 py-2 text-center align-bottom font-semibold"
+              >
+                {averageHead}
+              </th>
+              {hasYear && (
+                <th scope="col" className="px-2 py-2 text-center align-bottom font-semibold">
+                  Cả năm
+                </th>
+              )}
               {hasArrivals && (
                 <th scope="col" className="border-l border-border px-2 py-2 text-left align-bottom">
                   Từ trường cũ
@@ -422,13 +437,13 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                 >
                   {student.name}
                   {!student.in_class && (
-                    <span className="ml-2 text-xs italic">
+                    <span className="block text-xs italic sm:ml-2 sm:inline">
                       đã rời lớp{student.left_on && ` từ ${viDate(student.left_on, false)}`}
                     </span>
                   )}
                   {student.arrival && (
                     <>
-                      <span className="ml-2 rounded-full border border-foreground px-2 text-xs">
+                      <span className="block w-fit rounded-full border border-foreground px-2 text-xs sm:ml-2 sm:inline">
                         Chuyển đến {viDate(student.arrival.arrived_on, false)}
                       </span>
                       {student.arrival.source_school && (
@@ -523,6 +538,22 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                     </td>
                   );
                 })}
+                <AverageCell
+                  label={`${student.name}, ${averageHead}`}
+                  average={student.averages.semester}
+                  commentOnly={commentOnly}
+                  className="border-l border-border"
+                />
+                {hasYear &&
+                  (student.averages.year ? (
+                    <AverageCell
+                      label={`${student.name}, Cả năm`}
+                      average={student.averages.year}
+                      commentOnly={commentOnly}
+                    />
+                  ) : (
+                    <td />
+                  ))}
                 {hasArrivals && (
                   <td className="border-l border-border px-2 py-1 align-top text-sm">
                     {student.arrival && (
@@ -531,18 +562,16 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                           className="tabular-nums"
                           aria-label={`Kết quả mang sang của ${student.name}`}
                         >
-                          {student.carried.length
-                            ? student.carried
-                                .filter(
-                                  (c): c is typeof c & Pick<GradebookColumn, "kind"> =>
-                                    c.kind !== "previous_semester_average",
-                                )
-                                .map(
-                                  (c) =>
-                                    `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`,
-                                )
-                                .join(" · ")
-                            : "–"}
+                          {student.carried
+                            .filter(
+                              (c): c is typeof c & Pick<GradebookColumn, "kind"> =>
+                                c.kind !== "previous_semester_average",
+                            )
+                            .map(
+                              (c) =>
+                                `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`,
+                            )
+                            .join(" · ") || "–"}
                         </span>
                         {student.can_carry && (
                           <Button
@@ -929,4 +958,35 @@ function applySaved(
     return { ...student, cells };
   });
   return { ...old, students };
+}
+
+/** A read-only average (DESIGN.md, Gradebook grid): a final one in plain ink, a provisional one
+ * italic with "tạm", none as "—" with the reason in the title and the screen-reader label. */
+function AverageCell({
+  label,
+  average,
+  commentOnly,
+  className,
+}: {
+  label: string;
+  average: GradebookRow["averages"]["semester"];
+  commentOnly: boolean;
+  className?: string;
+}) {
+  const shown = describeAverage(average, commentOnly);
+  return (
+    <td className={cn("px-2 py-1 text-center align-middle tabular-nums", className)}>
+      <span
+        title={shown.why}
+        aria-label={`${label}: ${shown.spoken}`}
+        className={cn(
+          shown.provisional && "whitespace-nowrap italic",
+          shown.alert && "text-destructive",
+        )}
+      >
+        {shown.text}
+        {shown.provisional && <span className="text-xs text-ink-3"> tạm</span>}
+      </span>
+    </td>
+  );
 }

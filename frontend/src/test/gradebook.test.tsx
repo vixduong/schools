@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { DRAFT_LIFETIME_MS, draftKey, readDraft } from "@/lib/drafts";
-import { ME, type Reply, renderApp } from "./render-app";
+import { ME, type Reply, renderApp, withAverages } from "./render-app";
 
 // Role queries walk a whole grid in jsdom, which is slow.
 configure({ asyncUtilTimeout: 4000 });
@@ -26,7 +26,7 @@ const COLUMNS = [
 ];
 
 function DETAIL(over: Record<string, unknown> = {}) {
-  return {
+  return withAverages({
     id: 7,
     school_year: 1,
     term: 1,
@@ -60,7 +60,7 @@ function DETAIL(over: Record<string, unknown> = {}) {
       },
     ],
     ...over,
-  };
+  });
 }
 
 /** The gradebook API; the PUTs are kept (cloned) for the test to read, and answered by `put`. */

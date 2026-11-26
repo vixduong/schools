@@ -66,6 +66,18 @@ _Avoid_: Registration, admission
 The scores a student who arrives during a term brings from the previous School, entered by the homeroom teacher with the source School and the transfer document. They sit beside this School's own scores in the gradebook and never replace one; they are never read from another School's data.
 _Avoid_: Imported scores, transferred grades
 
+**Semester average**:
+A student's average in one scored subject for one term (ĐTBmhk), from the regular, mid-term and end-term scores with the weights of the Assessment Profile Version, one decimal. Calculated on read, never stored; final once the gradebook is approved, provisional before. A comment-only subject has a result (Đạt / Chưa đạt) instead.
+_Avoid_: GPA, mean, term grade
+
+**Year average**:
+A student's average in one scored subject for the school year (ĐTBmcn), from the two semester averages (semester 2 weighted double), shown only in the second semester's gradebook of a two-term year.
+_Avoid_: Final grade, annual score
+
+**Previous semester average**:
+The first-semester average of a student who arrived in semester 2, brought from the previous School as one Carried result per scored subject; the year average uses it when the student has no semester 1 gradebook here.
+_Avoid_: Imported average, transferred average
+
 **Assessment Profile**:
 The rules for how students in one Level are assessed: numeric scores with weights, achievement levels with comments, or developmental observation. Attached to a Level, never to a School as a whole.
 _Avoid_: Grading scheme, grading config

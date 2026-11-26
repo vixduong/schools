@@ -13,6 +13,25 @@ export const ME = {
   capabilities: [],
 };
 
+/** A row's averages as a semester 1 gradebook sends them, for fixtures that do not test them. */
+export const NO_AVERAGES = {
+  semester: {
+    value: null,
+    result: null,
+    state: "missing",
+    missing: [],
+    carried: false,
+    reason: null,
+  },
+  year: null,
+};
+
+/** `detail` with `NO_AVERAGES` on every row that states none (the API always sends them). */
+export function withAverages(detail: Record<string, unknown>) {
+  const students = detail.students as Record<string, unknown>[];
+  return { ...detail, students: students.map((s) => ({ averages: NO_AVERAGES, ...s })) };
+}
+
 /** The app at `path` with the API answered by `handler` (school and csrf answered for it). */
 export async function renderApp(path: string, handler: Handler) {
   const calls: Request[] = [];

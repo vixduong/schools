@@ -1,4 +1,10 @@
-import type { CellError, GradebookColumn, GradebookDetail, StepAction } from "@/api/grades";
+import type {
+  CellError,
+  GradebookColumn,
+  GradebookDetail,
+  GradebookRow,
+  StepAction,
+} from "@/api/grades";
 import { FormFailure, refusal } from "@/lib/messages";
 
 /** TX1…TXn for the regular columns, GK for mid-term, CK for end-term. */
@@ -31,6 +37,53 @@ export const RESULTS = [
 
 export function resultLabel(result: string | null | undefined): string {
   return RESULTS.find((r) => r.value === result)?.label ?? "";
+}
+
+type Average = GradebookRow["averages"]["semester"];
+
+export const NO_PREVIOUS_AVERAGE = "Chưa có TB học kỳ trước";
+
+/** Why an average has no value, by its reason or else its state (DESIGN.md, Gradebook grid). */
+const AVERAGE_WHY = {
+  left: "Học sinh đã rời lớp",
+  split: "Học sinh đổi lớp trong học kỳ, điểm nằm ở hai sổ",
+  rules: "Quy định đánh giá thiếu cách tính điểm trung bình",
+  terms: "Năm học không có đúng hai học kỳ",
+} as const;
+
+/** An average cell: the figure or "—", `provisional` for the italic "tạm", `why` for the title,
+ * `alert` for red ink, and `spoken` for the screen-reader label. */
+export function describeAverage(average: Average, commentOnly: boolean) {
+  const { state, reason, missing } = average;
+  if (state === "final" || state === "provisional") {
+    const text = commentOnly ? resultLabel(average.result) : formatScore(average.value);
+    const provisional = state === "provisional";
+    return {
+      text,
+      provisional,
+      alert: false,
+      why: undefined,
+      spoken: provisional ? `${text} tạm` : text,
+    };
+  }
+  const lacking = missing.length ? `Thiếu điểm ${missing.map(columnLabel).join(", ")}` : "";
+  if (reason === "no_previous_average") {
+    const why = [NO_PREVIOUS_AVERAGE, lacking].filter(Boolean).join(". ");
+    return { text: NO_PREVIOUS_AVERAGE, provisional: false, alert: true, why, spoken: why };
+  }
+  // A year can be missing with no columns of its own: the semester 1 book still lacks scores.
+  const why =
+    state === "missing"
+      ? lacking || "Sổ học kỳ trước còn thiếu điểm"
+      : AVERAGE_WHY[(reason ?? state) as keyof typeof AVERAGE_WHY];
+  return { text: "—", provisional: false, alert: false, why, spoken: `chưa có. ${why}` };
+}
+
+/** A carried result's field: a column's label, or the previous semester average. */
+export function carriedLabel(carried: { kind: string; index: number }): string {
+  return carried.kind === "previous_semester_average"
+    ? "TB học kỳ trước"
+    : columnLabel(carried as Pick<GradebookColumn, "kind" | "index">);
 }
 
 export const CELL_ERROR: Record<CellError["code"], string> = {
