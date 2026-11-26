@@ -159,6 +159,9 @@ function Today({ child }: { child: Child }) {
 function Scores({ child }: { child: Child }) {
   const scores = useQuery(childScoresQuery(child.id));
   const gradebooks = scores.data?.gradebooks.filter((g) => g.columns.length > 0);
+  // A class change mid-term gives one subject two gradebooks: only then name the class.
+  const repeated = (subject: string) =>
+    gradebooks?.filter((g) => g.subject_name === subject).length !== 1;
   return (
     <Block id="scores" title="Điểm mới">
       {scores.data?.term_name && <p className="-mt-2 italic text-ink-3">{scores.data.term_name}</p>}
@@ -171,7 +174,10 @@ function Scores({ child }: { child: Child }) {
         <ul className="divide-y divide-border">
           {gradebooks.map((gradebook) => (
             <li key={`${gradebook.subject_name}-${gradebook.class_name}`} className="py-3">
-              <p className="font-semibold">{gradebook.subject_name}</p>
+              <p className="font-semibold">
+                {gradebook.subject_name}
+                {repeated(gradebook.subject_name) && ` · ${gradebook.class_name}`}
+              </p>
               <dl className="mt-1 flex flex-wrap gap-x-5 gap-y-1 tabular-nums">
                 {gradebook.columns.map((cell) => (
                   <div key={`${cell.kind}-${cell.index}`} className="flex gap-1.5">
@@ -197,7 +203,9 @@ function Scores({ child }: { child: Child }) {
  * child. */
 function Leave({ child }: { child: Child }) {
   const leaveChildren = useQuery(leaveChildrenQuery);
-  if (!leaveChildren.data?.some((c) => c.id === child.id)) return null;
+  if (leaveChildren.isPending) return null;
+  if (leaveChildren.isError) return <Failed what="danh sách con" />;
+  if (!leaveChildren.data.some((c) => c.id === child.id)) return null;
   return <LeaveBlock student={child} />;
 }
 

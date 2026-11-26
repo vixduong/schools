@@ -85,6 +85,7 @@ type Portal = {
   me?: unknown;
   children?: unknown[];
   leaveChildren?: unknown[];
+  leaveChildrenStatus?: number;
   day?: Record<number, unknown>;
   scores?: Record<number, unknown>;
   notices?: unknown[];
@@ -101,7 +102,7 @@ function portalApi(p: Portal = {}) {
     if (pathname.endsWith("/today/")) return { status: 200, body: (p.day ?? DAY)[id] };
     if (pathname.endsWith("/scores/")) return { status: 200, body: (p.scores ?? SCORES)[id] };
     if (pathname === "/api/setup/leave-requests/children/")
-      return { status: 200, body: p.leaveChildren ?? [AN, BINH] };
+      return { status: p.leaveChildrenStatus ?? 200, body: p.leaveChildren ?? [AN, BINH] };
     if (pathname === "/api/setup/leave-requests/") return { status: 200, body: [] };
     if (pathname === "/api/setup/notices/") return { status: 200, body: p.notices ?? [NOTICE] };
     if (pathname === "/api/setup/timetable/mine/") return { status: 200, body: [] };
@@ -123,6 +124,33 @@ test("a Guardian with two children switches between them with pills", async () =
   expect(await screen.findByText("Vắng không phép")).toBeInTheDocument();
   expect(await screen.findByText("Đạt")).toBeInTheDocument();
   expect(screen.queryByText("8,5")).not.toBeInTheDocument();
+});
+
+test("a failed leave-children query shows an error instead of hiding Đơn xin nghỉ", async () => {
+  await renderApp("/guardian", portalApi({ children: [AN], leaveChildrenStatus: 500 }));
+  expect(
+    await screen.findByText(/Không tải được danh sách con/, {}, { timeout: 15_000 }),
+  ).toBeInTheDocument();
+}, 20_000); // the query retries twice before it gives up
+
+test("the same subject in two gradebooks shows each class beside it", async () => {
+  const toan = (class_name: string, value: number) => ({
+    subject_name: "Toán",
+    class_name,
+    columns: [{ kind: "regular", index: 1, value, result: null, changed_after_release: false }],
+  });
+  await renderApp(
+    "/guardian",
+    portalApi({
+      children: [AN],
+      scores: {
+        11: { term: 1, term_name: "Học kỳ I", gradebooks: [toan("6A", 6), toan("7A", 9)] },
+      },
+    }),
+  );
+  const scores = await screen.findByRole("region", { name: "Điểm mới" });
+  expect(await within(scores).findByText("Toán · 6A")).toBeInTheDocument();
+  expect(within(scores).getByText("Toán · 7A")).toBeInTheDocument();
 });
 
 test("a student sees their own day without pills or Đơn xin nghỉ", async () => {
