@@ -284,7 +284,7 @@ def test_the_term_defaults_to_todays_and_another_years_term_is_a_400(schools, p,
     g = client_of("g@example.com")
     scores = f"children/{p['an'].pk}/scores/"
     assert ok(portal(g, f"{scores}?term={p['hk2'].pk}"))["term_name"] == "HK II"
-    for bad in (old.pk, 999999, "x"):
+    for bad in (old.pk, 999999, "x", 2**63):
         response = portal(g, f"{scores}?term={bad}")
         assert response.status_code == 400, bad
         assert response.json() == {"term": ["unknown"]}
