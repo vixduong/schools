@@ -8,7 +8,9 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from schools.models import Enrollment, SchoolYear, Term
+from schools.tests.factories import make_student, make_year
 from tenancy.rls import school_scope
+from timetable.models import AttendanceMark, TimetableEntry
 
 from .conftest import link
 
@@ -73,6 +75,15 @@ def test_a_guardian_of_another_student_gets_404(p, client_of, portal):
             portal(client_of("g@example.com"), f"children/{p['bao'].pk}/{path}").status_code == 404
         )
     assert portal(client_of("g@example.com"), "children/999999/today/").status_code == 404
+
+
+def test_another_schools_student_is_a_404(schools, p, client_of, portal):
+    with school_scope(schools[1].pk):
+        stranger = make_student(schools[1], "Stranger")
+    for path in CHILD_ENDPOINTS:
+        assert (
+            portal(client_of("g@example.com"), f"children/{stranger.pk}/{path}").status_code == 404
+        )
 
 
 def test_a_student_does_not_reach_a_classmate(p, client_of, portal):
@@ -219,7 +230,19 @@ def test_a_child_who_left_keeps_their_scores_but_has_no_day(
     schools, p, client_of, portal, open_book, save, columns, call
 ):
     released_7a(p, open_book, save, columns, call, client_of)
-    with school_scope(schools[0].pk):
+    a = schools[0]
+    week_ago = TODAY - 7 * DAY
+    with school_scope(a.pk):
+        # t1 teaches 7A and is Bao's Guardian too; Bao was marked absent in MATH a week ago.
+        link(a, p["t1"], p["bao"])
+        AttendanceMark.objects.create(
+            school=a,
+            entry=TimetableEntry.objects.get(school_class=p["7A"], subject=p["math"]),
+            on=week_ago,
+            student=p["bao"],
+            status=AttendanceMark.Status.ABSENT_EXCUSED,
+            recorded_by=p["t1"],
+        )
         Enrollment.objects.filter(student=p["bao"]).update(
             valid_to=TODAY - DAY, reason_ended=Enrollment.ReasonEnded.TRANSFER_OUT
         )
@@ -232,10 +255,14 @@ def test_a_child_who_left_keeps_their_scores_but_has_no_day(
     assert ok(portal(other, f"children/{p['bao'].pk}/today/"))["periods"] == []
     # A week ago Bao was still in 7A, which held two periods that day: the class's records are
     # closed to him now all the same.
-    week_ago = TODAY - 7 * DAY
     an_then = ok(portal(client_of("g@example.com"), f"children/{p['an'].pk}/today/?on={week_ago}"))
     assert len(an_then["periods"]) == 2
     assert ok(portal(other, f"children/{p['bao'].pk}/today/?on={week_ago}"))["periods"] == []
+    # t1 reads 7A's records as its teacher, but not the mark of a child who left.
+    t1_then = ok(
+        portal(client_of("t1@example.com"), f"children/{p['bao'].pk}/today/?on={week_ago}")
+    )
+    assert [x["status"] for x in t1_then["periods"]] == [None, None]
 
 
 def test_a_class_change_mid_term_shows_the_gradebooks_of_both_classes(
@@ -284,7 +311,16 @@ def test_the_term_defaults_to_todays_and_another_years_term_is_a_400(schools, p,
     g = client_of("g@example.com")
     scores = f"children/{p['an'].pk}/scores/"
     assert ok(portal(g, f"{scores}?term={p['hk2'].pk}"))["term_name"] == "HK II"
-    for bad in (old.pk, 999999, "x", 2**63):
+    with school_scope(schools[1].pk):
+        b_year = make_year(schools[1])
+        elsewhere = Term.objects.create(
+            school=schools[1],
+            school_year=b_year,
+            name="HK I",
+            starts_on=b_year.starts_on,
+            ends_on=b_year.ends_on,
+        )
+    for bad in (old.pk, elsewhere.pk, 999999, "x", 2**63):
         response = portal(g, f"{scores}?term={bad}")
         assert response.status_code == 400, bad
         assert response.json() == {"term": ["unknown"]}

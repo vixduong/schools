@@ -10,12 +10,12 @@ Owner decisions (2026-11-26):
 
 ## Terms
 
-- **Child**: a student in `actor.own_student_ids | actor.linked_student_ids` (the member's own student record, or a GuardianLink in force), then passed through `_open_students(actor, ids, action)` for the action each endpoint checks. Not `visible_students` alone: its SCHOOL cell would list every student for a teacher who is also a Guardian. A student who left stays a child for scores only (`POST_LEAVE_STUDENT_ACTIONS`).
+- **Child**: a student in `actor.own_student_ids | actor.linked_student_ids` (the member's own student record, or a GuardianLink in force), each admitted by `can(actor, "scores.view", student, released=True, scope=Scope.SELF)` or the `Scope.LINKED` equivalent. Not `visible_students` alone: its SCHOOL cell would list every student for a teacher who is also a Guardian. A student who left stays a child for scores only (`POST_LEAVE_STUDENT_ACTIONS`).
 - **Released score**: the current entry of a cell whose column has `released_at`. A cell whose current entry was entered after the release is flagged `changed_after_release` (same rule as the teacher grid, `grades/views.py` `detail`).
 
 ## Model
 
-No new tables, no migration. Every read goes through tables whose grants and RLS already exist (SELECT for the app role); the School's RLS is the database net, and the member-to-student scope is enforced by the API through `visible_students` ("view only, because a Guardian is not a database role: the per-member rule lives in the permission engine, the one place `docs/roles.md` names"). Nothing is written, so there is nothing new to audit.
+No new tables, no migration. Every read goes through tables whose grants and RLS already exist (SELECT for the app role); the School's RLS is the database net, and the member-to-student scope is enforced by the API through `can` on the SELF and LINKED cells ("view only, because a Guardian is not a database role: the per-member rule lives in the permission engine, the one place `docs/roles.md` names"). Nothing is written, so there is nothing new to audit.
 
 ## API (new app `portal`, no models; read only; all under `/api/portal/`)
 

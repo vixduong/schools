@@ -1,7 +1,7 @@
 """The Guardian and student views (slice 8): a member's children, a child's day and their released
 scores. Read only. A child is a student in `own_student_ids | linked_student_ids` that the engine
-still opens for `scores.view` (so a child who left stays one for scores until the leaving year
-ends); anyone else's student is a 404, never a 403."""
+still opens for `scores.view` through the SELF or LINKED cell (so a child who left stays one for
+scores until the leaving year ends); anyone else's student is a 404, never a 403."""
 
 from django.db import models
 from django.utils import timezone
@@ -15,7 +15,8 @@ from accounts.permissions import HasMembership
 from grades.models import Gradebook, GradebookColumn, ScoreEntry
 from grades.views import COLUMN_ORDER, latest_per_cell
 from permissions.actor import Actor
-from permissions.engine import _open_students, can
+from permissions.engine import can
+from permissions.matrix import Scope
 from schools.models import Enrollment, Student, Term
 from timetable.models import AttendanceMark, TimetableEntry
 from timetable.views import MORNING_FIRST, ON, date_param, in_force
@@ -25,17 +26,24 @@ from . import serializers
 TERM = OpenApiParameter("term", int, description="A term of this school year; default today's")
 
 
-def child_ids(actor: Actor) -> frozenset[int]:
-    """The member's own and linked students the engine opens for `scores.view` (a post-leave
-    read). Not `visible_students`: its School cell would list every student for a teacher who is
-    also a Guardian, and would ignore the leaving rule."""
-    return _open_students(actor, actor.own_student_ids | actor.linked_student_ids, "scores.view")
+def own_or_linked(actor: Actor):
+    return Student.objects.filter(pk__in=actor.own_student_ids | actor.linked_student_ids)
+
+
+def is_child(actor: Actor, student: Student) -> bool:
+    """May the member read the student's released scores as themself or as their Guardian (a
+    post-leave read)? Only the SELF and LINKED cells: a teacher who is also a Guardian must not
+    reach their class's students through their teaching cell."""
+    return any(
+        can(actor, "scores.view", student, released=True, scope=scope)
+        for scope in (Scope.SELF, Scope.LINKED)
+    )
 
 
 def get_child(request, pk) -> Student:
     actor = Actor.of(request)
-    child = Student.objects.filter(pk=pk).first() if pk in child_ids(actor) else None
-    if child is None:
+    child = own_or_linked(actor).filter(pk=pk).first()
+    if child is None or not is_child(actor, child):
         raise NotFound
     return child
 
@@ -50,22 +58,24 @@ class ChildrenView(GenericAPIView):
     @extend_schema(responses=serializers.ChildSerializer(many=True))
     def get(self, request):
         actor = Actor.of(request)
-        ids = child_ids(actor)
+        children = [
+            student
+            for student in own_or_linked(actor).order_by("full_name", "id")
+            if is_child(actor, student)
+        ]
         classes = dict(
             Enrollment.objects.in_force()
-            .filter(student_id__in=ids)
+            .filter(student__in=children)
             .values_list("student_id", "school_class__name")
         )
         body = [
             {
-                "id": pk,
-                "name": name,
-                "class_name": classes.get(pk),
-                "left": not actor.student_access[pk].at_school,
+                "id": child.pk,
+                "name": child.full_name,
+                "class_name": classes.get(child.pk),
+                "left": not actor.student_access[child.pk].at_school,
             }
-            for pk, name in Student.objects.filter(pk__in=ids)
-            .order_by("full_name", "id")
-            .values_list("id", "full_name")
+            for child in children
         ]
         return Response(serializers.ChildSerializer(body, many=True).data)
 
@@ -102,6 +112,7 @@ class ChildDayView(GenericAPIView):
                 "teacher__account__display_name",  # the name only, never the contact details
                 "room__name",
             )
+            # Cannot be false today when class_records.view holds; kept as defence.
             names = can(actor, "class_teachers.view", klass)
             marks = {}
             if can(actor, "attendance.view", child):
