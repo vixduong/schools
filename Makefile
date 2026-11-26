@@ -21,12 +21,12 @@ backend-migrate: .env
 backend-dev: backend-migrate
 	cd backend && uv run python manage.py runserver
 
-backend-check: .env
+backend-check: db-up
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run pytest -n auto
 
 # Fast loop: every worker keeps its test database between runs. After a new migration, or when
 # the schema looks stale: make backend-test ARGS=--create-db
-backend-test: .env
+backend-test: db-up
 	cd backend && uv run pytest -n auto --reuse-db $(ARGS)
 
 .PHONY: frontend-dev frontend-check api-client

@@ -5,7 +5,7 @@ Django 5.2 LTS + DRF, Postgres 16 with row-level security (ADR 0001). Run from t
 ```
 make db-up          # Postgres in Docker; creates .env from .env.example on first use
 make backend-dev    # migrate as the owner role, then runserver as the app role
-make backend-check  # ruff + pytest (real Postgres, so db-up first)
+make backend-check  # ruff + pytest (real Postgres; starts it via db-up)
 ```
 
 - Schools resolve from the host: `a.localhost:8000/api/auth/csrf/` (`BASE_DOMAIN` in `.env`).
@@ -23,11 +23,18 @@ make backend-check  # ruff + pytest (real Postgres, so db-up first)
   | `group_leader` | `group@a.test` | subject group Toán |
   | `homeroom_teacher` | `homeroom@a.test` | class 7A |
   | `subject_teacher` | `subject@a.test` | Toán × class 7A |
+  | `subject_teacher` | `subject7b@a.test` | Toán × class 7B |
   | `student` | `student@a.test` | enrolled in 7A (own record only) |
   | `guardian` | `0912000001` (phone) | linked to the student above |
+  | `guardian` | `0912000002` (phone) | linked to the student above (7A) and a second child in 7B |
 
-  The fixtures are school year (current), Grade 7 (lower secondary), class 7A, subject group and subject Toán (`MATH`),
-  one student and one guardian link. Idempotent; the guardian's phone is fixed, so it is the same Account on every run.
+  The fixtures are school year (current), Grade 7 (lower secondary), classes 7A and 7B, subject group and subject Toán (`MATH`),
+  two students (the one in 7A signs in) and three guardian links. For `/guardian` as `0912000002`: 7B has five morning
+  periods every day, today's first four marked present, late, absent excused and absent unexcused and the fifth unmarked
+  (7A's first period, Monday to Friday, is marked late); a Toán gradebook per class in the current term (else the last one
+  started) has regular 1 and 2 released: 7A scores 8, then 6.5 changed to 7.5 after the release, plus an unreleased 9 in
+  regular 3; 7B scores 9 and leaves regular 2 released empty. Idempotent; the guardians' phones are fixed, so they are the
+  same Accounts on every run.
   Operator staff have no dev account: they see no School data.
 - Auth (ADR 0003), all under `/api/auth/` on a School host: `GET csrf/` (sets the CSRF cookie), `POST login/`,
   `POST logout/`, `GET me/`. Send the CSRF cookie's value as `X-CSRFToken` on every POST. A session is bound to
