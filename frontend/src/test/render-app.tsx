@@ -13,13 +13,14 @@ export const ME = {
   capabilities: [],
 };
 
-/** A row's averages as a semester 1 gradebook sends them, for fixtures that do not test them. */
+/** A row's averages as a semester 1 gradebook sends them while its end-term column is still
+ * empty, for fixtures that do not test them. */
 export const NO_AVERAGES = {
   semester: {
     value: null,
     result: null,
     state: "missing",
-    missing: [],
+    missing: [{ kind: "end_term", index: 1 }],
     carried: false,
     reason: null,
   },

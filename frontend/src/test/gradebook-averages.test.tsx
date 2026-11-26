@@ -64,7 +64,15 @@ async function openBook(book: object) {
   });
 }
 
-const cell = (label: RegExp) => screen.findByLabelText(label);
+/** The visible text of the average cell whose screen-reader text is `spoken`; the visible text
+ * is hidden from screen readers, so finding `spoken` checks what they hear. */
+async function shown(spoken: string) {
+  const heard = await screen.findByText(spoken);
+  expect(heard).toHaveClass("sr-only");
+  const visible = heard.previousElementSibling as HTMLElement;
+  expect(visible).toHaveAttribute("aria-hidden", "true");
+  return visible;
+}
 
 test("the average columns follow the score columns and come before the arrivals column", async () => {
   await openBook(
@@ -80,7 +88,7 @@ test("the average columns follow the score columns and come before the arrivals 
       },
     ]),
   );
-  await cell(/^An, ĐTB/);
+  await shown("An, ĐTB: 7,4");
   const heads = screen.getAllByRole("columnheader").map((h) => h.textContent);
   expect(heads.slice(0, 7)).toEqual([
     "Học sinh",
@@ -95,11 +103,10 @@ test("the average columns follow the score columns and come before the arrivals 
 
 test("a final average is plain figures with a decimal comma, also on the year", async () => {
   await openBook(BOOK([row(11, "An", avg({ value: 7.4 }), avg({ value: 7.2 }))]));
-  const semester = await cell(/^An, ĐTB/);
-  expect(semester).toHaveAccessibleName("An, ĐTB: 7,4");
+  const semester = await shown("An, ĐTB: 7,4");
   expect(semester).toHaveTextContent(/^7,4$/);
   expect(semester.className).not.toContain("italic");
-  expect(screen.getByLabelText(/^An, Cả năm/)).toHaveAccessibleName("An, Cả năm: 7,2");
+  expect(await shown("An, Cả năm: 7,2")).toHaveTextContent(/^7,2$/);
 });
 
 test("a provisional average is italic and marked tạm, in words for screen readers too", async () => {
@@ -113,13 +120,12 @@ test("a provisional average is italic and marked tạm, in words for screen read
       ),
     ]),
   );
-  const semester = await cell(/^An, ĐTB/);
+  const semester = await shown("An, ĐTB: 7,4 tạm");
   expect(semester).toHaveTextContent("7,4 tạm");
   expect(semester.className).toContain("italic");
-  expect(semester).toHaveAccessibleName("An, ĐTB: 7,4 tạm");
 });
 
-test("a missing average is a dash naming the empty columns in its title and label", async () => {
+test("a missing average is a dash naming the empty columns in its title and screen-reader text", async () => {
   const missing = avg({
     state: "missing",
     missing: [
@@ -128,20 +134,19 @@ test("a missing average is a dash naming the empty columns in its title and labe
     ],
   });
   await openBook(BOOK([row(11, "An", missing, missing)]));
-  const semester = await cell(/^An, ĐTB/);
+  const semester = await shown("An, ĐTB: chưa có. Thiếu điểm TX2, CK");
   expect(semester).toHaveTextContent(/^—$/);
   expect(semester).toHaveAttribute("title", "Thiếu điểm TX2, CK");
-  expect(semester).toHaveAccessibleName("An, ĐTB: chưa có. Thiếu điểm TX2, CK");
 });
 
 test("a year missing only because the semester 1 book is incomplete says so, never a blank title", async () => {
   await openBook(BOOK([row(11, "An", avg({ value: 8 }), avg({ state: "missing" }))]));
-  const year = await cell(/^An, Cả năm/);
+  const year = await shown("An, Cả năm: chưa có. Sổ học kỳ trước còn thiếu điểm");
   expect(year).toHaveTextContent(/^—$/);
   expect(year).toHaveAttribute("title", "Sổ học kỳ trước còn thiếu điểm");
 });
 
-test("left, split and unavailable show a dash with the reason in the title", async () => {
+test("left, split and unavailable show a dash with the reason in the title and screen-reader text", async () => {
   await openBook(
     BOOK([
       row(11, "An", avg({ state: "left" }), avg({ state: "left" })),
@@ -154,30 +159,26 @@ test("left, split and unavailable show a dash with the reason in the title", asy
       ),
     ]),
   );
-  const left = await cell(/^An, ĐTB/);
+  const left = await shown("An, ĐTB: chưa có. Học sinh đã rời lớp");
   expect(left).toHaveTextContent(/^—$/);
   expect(left).toHaveAttribute("title", "Học sinh đã rời lớp");
-  expect(screen.getByLabelText(/^Bảo, ĐTB/)).toHaveAttribute(
-    "title",
-    "Học sinh đổi lớp trong học kỳ, điểm nằm ở hai sổ",
-  );
-  const rules = screen.getByLabelText(/^Cường, Cả năm/);
-  expect(rules).toHaveTextContent(/^—$/);
-  expect(rules).toHaveAttribute("title", "Quy định đánh giá thiếu cách tính điểm trung bình");
-  expect(rules).toHaveAccessibleName(
+  expect(
+    await shown("Bảo, ĐTB: chưa có. Học sinh đổi lớp trong học kỳ, điểm nằm ở hai sổ"),
+  ).toHaveAttribute("title", "Học sinh đổi lớp trong học kỳ, điểm nằm ở hai sổ");
+  const rules = await shown(
     "Cường, Cả năm: chưa có. Quy định đánh giá thiếu cách tính điểm trung bình",
   );
+  expect(rules).toHaveTextContent(/^—$/);
+  expect(rules).toHaveAttribute("title", "Quy định đánh giá thiếu cách tính điểm trung bình");
 });
 
-test("a year without exactly two terms shows the year column as a dash naming why", async () => {
+test("a year without exactly two terms has no year column", async () => {
   await openBook(
-    BOOK([row(11, "An", avg({ value: 7.4 }), avg({ state: "unavailable", reason: "terms" }))], {
-      term_name: "HK I",
-    }),
+    BOOK([row(11, "An", avg({ value: 7.4 }), avg({ state: "unavailable", reason: "terms" }))]),
   );
-  const year = await cell(/^An, Cả năm/);
-  expect(year).toHaveTextContent(/^—$/);
-  expect(year).toHaveAttribute("title", "Năm học không có đúng hai học kỳ");
+  await shown("An, ĐTB: 7,4");
+  expect(screen.queryByRole("columnheader", { name: "Cả năm" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Cả năm/)).not.toBeInTheDocument();
 });
 
 test("an arriving student without a previous semester average reads it in red ink on the year cell", async () => {
@@ -186,17 +187,16 @@ test("an arriving student without a previous semester average reads it in red in
       row(11, "An", avg({ value: 8 }), avg({ state: "missing", reason: "no_previous_average" })),
     ]),
   );
-  const year = await cell(/^An, Cả năm/);
+  const year = await shown("An, Cả năm: Chưa có TB học kỳ trước");
   expect(year).toHaveTextContent("Chưa có TB học kỳ trước");
   expect(year.className).toContain("text-destructive");
-  expect(year).toHaveAccessibleName("An, Cả năm: Chưa có TB học kỳ trước");
 });
 
 test("a semester 1 book has no year column", async () => {
   await openBook(BOOK([row(11, "An", avg({ value: 7.4 }))], { term_name: "HK I" }));
-  await cell(/^An, ĐTB/);
+  await shown("An, ĐTB: 7,4");
   expect(screen.queryByRole("columnheader", { name: "Cả năm" })).not.toBeInTheDocument();
-  expect(screen.queryByLabelText(/Cả năm/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Cả năm/)).not.toBeInTheDocument();
 });
 
 test("a comment-only subject shows Kết quả as Đạt or Chưa đạt", async () => {
@@ -214,10 +214,8 @@ test("a comment-only subject shows Kết quả as Đạt or Chưa đạt", async
       { assessment: "comment_only" },
     ),
   );
-  expect(await cell(/^An, Kết quả/)).toHaveAccessibleName("An, Kết quả: Đạt");
-  const fail = screen.getByLabelText(/^Bảo, Kết quả/);
-  expect(fail).toHaveTextContent("Chưa đạt tạm");
-  expect(fail).toHaveAccessibleName("Bảo, Kết quả: Chưa đạt tạm");
+  expect(await shown("An, Kết quả: Đạt")).toHaveTextContent(/^Đạt$/);
+  expect(await shown("Bảo, Kết quả: Chưa đạt tạm")).toHaveTextContent("Chưa đạt tạm");
   expect(
     within(screen.getByRole("table")).getByRole("columnheader", { name: "Cả năm" }),
   ).toBeInTheDocument();

@@ -124,8 +124,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
   const [releasing, setReleasing] = useState<GradebookColumn | null>(null);
   const [carrying, setCarrying] = useState<number | null>(null);
   const hasArrivals = book.students.some((s) => s.arrival);
-  // The server sends a year average only in a semester 2 book (or says why there is none).
-  const hasYear = book.students.some((s) => s.averages.year);
+  // The server sends a year average only in a semester 2 book; a year without exactly two terms
+  // ("terms", the same for every row) gets no column.
+  const hasYear = book.students.some((s) => s.averages.year && s.averages.year.reason !== "terms");
   const averageHead = commentOnly ? "Kết quả" : "ĐTB";
   const carryingStudent = book.students.find((s) => s.id === carrying);
   const [refusedFirst, setRefusedFirst] = useState<string | null>(null);
@@ -372,8 +373,9 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
       )}
       <ReturnNote book={book} />
       {/* One scroll box in both directions: a sticky head and a pinned name column only work
-          against the box that scrolls, so it is as tall as the window under the top bar. */}
-      <div className="max-h-[calc(100dvh-8rem)] overflow-auto">
+          against the box that scrolls, so it is as tall as the window under the top bar. It is
+          `relative` so the cells' sr-only text stays inside it instead of widening the page. */}
+      <div className="relative max-h-[calc(100dvh-8rem)] overflow-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">
             Điểm {book.subject_name} lớp {book.class_name}, {book.term_name}
@@ -544,34 +546,22 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                   commentOnly={commentOnly}
                   className="border-l border-border"
                 />
-                {hasYear &&
-                  (student.averages.year ? (
-                    <AverageCell
-                      label={`${student.name}, Cả năm`}
-                      average={student.averages.year}
-                      commentOnly={commentOnly}
-                    />
-                  ) : (
-                    <td />
-                  ))}
+                {hasYear && student.averages.year && (
+                  <AverageCell
+                    label={`${student.name}, Cả năm`}
+                    average={student.averages.year}
+                    commentOnly={commentOnly}
+                  />
+                )}
                 {hasArrivals && (
                   <td className="border-l border-border px-2 py-1 align-top text-sm">
                     {student.arrival && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span
-                          className="tabular-nums"
-                          aria-label={`Kết quả mang sang của ${student.name}`}
-                        >
-                          {student.carried
-                            .filter(
-                              (c): c is typeof c & Pick<GradebookColumn, "kind"> =>
-                                c.kind !== "previous_semester_average",
-                            )
-                            .map(
-                              (c) =>
-                                `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`,
-                            )
-                            .join(" · ") || "–"}
+                        <span aria-hidden className="tabular-nums">
+                          {carriedText(student, commentOnly)}
+                        </span>
+                        <span className="sr-only">
+                          {`Kết quả mang sang của ${student.name}: ${carriedText(student, commentOnly)}`}
                         </span>
                         {student.can_carry && (
                           <Button
@@ -960,8 +950,21 @@ function applySaved(
   return { ...old, students };
 }
 
+/** A student's carried results for the Từ trường cũ cell, without the previous semester average. */
+function carriedText(student: GradebookRow, commentOnly: boolean) {
+  return (
+    student.carried
+      .filter(
+        (c): c is typeof c & Pick<GradebookColumn, "kind"> =>
+          c.kind !== "previous_semester_average",
+      )
+      .map((c) => `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`)
+      .join(" · ") || "–"
+  );
+}
+
 /** A read-only average (DESIGN.md, Gradebook grid): a final one in plain ink, a provisional one
- * italic with "tạm", none as "—" with the reason in the title and the screen-reader label. */
+ * italic with "tạm", none as "—" with the reason in the title and the screen-reader text. */
 function AverageCell({
   label,
   average,
@@ -977,8 +980,8 @@ function AverageCell({
   return (
     <td className={cn("px-2 py-1 text-center align-middle tabular-nums", className)}>
       <span
+        aria-hidden
         title={shown.why}
-        aria-label={`${label}: ${shown.spoken}`}
         className={cn(
           shown.provisional && "whitespace-nowrap italic",
           shown.alert && "text-destructive",
@@ -987,6 +990,7 @@ function AverageCell({
         {shown.text}
         {shown.provisional && <span className="text-xs text-ink-3"> tạm</span>}
       </span>
+      <span className="sr-only">{`${label}: ${shown.spoken}`}</span>
     </td>
   );
 }

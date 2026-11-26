@@ -48,7 +48,6 @@ const AVERAGE_WHY = {
   left: "Học sinh đã rời lớp",
   split: "Học sinh đổi lớp trong học kỳ, điểm nằm ở hai sổ",
   rules: "Quy định đánh giá thiếu cách tính điểm trung bình",
-  terms: "Năm học không có đúng hai học kỳ",
 } as const;
 
 /** An average cell: the figure or "—", `provisional` for the italic "tạm", `why` for the title,

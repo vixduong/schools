@@ -118,8 +118,12 @@ test("an arriving student shows the arrival, the source School, the document and
   const link = within(row as HTMLElement).getByRole("link", { name: "Hồ sơ chuyển" });
   expect(link).toHaveAttribute("href", "/api/setup/gradebooks/7/students/13/transfer/document/");
   expect(screen.getByRole("columnheader", { name: "Từ trường cũ" })).toBeInTheDocument();
-  expect(within(row as HTMLElement).getByLabelText("Kết quả mang sang của Eve")).toHaveTextContent(
-    "TX1 8 · GK 6,5",
+  expect(
+    within(row as HTMLElement).getByText("Kết quả mang sang của Eve: TX1 8 · GK 6,5"),
+  ).toHaveClass("sr-only");
+  expect(within(row as HTMLElement).getByText("TX1 8 · GK 6,5")).toHaveAttribute(
+    "aria-hidden",
+    "true",
   );
   // The School's own cells are untouched and read only here.
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
@@ -240,7 +244,7 @@ async function openDialog(
   const sent = await openBook(
     { arrival: RECORDED, can_carry: true, averages, ...eve },
     ({ path }) => (path.endsWith("/carried/") ? { status: 200, body: DETAIL() } : undefined),
-    { term_name: "HK II", ...over },
+    over,
   );
   fireEvent.click(await screen.findByRole("button", { name: "Nhập kết quả mang sang, Eve" }));
   const dialog = await screen.findByRole("dialog", { name: /Kết quả mang sang: Eve/ });
@@ -262,11 +266,11 @@ test("the previous semester average already entered shows in its field, and not 
   const { dialog } = await openDialog(SEMESTER_2, {}, { carried: [previous] });
   expect(within(dialog).getByLabelText("TB học kỳ trước")).toHaveValue("6,9");
   // The dialog is open over the grid; the grid's carried cell skips the average.
-  expect(screen.getByLabelText("Kết quả mang sang của Eve")).toHaveTextContent("–");
+  expect(screen.getByText("Kết quả mang sang của Eve: –")).toHaveClass("sr-only");
 });
 
 test("the previous semester average is not asked in a semester 1 book", async () => {
-  const { dialog } = await openDialog({ semester: AVERAGE, year: null }, { term_name: "HK I" });
+  const { dialog } = await openDialog({ semester: AVERAGE, year: null });
   expect(within(dialog).getByLabelText("TX1")).toBeInTheDocument();
   expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
 });
@@ -276,6 +280,7 @@ test("the previous semester average is not asked in a year without exactly two t
     semester: AVERAGE,
     year: { ...AVERAGE, state: "unavailable", value: null, reason: "terms" },
   });
+  expect(within(dialog).getByLabelText("TX1")).toBeInTheDocument();
   expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
 });
 
@@ -285,5 +290,6 @@ test("the previous semester average is not asked for a comment-only subject", as
     { semester: pass, year: pass },
     { assessment: "comment_only" },
   );
+  expect(within(dialog).getByLabelText("TX1")).toBeInTheDocument();
   expect(within(dialog).queryByLabelText("TB học kỳ trước")).not.toBeInTheDocument();
 });
