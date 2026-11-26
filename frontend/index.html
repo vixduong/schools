@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>sổ trường</title>
+    <!-- PWA (DESIGN.md, Guardian view): installable, no service worker. Colours are paper, light and dark. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#f6f2ea" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#120f09" media="(prefers-color-scheme: dark)" />
     <script>
       // Set the colour mode before first paint (DESIGN.md, Dark mode). Without a stored
       // choice, tokens.css follows prefers-color-scheme.

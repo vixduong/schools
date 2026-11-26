@@ -33,6 +33,9 @@ function LEAVE(fields: Partial<Mutable<LeaveRequest>> = {}): Mutable<LeaveReques
 
 const TEACHER = {
   ...ME,
+  role_assignments: [
+    { id: 1, role: "homeroom_teacher", school_class: 5, valid_from: "2026-09-01" },
+  ],
   capabilities: [
     {
       action: "leave_request.approve",
@@ -57,6 +60,18 @@ function leaveApi(list: Mutable<LeaveRequest>[], posts: Request[] = [], gets: st
     const { pathname, searchParams } = new URL(r.url);
     if (pathname === "/api/auth/me/") return { status: 200, body: TEACHER };
     if (pathname === "/api/setup/timetable/mine/") return { status: 200, body: [] };
+    if (pathname === "/api/portal/children/")
+      return {
+        status: 200,
+        body: [
+          { id: 11, name: "An", class_name: "7A", left: false },
+          { id: 12, name: "Bình", class_name: "7B", left: false },
+        ],
+      };
+    if (pathname.endsWith("/today/")) return { status: 200, body: { on: TODAY, periods: [] } };
+    if (pathname.endsWith("/scores/"))
+      return { status: 200, body: { term: null, term_name: null, gradebooks: [] } };
+    if (pathname === "/api/setup/notices/") return { status: 200, body: [] };
     if (pathname === "/api/setup/leave-requests/children/")
       return {
         status: 200,

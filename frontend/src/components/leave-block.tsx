@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api } from "@/api/client";
-import { LEAVE_KEY, type LeaveRequest, leaveChildrenQuery, leaveRequestsQuery } from "@/api/leave";
+import { LEAVE_KEY, type LeaveRequest, leaveRequestsQuery } from "@/api/leave";
 import {
   Field,
   FormError,
@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LEAVE_STATES, leaveActionFailure, leaveDays } from "@/lib/leave";
 import { FormFailure, refusal } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 
 const GENERIC = "Không gửi được đơn. Kiểm tra lại các ngày rồi gửi lại.";
 
@@ -49,33 +48,27 @@ function sendFailure(status: number, body: unknown) {
   return new FormFailure(Object.keys(fields).length ? undefined : GENERIC, fields);
 }
 
-/** "Đơn xin nghỉ" on the Guardian view: the form, then the Guardian's requests as tickets. */
-export function LeaveBlock() {
-  const children = useQuery(leaveChildrenQuery);
+type Student = { id: number; name: string };
+
+/** "Đơn xin nghỉ" on the Guardian view for the chosen child: the form, then the requests the
+ * member sent for that child as tickets. */
+export function LeaveBlock({ student }: { student: Student }) {
   const requests = useQuery(leaveRequestsQuery({ sent: 1 }));
+  const sent = requests.data?.filter((leave) => leave.student === student.id);
   return (
     <section aria-labelledby="leave" className="mt-8 grid max-w-xl gap-6">
       <h2 id="leave" className="font-serif text-2xl font-light">
         Đơn xin nghỉ
       </h2>
-      {children.isPending && <p className="italic text-ink-3">Đang tải…</p>}
-      {children.isError && (
-        <p role="alert" className="text-destructive">
-          Không tải được danh sách con. Kiểm tra mạng rồi tải lại trang.
-        </p>
-      )}
-      {children.data && children.data.length === 0 && (
-        <p className="italic text-ink-3">Chưa có học sinh nào gắn với tài khoản này.</p>
-      )}
-      {!!children.data?.length && <LeaveForm students={children.data} />}
+      <LeaveForm key={student.id} student={student} />
       {requests.isError && (
         <p role="alert" className="text-destructive">
           Không tải được các đơn đã gửi. Kiểm tra mạng rồi tải lại trang.
         </p>
       )}
-      {requests.data?.length === 0 && <p className="italic text-ink-3">Chưa có đơn nào.</p>}
+      {sent?.length === 0 && <p className="italic text-ink-3">Chưa có đơn nào.</p>}
       <ul aria-label="Các đơn đã gửi" className="grid gap-4">
-        {requests.data?.map((leave) => (
+        {sent?.map((leave) => (
           <li key={leave.id}>
             <SentTicket leave={leave} />
           </li>
@@ -85,20 +78,18 @@ export function LeaveBlock() {
   );
 }
 
-function LeaveForm({ students }: { students: { id: number; name: string }[] }) {
+function LeaveForm({ student }: { student: Student }) {
   const queryClient = useQueryClient();
   const form = useRef<HTMLFormElement>(null);
   const today = new Date().toLocaleDateString("sv"); // yyyy-mm-dd, local
-  const [student, setStudent] = useState(students[0]?.id);
   const [fromOn, setFromOn] = useState(today);
   const [toOn, setToOn] = useState(today);
   const [reason, setReason] = useState("");
 
   const send = useMutation({
     mutationFn: async () => {
-      if (student === undefined) throw new FormFailure(GENERIC, {});
       const { data, response, error } = await api.POST("/api/setup/leave-requests/", {
-        body: { student, from_on: fromOn, to_on: toOn, reason: reason.trim() },
+        body: { student: student.id, from_on: fromOn, to_on: toOn, reason: reason.trim() },
       });
       if (!data) throw sendFailure(response.status, error);
       return data;
@@ -119,34 +110,6 @@ function LeaveForm({ students }: { students: { id: number; name: string }[] }) {
         send.mutate();
       }}
     >
-      {students.length > 1 ? (
-        <fieldset className="flex flex-wrap items-center gap-2">
-          <legend className="mb-2 text-sm font-semibold">Con nghỉ học</legend>
-          {students.map((child) => (
-            <label
-              key={child.id}
-              className={cn(
-                "cursor-pointer rounded-full border-[1.5px] border-foreground px-4 py-1.5 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-                student === child.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary",
-              )}
-            >
-              <input
-                type="radio"
-                className="sr-only"
-                name="student"
-                value={child.id}
-                checked={student === child.id}
-                onChange={() => setStudent(child.id)}
-              />
-              {child.name}
-            </label>
-          ))}
-        </fieldset>
-      ) : (
-        <p>
-          Cho con <span className="font-semibold">{students[0]?.name}</span>
-        </p>
-      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="from_on" label="Từ ngày" error={fieldError(send.error, "from_on")}>
           <Input

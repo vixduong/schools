@@ -23,6 +23,7 @@ export async function renderApp(path: string, handler: Handler) {
     const { pathname } = new URL(request.url);
     let reply = await handler(request);
     if (!reply && pathname === "/api/auth/school/") reply = { status: 200, body: ME.school };
+    if (!reply && pathname === "/api/portal/children/") reply = { status: 200, body: [] };
     if (!reply && pathname === "/api/auth/csrf/") {
       document.cookie = "csrftoken=t0ken";
       reply = { status: 204 };

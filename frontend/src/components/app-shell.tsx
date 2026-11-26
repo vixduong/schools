@@ -1,7 +1,8 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { api } from "@/api/client";
+import { childrenQuery } from "@/api/portal";
 import { meQuery } from "@/api/queries";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
@@ -9,10 +10,11 @@ import { reach } from "@/lib/capabilities";
 import { clearDrafts, countDrafts } from "@/lib/drafts";
 
 const navLink =
-  "px-1 py-2 underline-offset-4 hover:underline data-[status=active]:font-semibold data-[status=active]:underline";
+  "whitespace-nowrap px-1 py-2 underline-offset-4 hover:underline data-[status=active]:font-semibold data-[status=active]:underline";
 
 export function AppShell() {
   const { data: me } = useSuspenseQuery(meQuery);
+  const children = useQuery(childrenQuery);
   const queryClient = useQueryClient();
   const router = useRouter();
 
@@ -47,10 +49,18 @@ export function AppShell() {
           <Link to="/" className="font-serif text-xl font-light no-underline">
             {me.school.name}
           </Link>
-          <nav aria-label="Chính" className="flex flex-1 items-center gap-4">
+          <nav
+            aria-label="Chính"
+            className="flex flex-1 flex-wrap items-center gap-x-4 max-sm:order-last max-sm:basis-full"
+          >
             <Link to="/" className={navLink}>
               Hôm nay
             </Link>
+            {!!children.data?.length && (
+              <Link to="/guardian" className={navLink}>
+                Học tập
+              </Link>
+            )}
             <Link to="/gradebook" className={navLink}>
               Sổ điểm
             </Link>

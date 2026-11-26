@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { childrenQuery } from "@/api/portal";
 import { meQuery } from "@/api/queries";
 import { myPeriodsQuery } from "@/api/timetable";
 import { ReturnedTickets, ReviewTickets } from "@/components/gradebook-inbox";
@@ -12,7 +13,17 @@ import { reach } from "@/lib/capabilities";
 import { hhmm, isCurrent } from "@/lib/timetable";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_app/")({ component: Screen });
+export const Route = createFileRoute("/_app/")({
+  // A member with no teacher or admin role (a Guardian, a student) lands on their children's page.
+  beforeLoad: async ({ context }) => {
+    const me = await context.queryClient.ensureQueryData(meQuery);
+    if (me.role_assignments.length > 0) return;
+    // A failed lookup keeps the home page: /guardian is one nav link away.
+    const children = await context.queryClient.ensureQueryData(childrenQuery).catch(() => []);
+    if (children.length > 0) throw redirect({ to: "/guardian" });
+  },
+  component: Screen,
+});
 
 /** The clock, refreshed each minute so the current period moves on its own. */
 function useNow() {

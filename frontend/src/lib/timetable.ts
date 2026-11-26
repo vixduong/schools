@@ -28,6 +28,15 @@ export function periodName(period: { session: string; number: number }): string 
   return `${session} ${period.number}`;
 }
 
+/** The School's day (yyyy-mm-dd) and clock time (hh:mm) at `now`, whatever the browser's zone. */
+export function schoolClock(now: Date): { day: string; time: string } {
+  const timeZone = "Asia/Ho_Chi_Minh";
+  return {
+    day: now.toLocaleDateString("sv", { timeZone }),
+    time: now.toLocaleTimeString("sv", { timeZone, hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
 /** Whether `now` (local time) falls inside the period's clock times. */
 export function isCurrent(period: { starts_at: string; ends_at: string }, now: Date): boolean {
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;

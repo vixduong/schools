@@ -209,7 +209,7 @@ test("a submitted gradebook says so in the dialog and disables Lưu", async () =
         status: 200,
         body: DETAIL({ arrival: RECORDED, can_carry: true }, { status: "submitted" }),
       };
-    sent.push(r);
+    if (pathname !== "/api/portal/children/") sent.push(r); // the nav's lookup is not a send
   });
   fireEvent.click(await screen.findByRole("button", { name: "Nhập kết quả mang sang, Eve" }));
   const dialog = await screen.findByRole("dialog", { name: /Kết quả mang sang: Eve/ });

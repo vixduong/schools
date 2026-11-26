@@ -31,6 +31,7 @@ base="http://$SUB.localhost:$WEB"
 jar="$work/jar"
 for _ in $(seq 1 60); do curl -sf -o /dev/null "$base/api/auth/school/" && break; sleep 1; done
 curl -sf "$base/login" | grep -q 'id="root"' || fail "the SPA page"
+curl -sf "$base/manifest.webmanifest" | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["display"] == "standalone" and m["icons"]' || fail "the PWA manifest"
 curl -sf "$base/api/auth/school/" | grep -q '"name":"Smoke"' || fail "school through the proxy (Host header?)"
 curl -sf -c "$jar" -b "$jar" -o /dev/null "$base/api/auth/csrf/" || fail "csrf"
 token=$(awk '/csrftoken/ {print $7}' "$jar")
@@ -43,4 +44,4 @@ token=$(awk '/csrftoken/ {print $7}' "$jar")  # rotated at sign-in
 [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" "$base/api/auth/me/")" = 200 ] || fail "me"
 [ "$(post logout '{}')" = 204 ] || fail "logout"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" "$base/api/auth/me/")" = 403 ] || fail "me after logout"
-echo "smoke OK: fresh database, create_school, activation, me and sign-out through the SPA proxy"
+echo "smoke OK: fresh database, create_school, activation, me and sign-out through the SPA proxy, the PWA manifest"
