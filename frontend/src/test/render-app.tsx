@@ -13,24 +13,31 @@ export const ME = {
   capabilities: [],
 };
 
-/** A row's averages as a semester 1 gradebook sends them while its end-term column is still
- * empty, for fixtures that do not test them. */
-export const NO_AVERAGES = {
-  semester: {
-    value: null,
-    result: null,
-    state: "missing",
-    missing: [{ kind: "end_term", index: 1 }],
-    carried: false,
-    reason: null,
-  },
-  year: null,
-};
-
-/** `detail` with `NO_AVERAGES` on every row that states none (the API always sends them). */
+/** `detail` with averages on every row that states none (the API always sends them), as a draft
+ * semester 1 book sends them: `missing` naming the row's empty columns, else provisional. */
 export function withAverages(detail: Record<string, unknown>) {
-  const students = detail.students as Record<string, unknown>[];
-  return { ...detail, students: students.map((s) => ({ averages: NO_AVERAGES, ...s })) };
+  const columns = detail.columns as { id: number; kind: string; index: number }[];
+  const students = detail.students as { cells?: { column: number }[] }[];
+  const commentOnly = detail.assessment === "comment_only";
+  return {
+    ...detail,
+    students: students.map((s) => {
+      const filled = new Set(s.cells?.map((c) => c.column));
+      const missing = columns
+        .filter((c) => !filled.has(c.id))
+        .map(({ kind, index }) => ({ kind, index }));
+      const done = missing.length === 0;
+      const semester = {
+        value: done && !commentOnly ? 7 : null,
+        result: done && commentOnly ? "pass" : null,
+        state: done ? "provisional" : "missing",
+        missing,
+        carried: false,
+        reason: null,
+      };
+      return { averages: { semester, year: null }, ...s };
+    }),
+  };
 }
 
 /** The app at `path` with the API answered by `handler` (school and csrf answered for it). */
