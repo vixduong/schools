@@ -27,6 +27,15 @@ def shape(book):
     return counts
 
 
+def leaves(value):
+    """Every scalar inside a JSON value (an audit event's details)."""
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [leaf for item in value for leaf in leaves(item)]
+    return [value]
+
+
 def set_periods(a, w, subject, periods):
     with school_scope(a.pk):
         SubjectLoad.objects.filter(subject=subject).update(periods_per_year=periods)
@@ -370,11 +379,15 @@ def test_opening_and_releasing_are_audited_and_no_score_reaches_the_log(
         events = list(AuditEvent.objects.filter(target_table__startswith="grades_"))
     kinds = sorted((e.target_table, e.action) for e in events)
     assert kinds == [("grades_gradebook", "insert"), ("grades_gradebookcolumn", "update")]
-    # Who released it, when; no score anywhere in the log, and no entry of one.
-    assert "7.5" not in str([e.details for e in events])
+    # Who released it, when; no score anywhere in the log, and no entry of one. Each logged value
+    # is compared whole: a substring check also matches timestamps such as "…:54:17.588".
     with school_scope(a.pk):
         assert not AuditEvent.objects.filter(target_table="grades_scoreentry").exists()
-        assert "7.5" not in str(list(AuditEvent.objects.values_list("details", flat=True)))
+        logged = [
+            leaf for d in AuditEvent.objects.values_list("details", flat=True) for leaf in leaves(d)
+        ]
+    assert logged
+    assert "7.5" not in {str(leaf) for leaf in logged}
 
 
 # --- opening, concurrently -------------------------------------------------------------------

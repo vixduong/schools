@@ -121,9 +121,10 @@ test("Nộp sổ asks first, and an incomplete answer marks the empty cells Chư
   fireEvent.click(within(dialog).getByRole("button", { name: "Nộp sổ" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   const empty = screen.getByRole("textbox", { name: "Bảo, TX1" });
+  // Radix calls onCloseAutoFocus, which marks the cells, in a timeout after the dialog unmounts.
+  await waitFor(() => expect(empty).toHaveFocus());
   expect(empty).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByText("Chưa có điểm")).toBeInTheDocument();
-  expect(empty).toHaveFocus();
 });
 
 test("Nộp sổ waits for the typed cells to be saved", async () => {
