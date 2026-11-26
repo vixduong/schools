@@ -240,17 +240,21 @@ class CarriedResult(TenantModel):
     `value`, a comment-only subject's `result` (trigger `carriedresult_fits_subject`); the student
     arrived in the term (`carriedresult_student_arrived_in_term`) and no gradebook of the term and
     subject for the student's class is submitted or approved (`carriedresult_gradebook_open`).
+    `previous_semester_average` (index 1, `value`) is the first-semester average of a student who
+    arrived in a later term; it fills no column, and only a scored subject in a term with an earlier
+    term of its school year takes one (`carriedresult_previous_average_fits`).
     Not copied into the audit log, as `ScoreEntry`."""
 
     class Kind(models.TextChoices):
         REGULAR = "regular"
         MID_TERM = "mid_term"
         END_TERM = "end_term"
+        PREVIOUS_SEMESTER_AVERAGE = "previous_semester_average"
 
     student = models.ForeignKey("schools.Student", on_delete=models.PROTECT, db_constraint=False)
     term = models.ForeignKey("schools.Term", on_delete=models.PROTECT, db_constraint=False)
     subject = models.ForeignKey("schools.Subject", on_delete=models.PROTECT, db_constraint=False)
-    kind = models.CharField(max_length=10, choices=Kind)
+    kind = models.CharField(max_length=30, choices=Kind)
     index = models.PositiveSmallIntegerField()
     value = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
     result = models.CharField(max_length=10, choices=ScoreEntry.Result, null=True, blank=True)  # noqa: DJ001
@@ -273,7 +277,9 @@ class CarriedResult(TenantModel):
                 name="carriedresult_result_is_known",
             ),
             models.CheckConstraint(
-                condition=Q(kind__in=["regular", "mid_term", "end_term"]),
+                condition=Q(
+                    kind__in=["regular", "mid_term", "end_term", "previous_semester_average"]
+                ),
                 name="carriedresult_kind_is_known",
             ),
             models.CheckConstraint(condition=Q(index__gte=1), name="carriedresult_index_from_1"),

@@ -1,0 +1,569 @@
+{
+  "_about": "docs/slices/1b-slice-1.md § Fixture: Circular 22/2021 profile (schools.0004 + 0007 rules), n = 3 regular columns for a scored subject, 2 for a comment-only one, half-up. `terms` is [terms in the school year, terms before the book's term]. Values are the plan's; do not edit them here.",
+  "cases": [
+    {
+      "id": "A",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "final"
+        },
+        "year": null
+      }
+    },
+    {
+      "id": "B",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "7.0",
+          "regular 2": "7.0",
+          "regular 3": "7.0",
+          "mid_term 1": "5.0",
+          "end_term 1": "9.0"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "7.3",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "C",
+      "terms": [
+        2,
+        1
+      ],
+      "first": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "6",
+          "regular 2": "6",
+          "regular 3": "6",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.0"
+        },
+        "carried": {}
+      },
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "6",
+          "regular 2": "6",
+          "regular 3": "9",
+          "mid_term 1": "8.0",
+          "end_term 1": "8.0"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "first": {
+          "value": "6.5",
+          "state": "final"
+        },
+        "semester": {
+          "value": "7.6",
+          "state": "final"
+        },
+        "year": {
+          "value": "7.2",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "D",
+      "terms": [
+        2,
+        1
+      ],
+      "previous": "6.9",
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "8.0",
+          "regular 3": "8.0",
+          "mid_term 1": "8.0",
+          "end_term 1": "8.0"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "8.0",
+          "state": "final"
+        },
+        "year": {
+          "value": "7.6",
+          "state": "final",
+          "carried": true
+        }
+      }
+    },
+    {
+      "id": "E",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 2": "8.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {
+          "regular 1": "7.0"
+        }
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "M",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 2": "8.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5",
+          "regular 1": "7.0"
+        },
+        "carried": {
+          "regular 1": "5.0"
+        }
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "K",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "draft",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "provisional"
+        }
+      }
+    },
+    {
+      "id": "F",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "draft",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": null,
+          "state": "missing",
+          "missing": [
+            "end_term 1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "L",
+      "terms": [
+        2,
+        1
+      ],
+      "first": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "6",
+          "regular 2": "6",
+          "regular 3": "6",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.0"
+        },
+        "carried": {}
+      },
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "draft",
+        "local": {
+          "regular 1": "6",
+          "regular 2": "6",
+          "regular 3": "9",
+          "mid_term 1": "8.0",
+          "end_term 1": "8.0"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "first": {
+          "value": "6.5",
+          "state": "final"
+        },
+        "semester": {
+          "value": "7.6",
+          "state": "provisional"
+        },
+        "year": {
+          "value": "7.2",
+          "state": "provisional"
+        }
+      }
+    },
+    {
+      "id": "N",
+      "terms": [
+        2,
+        1
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "year": {
+          "value": null,
+          "state": "missing",
+          "reason": "no_previous_average"
+        }
+      }
+    },
+    {
+      "id": "H1",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 1": "pass",
+          "regular 2": "pass"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": null,
+          "result": "pass",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "H2",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 1": "pass",
+          "regular 2": "fail"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "result": "fail",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "H3",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "draft",
+        "local": {
+          "regular 1": "pass"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "result": null,
+          "state": "missing",
+          "missing": [
+            "regular 2"
+          ]
+        }
+      }
+    },
+    {
+      "id": "H4",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 2": "pass"
+        },
+        "carried": {
+          "regular 1": "pass"
+        }
+      },
+      "expected": {
+        "semester": {
+          "result": "pass",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "H5",
+      "terms": [
+        2,
+        1
+      ],
+      "first": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 1": "fail",
+          "regular 2": "pass"
+        },
+        "carried": {}
+      },
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 1": "pass",
+          "regular 2": "pass"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "first": {
+          "result": "fail"
+        },
+        "semester": {
+          "result": "pass",
+          "state": "final"
+        },
+        "year": {
+          "result": "pass",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "I",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "draft",
+        "local": {
+          "regular 1": "8.0"
+        },
+        "carried": {},
+        "left": true
+      },
+      "expected": {
+        "semester": {
+          "value": null,
+          "state": "left"
+        }
+      }
+    },
+    {
+      "id": "J",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {},
+        "left": true,
+        "split": true
+      },
+      "expected": {
+        "semester": {
+          "value": null,
+          "state": "split"
+        }
+      }
+    },
+    {
+      "id": "O1",
+      "terms": [
+        1,
+        0
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "final"
+        },
+        "year": {
+          "value": null,
+          "state": "unavailable",
+          "reason": "terms"
+        }
+      }
+    },
+    {
+      "id": "O3",
+      "terms": [
+        3,
+        2
+      ],
+      "book": {
+        "assessment": "scored",
+        "regular": 3,
+        "status": "approved",
+        "local": {
+          "regular 1": "8.0",
+          "regular 2": "7.0",
+          "regular 3": "9.0",
+          "mid_term 1": "6.5",
+          "end_term 1": "7.5"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "value": "7.4",
+          "state": "final"
+        },
+        "year": {
+          "value": null,
+          "state": "unavailable",
+          "reason": "terms"
+        }
+      }
+    }
+  ]
+}

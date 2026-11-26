@@ -170,6 +170,38 @@ class ArrivalSerializer(serializers.Serializer):
     recorded_at = serializers.DateTimeField(allow_null=True)
 
 
+class MissingColumnSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=GradebookColumn.Kind.choices)
+    index = serializers.IntegerField()
+
+
+class AverageSerializer(serializers.Serializer):
+    """A semester or year average (`grades/averages.py`, never stored): `value` for a scored
+    subject, `result` for a comment-only one, each only when `state` is `final` or
+    `provisional`; `missing` lists the empty columns; `carried` says a carried result was used;
+    `reason` explains `unavailable` (`rules`, `terms`) or a year's `no_previous_average`."""
+
+    value = serializers.DecimalField(
+        max_digits=3, decimal_places=1, allow_null=True, coerce_to_string=False
+    )
+    result = serializers.ChoiceField(choices=ScoreEntry.Result.choices, allow_null=True)
+    state = serializers.ChoiceField(
+        choices=["final", "provisional", "missing", "left", "split", "unavailable"]
+    )
+    missing = MissingColumnSerializer(many=True)
+    carried = serializers.BooleanField()
+    reason = serializers.ChoiceField(
+        choices=["rules", "terms", "no_previous_average"], allow_null=True
+    )
+
+
+class RowAveragesSerializer(serializers.Serializer):
+    """`year` is null outside a semester 2 gradebook."""
+
+    semester = AverageSerializer()
+    year = AverageSerializer(allow_null=True)
+
+
 class RowSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
@@ -179,6 +211,7 @@ class RowSerializer(serializers.Serializer):
     arrival = ArrivalSerializer(allow_null=True)
     carried = CarriedSerializer(many=True)
     cells = CellSerializer(many=True)
+    averages = RowAveragesSerializer()
 
 
 class StepSerializer(serializers.Serializer):

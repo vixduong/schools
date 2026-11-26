@@ -33,6 +33,7 @@ from schools.models import (
 from schools.views import database_rules
 
 from . import serializers
+from .average_data import roster_averages, term_position
 from .models import (
     CarriedResult,
     Gradebook,
@@ -406,12 +407,14 @@ def detail(request, gradebook):
     gradebook.can_enter = can(Actor.of(request), "scores.enter", pair_of(gradebook))
     gradebook.columns = gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
     transfers = transfer_view(request, gradebook, [pk for pk, _ in students], in_class)
+    averages = roster_averages(gradebook, [pk for pk, _ in students], in_class)
     gradebook.students = [
         {
             "id": pk,
             "name": name,
             "in_class": pk in in_class,
             "cells": cells.get(pk, []),
+            "averages": averages[pk],
             **transfers[pk],
         }
         for pk, name in students
@@ -505,19 +508,27 @@ class GradebookView(GradebookMixin, GenericAPIView):
 
 
 def empty_cells(gradebook, today):
-    """Every cell of a student still in the class that has no score (nothing, or a cleared cell),
-    column by column: what `gradebook_incomplete` would refuse a submit for."""
+    """Every cell of a student still in the class that has no score (nothing, or a cleared cell)
+    and no carried result of the same kind and index, column by column: what
+    `gradebook_incomplete` would refuse a submit for."""
     students, in_class = roster(gradebook, today)
     scored = {
         (entry.column_id, entry.student_id)
         for entry in current_entries(gradebook)
         if entry.value is not None or entry.result is not None
     }
+    carried = {
+        (student, row.kind, row.index)
+        for student, rows in current_carried(gradebook).items()
+        for row in rows
+    }
     return [
         {"column": column.pk, "student": student, "code": "incomplete"}
         for column in gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
         for student, _ in students
-        if student in in_class and (column.pk, student) not in scored
+        if student in in_class
+        and (column.pk, student) not in scored
+        and (student, column.kind, column.index) not in carried
     ]
 
 
@@ -1019,6 +1030,10 @@ class CarriedView(TransferMixin, GenericAPIView):
         self.arrival()
         columns = {(c.kind, c.index) for c in gradebook.gradebookcolumn_set.all()}
         term, student_ = gradebook.term, self.get_student()
+        # The one carried result that is no column: a scored subject's first-semester average, in
+        # a term after another of its year (`carriedresult_previous_average_fits`).
+        if gradebook.subject.assessment == Subject.Assessment.SCORED and term_position(term)[1]:
+            columns.add((CarriedResult.Kind.PREVIOUS_SEMESTER_AVERAGE, 1))
         with database_rules():
             # Every gradebook of the term and subject for a class the student was in, in id order
             # (the trigger `carriedresult_gradebook_open` locks the same set): a step or a save

@@ -150,8 +150,9 @@ SPECTACULAR_SETTINGS = {
         "AttendanceStatusEnum": "timetable.models.AttendanceMark.Status",
         "GradebookStatusEnum": "grades.models.Gradebook.Status",
         "GradebookStepActionEnum": "grades.models.GradebookStep.Action",
-        # A column's and a carried result's kinds are the same three values.
-        "ColumnKindEnum": "grades.models.CarriedResult.Kind",
+        # A carried result has the column kinds plus `previous_semester_average`.
+        "ColumnKindEnum": "grades.models.GradebookColumn.Kind",
+        "CarriedKindEnum": "grades.models.CarriedResult.Kind",
     },
 }
 
