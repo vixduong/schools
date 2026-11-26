@@ -328,7 +328,9 @@
         "status": "approved",
         "local": {
           "regular 1": "pass",
-          "regular 2": "pass"
+          "regular 2": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {}
       },
@@ -352,7 +354,9 @@
         "status": "approved",
         "local": {
           "regular 1": "pass",
-          "regular 2": "fail"
+          "regular 2": "fail",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {}
       },
@@ -374,7 +378,9 @@
         "regular": 2,
         "status": "draft",
         "local": {
-          "regular 1": "pass"
+          "regular 1": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {}
       },
@@ -399,7 +405,9 @@
         "regular": 2,
         "status": "approved",
         "local": {
-          "regular 2": "pass"
+          "regular 2": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {
           "regular 1": "pass"
@@ -424,7 +432,9 @@
         "status": "approved",
         "local": {
           "regular 1": "fail",
-          "regular 2": "pass"
+          "regular 2": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {}
       },
@@ -434,7 +444,9 @@
         "status": "approved",
         "local": {
           "regular 1": "pass",
-          "regular 2": "pass"
+          "regular 2": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "pass"
         },
         "carried": {}
       },
@@ -448,6 +460,31 @@
         },
         "year": {
           "result": "pass",
+          "state": "final"
+        }
+      }
+    },
+    {
+      "id": "H6",
+      "terms": [
+        2,
+        0
+      ],
+      "book": {
+        "assessment": "comment_only",
+        "regular": 2,
+        "status": "approved",
+        "local": {
+          "regular 1": "pass",
+          "regular 2": "pass",
+          "mid_term 1": "pass",
+          "end_term 1": "fail"
+        },
+        "carried": {}
+      },
+      "expected": {
+        "semester": {
+          "result": "fail",
           "state": "final"
         }
       }

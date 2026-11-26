@@ -9,7 +9,7 @@ Done when a gradebook's grid shows each student's semester average (and, in the 
 ## Terms
 
 - **Semester average** (ĐTBmhk), scored subjects: `(sum of regular scores + 2 × mid-term + 3 × end-term) / (number of regular columns + 5)`, one decimal. **Year average** (ĐTBmcn): `(semester 1 average + 2 × semester 2 average) / 3`. Weights come from the profile version the gradebook is pinned to (`rules.weights`, `rules.semester_average`, `rules.year_average`); never written in code.
-- **Comment-only subject**: Đạt when the required number of regular comments is entered and all are Đạt, otherwise Chưa đạt; the year result equals semester 2's.
+- **Comment-only subject**: Đạt when the required number of assessments is entered and all assessments of the book (regular, mid-term, end-term) are Đạt, otherwise Chưa đạt (Art. 9.1.a); the year result equals semester 2's.
 - **Semester 2 gradebook**: its term has exactly one earlier term in the same school year ("earlier" = another term of the year with `ends_on` before this term's `starts_on`; `Term` has no ordinal) and the year has exactly two terms. A year with another number of terms gets no year average (state `unavailable`, reason `terms`).
 - **Average state**, per student per gradebook: `final` (approved), `provisional` (draft or submitted, every required cell filled), `missing` (draft or submitted, a required cell empty: no value, the empty columns listed), `left`, `split`, `unavailable` (the profile version lacks a key the calculation needs, or the term rule above fails).
 - **Previous semester average** (new in `GLOSSARY.md`): the first-semester average of a student who arrived in semester 2, brought from the previous School, one number per scored subject.
@@ -27,7 +27,7 @@ Done when a gradebook's grid shows each student's semester average (and, in the 
   - `index` 1, `value` only. The existing CHECK `carriedresult_kind_is_known` is replaced to list the kind; `carriedresult_periodic_is_single` already requires `index = 1`.
   - New trigger `carriedresult_previous_average_fits` (cross-table): only a scored subject (a comment-only subject needs no first-semester figure), and only when the term has an earlier term in its school year (rule under Terms). The existing triggers `student_arrived_in_term` and `gradebook_open` apply to it unchanged, so it can be entered only while the gradebooks of that term and subject are drafts.
   - Audit: none, as the other carried results.
-- **`gradebook_incomplete` (SQL function of `grades/0003`) is replaced** in the same migration so a column cell is filled by a current local entry or a current carried row of the same `(kind, index)` for that student, term and subject; the Python `empty_cells` (`views.py`, the list the submit error returns) is changed to the same rule. `previous_semester_average` fills no column. The migration follows `0005`: reverse SQL for every operation, grants unchanged (INSERT and SELECT only).
+- **`gradebook_incomplete` (SQL function of `grades/0003`) is replaced** in the same migration so a column cell is filled by a current local entry or a current carried row of the same `(kind, index)` for that student, term and subject; the Python `empty_cells` (`views.py`, the list the submit error returns) is changed to the same rule. `previous_semester_average` fills no column. The migration follows `0005`: reverse SQL for every operation, grants unchanged (INSERT and SELECT only). The reverse fails once a `previous_semester_average` row exists (0005's kind CHECK and the 10-character column cannot hold it, and carried rows are never deleted).
 
 ## Calculation (`backend/grades/averages.py`, pure functions)
 
@@ -36,7 +36,7 @@ No ORM and no clock: inputs are plain values (rules, required columns, per-colum
 - The rounding mode is `getattr(decimal, rules["rounding"])`, passed to `quantize` explicitly; never the context default (half-even).
 - `n` is the gradebook's own regular column count (derived from the profile and the subject's periods per year when it was opened).
 - A column's value: the current local entry, else the current carried row of the same `(kind, index)`, else empty. Averages are `final` only on an approved book, where every cell of a student in the class is filled by the workflow.
-- **Precedence of states** for one student and gradebook: `unavailable` (rules or terms) > `split` > `left` > `missing` > `provisional` > `final`. `split` = the student is on the roster of two gradebooks of the same subject and term (they changed class in the term); the two are not combined (see Not in this slice). `left` = the row is read-only because the student left; no value.
+- **Precedence of states** for one student and gradebook: `unavailable` (rules or terms) > `split` > `left` > `missing` > `provisional` > `final`. `split` = the student is on the roster of two gradebooks of the same subject and term (they changed class in the term); the two are not combined (see Not in this slice). `left` = the student's enrolment in this class ended before the term ended; no value. A class change at the term boundary, a school year that has ended and an arrival dated later in the term are not `left`.
 - **Year average** (semester 2 gradebook only): semester 1 comes from the student's own semester 1 gradebook of the same subject (any class), or, when the student has none, from the `previous_semester_average` (state `final`, `carried: true`); a local semester 1 gradebook wins over a carried figure. Neither present: `missing`, reason `no_previous_average`. The year state is the worse of the two semesters by the order above; it has a value only when the worse is `final` or `provisional`.
 - A profile version missing a needed key gives `unavailable`, never a guess (schema 1 has every key today, so the test crafts a rules dict).
 
@@ -69,7 +69,7 @@ Circular 22/2021 profile, three regular columns (n = 3), half-up. Expected value
 | F, missing in a draft | as A with end-term empty, draft | value null, `missing`: end-term |
 | L, year provisional | S1 approved 6.5; S2 draft with every cell filled giving 7.625 → 7.6 | year **7.2**, `provisional` |
 | N, year without a first semester | arrival in semester 2, no previous average entered | year null, `missing`, `no_previous_average` |
-| H, comment-only | required 2: Đạt, Đạt → Đạt; Đạt, Chưa đạt → Chưa đạt; one empty, draft → `missing`; carried Đạt + local Đạt → Đạt; year = semester 2's | as stated |
+| H, comment-only | all assessments of the book (2 regular, mid-term, end-term): all Đạt → Đạt; a regular Chưa đạt → Chưa đạt; end-term Chưa đạt, the rest Đạt → Chưa đạt (H6); one empty, draft → `missing`; carried Đạt + local Đạt → Đạt; year = semester 2's | as stated |
 | I, left | student with the row read-only after leaving | `left`, no value |
 | J, split | the student on the roster of two gradebooks of one subject and term | `split` in both (wins over `left`) |
 | O, terms | a school year with one term, and one with three | year average `unavailable`, reason `terms`; semester averages still computed |
@@ -84,7 +84,7 @@ Circular 22/2021 profile, three regular columns (n = 3), half-up. Expected value
 
 ## Files
 
-- **Part A:** new `backend/grades/averages.py`, `average_data.py`, `migrations/0006_previous_semester_average.py`, `tests/test_averages.py`, `tests/test_average_rows.py`, `tests/fixtures/averages_cases.json`; changed `backend/grades/models.py`, `views.py` (`detail`, `CarriedView.put`, `empty_cells`), `serializers.py`, `frontend/src/api/openapi.json` and `schema.d.ts` (generated), `docs/phase-1b.md` (row 1 and O7).
+- **Part A:** new `backend/grades/averages.py`, `average_data.py`, `migrations/0006_previous_semester_average.py`, `tests/test_averages.py`, `tests/test_average_rows.py`, `tests/fixtures/averages_cases.json`; changed `backend/grades/models.py`, `views.py` (`detail`, `CarriedView.put`, `empty_cells`, and, a deviation found in review, `ColumnReleaseView.post`: a current carried row of the column's kind and index counts as filled, as in `empty_cells`), `serializers.py`, `frontend/src/api/openapi.json` and `schema.d.ts` (generated), `docs/phase-1b.md` (row 1 and O7). Deviation: one filter in `frontend/src/components/gradebook-grid.tsx` (the per-column carried cell skips `previous_semester_average`) lands in Part A so the regenerated client typechecks.
 - **Part B:** changed `frontend/src/components/gradebook-grid.tsx`, the transfer dialog component, `frontend/src/lib/grades.ts`, frontend tests, `DESIGN.md`, `GLOSSARY.md`.
 
 ## Not in this slice
@@ -94,3 +94,4 @@ Circular 22/2021 profile, three regular columns (n = 3), half-up. Expected value
 - Combining one subject's cells from two gradebooks after a mid-term class change: the state is `split`.
 - Entering a `previous_semester_average` after the semester 2 gradebook is submitted: the existing `gradebook_open` trigger refuses it, so a missing figure is fixed by reopening the book (audited, 1a slice 5); a submit warning for it is left to a later slice.
 - Re-assessment after summer training and its effect on the year average.
+- A `previous_semester_average` is accepted for any term with an earlier term in its year, a year of three terms included, although such a year shows no year average (`terms`): harmless, left as is.

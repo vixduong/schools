@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 
 from grades.models import CarriedResult, GradebookStep
 from grades.tests.conftest import TODAY, staff
-from schools.models import Enrollment, Student, Term
+from schools.models import Enrollment, SchoolYear, Student, Term
 from schools.tests.factories import make_student
 from tenancy.rls import school_scope
 from testing import enroll
@@ -130,9 +130,15 @@ def test_an_empty_cell_lists_the_column_and_a_comment_only_subject_gives_a_resul
     assert an["missing"] == [{"kind": "end_term", "index": 1}]
     pe = open_book(subject=w["pe"])
     ids = columns(pe)
+    # Art. 9.1.a: every assessment of the book counts, the end-term one included (Bao).
+    results = {
+        "an": (("regular", 1, "pass"), ("regular", 2, "fail"), ("end_term", 1, "pass")),
+        "bao": (("regular", 1, "pass"), ("regular", 2, "pass"), ("end_term", 1, "fail")),
+    }
     cells = [
-        {"column": ids["regular", i], "student": w["an"].pk, "result": r, "expected": None}
-        for i, r in ((1, "pass"), (2, "fail"))
+        {"column": ids[kind, i], "student": w[who].pk, "result": r, "expected": None}
+        for who, given in results.items()
+        for kind, i, r in (("mid_term", 1, "pass"), *given)
     ]
     assert (
         call(
@@ -140,8 +146,11 @@ def test_an_empty_cell_lists_the_column_and_a_comment_only_subject_gives_a_resul
         ).status_code
         == 200
     )
-    result = averages_of(detail(call, client_of, pe), w["an"])["semester"]
+    rows = detail(call, client_of, pe)
+    result = averages_of(rows, w["an"])["semester"]
     assert (result["value"], result["result"], result["state"]) == (None, "fail", "provisional")
+    bao = averages_of(rows, w["bao"])["semester"]
+    assert (bao["result"], bao["state"]) == ("fail", "provisional")
 
 
 def test_a_student_on_two_gradebooks_of_the_subject_and_term_is_split(
@@ -290,7 +299,77 @@ def test_the_database_takes_a_previous_average_only_for_a_scored_subject_of_a_la
         previous(a, w)
 
 
+def test_a_student_arriving_later_in_the_term_has_not_left(schools, w, book, call, client_of):
+    a = schools[0]
+    with school_scope(a.pk):
+        gia = make_student(a, "Gia")
+        Enrollment.objects.create(
+            school=a,
+            student=gia,
+            school_year=w["year"],
+            school_class=w["7A"],
+            valid_from=TODAY + 5 * DAY,
+            reason_started=Enrollment.ReasonStarted.TRANSFER_IN,
+        )
+    gia_average = averages_of(detail(call, client_of, book), gia)["semester"]
+    assert gia_average["state"] == "missing"
+
+
+def test_after_the_school_year_ends_an_approved_book_still_shows_its_averages(
+    schools, second_semester, first_approved, call, client_of
+):
+    w = second_semester
+    with school_scope(schools[0].pk):  # HK II and the year ended yesterday
+        Term.objects.filter(pk=w["hk2"].pk).update(ends_on=TODAY - DAY)
+        SchoolYear.objects.filter(pk=w["year"].pk).update(ends_on=TODAY - DAY)
+    an = averages_of(detail(call, client_of, first_approved), w["an"])["semester"]
+    assert (an["value"], an["state"]) == (6.5, "final")
+
+
+def test_a_class_change_at_the_semester_boundary_leaves_both_books_with_averages(
+    schools, second_semester, first_approved, open_book, save, columns, call, client_of
+):
+    a, w = schools[0], second_semester
+    with school_scope(a.pk):  # Bao moves from 7A to 7B between the semesters
+        Enrollment.objects.filter(student=w["bao"], school_class=w["7A"]).update(
+            valid_to=w["hk1"].ends_on, reason_ended=Enrollment.ReasonEnded.CLASS_CHANGE
+        )
+        Enrollment.objects.create(
+            school=a,
+            student=w["bao"],
+            school_year=w["year"],
+            school_class=w["7B"],
+            valid_from=w["hk2"].starts_on,
+            reason_started=Enrollment.ReasonStarted.CLASS_CHANGE,
+        )
+    bao = averages_of(detail(call, client_of, first_approved), w["bao"])["semester"]
+    assert (bao["value"], bao["state"]) == (8.0, "final")
+    t2 = "t2@example.com"
+    second = open_book(term=w["hk2"], klass=w["7B"], client=client_of(t2))
+    ids = columns(second)
+    cells = [
+        {"column": ids[key(name)], "student": w["bao"].pk, "value": 8, "expected": None}
+        for name in ALL_8
+    ]
+    assert save(second["id"], cells, client=client_of(t2)).status_code == 200
+    year = averages_of(detail(call, client_of, second, who=t2), w["bao"])["year"]
+    assert (year["value"], year["state"]) == (8.0, "provisional")
+
+
 # --- a carried cell fills an empty one -----------------------------------------------------------
+
+
+def test_a_carried_cell_counts_as_filled_for_a_column_release(
+    w, book, fill, carry, columns, call, client_of
+):
+    fill(book, {"an": CASE_A, "bao": CASE_A, "eve": {"regular 2": 8}})
+    assert carry(book, w["eve"], [{"kind": "regular", "index": 1, "value": 7}]).status_code == 200
+    ids = columns(book)
+    release = f"gradebooks/{book['id']}/columns/{{}}/release/"
+    response = call(client_of(TEACHER), "post", release.format(ids["regular", 1]))
+    assert response.status_code == 200, response.content
+    response = call(client_of(TEACHER), "post", release.format(ids["regular", 3]))
+    assert response.json()["students"] == [{"id": w["eve"].pk, "name": "Eve"}]
 
 
 def test_a_carried_cell_counts_as_filled_for_submit_and_an_empty_one_is_still_refused(

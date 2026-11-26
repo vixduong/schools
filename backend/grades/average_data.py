@@ -13,6 +13,7 @@ from . import averages
 from .models import CarriedResult, Gradebook, GradebookColumn, ScoreEntry
 
 PREVIOUS = CarriedResult.Kind.PREVIOUS_SEMESTER_AVERAGE
+KINDS = list(GradebookColumn.Kind)  # regular, mid-term, end-term: `views.COLUMN_ORDER`
 
 
 def term_position(term):
@@ -29,14 +30,11 @@ def during(term):
     )
 
 
-def required(columns, assessment):
-    """The (kind, index) cells an average needs: every column of a scored subject; the regular
-    comments of a comment-only one (docs/slices/1b-slice-1.md, Terms)."""
-    return [
-        (c.kind, c.index)
-        for c in columns
-        if assessment == Subject.Assessment.SCORED or c.kind == GradebookColumn.Kind.REGULAR
-    ]
+def required(columns):
+    """The (kind, index) cells an average needs, in column order: every column of the book, for a
+    comment-only subject too (Circular 22/2021 Art. 9.1.a: Đạt only when every assessment taken
+    is Đạt; docs/slices/1b-slice-1.md, Terms)."""
+    return sorted(((c.kind, c.index) for c in columns), key=lambda c: (KINDS.index(c[0]), c[1]))
 
 
 def current_cells(books, student_ids):
@@ -77,8 +75,7 @@ def carried_cells(term, subject, student_ids):
 def first_semesters(gradebook, earlier_term, student_ids):
     """{student id: Average of their own semester 1 gradebook(s) of the subject}; a student with
     none is left out. Two gradebooks (a class change in that term) give `split`. `left` is not
-    applied: that book's roster judges it by today, and a class change between the terms is no
-    leaving."""
+    applied: a class change between the terms is no leaving."""
     books = {
         book.school_class_id: book
         for book in Gradebook.objects.filter(
@@ -106,7 +103,7 @@ def first_semesters(gradebook, earlier_term, student_ids):
         out[student] = averages.semester(
             book.profile_version.rules,
             assessment,
-            required(columns.get(book.pk, []), assessment),
+            required(columns.get(book.pk, [])),
             cells.get((book.pk, student), {}),
             carried.get(student, {}),
             book.status,
@@ -121,11 +118,12 @@ def shown(average):
     return {**asdict(average), "missing": [{"kind": k, "index": i} for k, i in average.missing]}
 
 
-def roster_averages(gradebook, student_ids, in_class):
-    """{student id: {"semester": ..., "year": ... or None}} for the gradebook's rows."""
+def roster_averages(gradebook, student_ids, left):
+    """{student id: {"semester": ..., "year": ... or None}} for the gradebook's rows. `left`: the
+    ids whose enrolment in the class ended before the term did."""
     term, subject, rules = gradebook.term, gradebook.subject, gradebook.profile_version.rules
     assessment = subject.assessment
-    needed = required(gradebook.gradebookcolumn_set.all(), assessment)
+    needed = required(gradebook.gradebookcolumn_set.all())
     cells = current_cells([gradebook], student_ids)
     carried = carried_cells(term, subject, student_ids)
     split = set(
@@ -156,7 +154,7 @@ def roster_averages(gradebook, student_ids, in_class):
             cells.get((gradebook.pk, pk), {}),
             own_carried,
             gradebook.status,
-            left=pk not in in_class,
+            left=pk in left,
             split=pk in split,
         )
         year = averages.year(

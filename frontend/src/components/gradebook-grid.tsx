@@ -533,6 +533,10 @@ export function GradebookGrid({ book }: { book: GradebookDetail }) {
                         >
                           {student.carried.length
                             ? student.carried
+                                .filter(
+                                  (c): c is typeof c & Pick<GradebookColumn, "kind"> =>
+                                    c.kind !== "previous_semester_average",
+                                )
                                 .map(
                                   (c) =>
                                     `${columnLabel(c)} ${commentOnly ? resultLabel(c.result) : formatScore(c.value)}`,

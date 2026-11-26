@@ -107,6 +107,8 @@ def year(rules, assessment, terms_in_year, earlier_terms, first, previous, secon
         )
     worse = min((first, second), key=lambda a: STATES.index(a.state))
     if worse.state not in ("final", "provisional"):
-        return Average(None, None, worse.state, worse.missing, first.carried, worse.reason)
+        # Only this book's own empty columns: semester 1's are another book's.
+        missing = second.missing if second.state == worse.state else ()
+        return Average(None, None, worse.state, missing, first.carried, worse.reason)
     value = rounded(rules, (w1 * first.value + w2 * second.value) / (w1 + w2))
     return Average(value, None, worse.state, carried=first.carried)

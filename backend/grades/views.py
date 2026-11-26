@@ -407,7 +407,12 @@ def detail(request, gradebook):
     gradebook.can_enter = can(Actor.of(request), "scores.enter", pair_of(gradebook))
     gradebook.columns = gradebook.gradebookcolumn_set.order_by(*COLUMN_ORDER)
     transfers = transfer_view(request, gradebook, [pk for pk, _ in students], in_class)
-    averages = roster_averages(gradebook, [pk for pk, _ in students], in_class)
+    left = {
+        pk
+        for pk, row in transfers.items()
+        if row["left_on"] is not None and row["left_on"] < gradebook.term.ends_on
+    }
+    averages = roster_averages(gradebook, [pk for pk, _ in students], left)
     gradebook.students = [
         {
             "id": pk,
@@ -776,6 +781,12 @@ class ColumnReleaseView(GradebookMixin, GenericAPIView):
                 entry.student_id
                 for entry in current_entries(gradebook).filter(column=released)
                 if entry.value is not None or entry.result is not None
+            }
+            # A current carried result of the same kind and index fills the cell (`empty_cells`).
+            scored |= {
+                student
+                for student, rows in current_carried(gradebook).items()
+                if any((r.kind, r.index) == (released.kind, released.index) for r in rows)
             }
             missing = [
                 {"id": pk, "name": name}

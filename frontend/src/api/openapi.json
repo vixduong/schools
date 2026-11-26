@@ -6312,6 +6312,72 @@
                     "target_table"
                 ]
             },
+            "Average": {
+                "type": "object",
+                "description": "A semester or year average (`grades/averages.py`, never stored): `value` for a scored\nsubject, `result` for a comment-only one, each only when `state` is `final` or\n`provisional`; `missing` lists the empty columns; `carried` says a carried result was used;\n`reason` explains `unavailable` (`rules`, `terms`) or a year's `no_previous_average`.",
+                "properties": {
+                    "value": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": -100,
+                        "exclusiveMaximum": true,
+                        "exclusiveMinimum": true,
+                        "nullable": true
+                    },
+                    "result": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResultEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/StateEnum"
+                    },
+                    "missing": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MissingColumn"
+                        }
+                    },
+                    "carried": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AverageReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "carried",
+                    "missing",
+                    "reason",
+                    "result",
+                    "state",
+                    "value"
+                ]
+            },
+            "AverageReasonEnum": {
+                "enum": [
+                    "rules",
+                    "terms",
+                    "no_previous_average"
+                ],
+                "type": "string",
+                "description": "* `rules` - rules\n* `terms` - terms\n* `no_previous_average` - no_previous_average"
+            },
             "BellPeriod": {
                 "type": "object",
                 "description": "`IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs\nfrom the stored one answers 400 `{\"<field>\": [\"immutable\"]}` (the same value is accepted, so a\nclient may PUT the whole row back).",
@@ -6427,7 +6493,7 @@
                 "description": "The current carried result of one kind and index (a cleared one is left out).",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/ColumnKindEnum"
+                        "$ref": "#/components/schemas/CarriedKindEnum"
                     },
                     "index": {
                         "type": "integer"
@@ -6464,7 +6530,7 @@
                 "type": "object",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/ColumnKindEnum"
+                        "$ref": "#/components/schemas/CarriedKindEnum"
                     },
                     "index": {
                         "type": "integer"
@@ -6494,7 +6560,7 @@
                 "description": "One carried result to save: a scored subject's `value`, a comment-only subject's `result`,\nneither to clear it.",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/ColumnKindEnum"
+                        "$ref": "#/components/schemas/CarriedKindEnum"
                     },
                     "index": {
                         "type": "integer",
@@ -6520,6 +6586,16 @@
                     "index",
                     "kind"
                 ]
+            },
+            "CarriedKindEnum": {
+                "enum": [
+                    "regular",
+                    "mid_term",
+                    "end_term",
+                    "previous_semester_average"
+                ],
+                "type": "string",
+                "description": "* `regular` - Regular\n* `mid_term` - Mid Term\n* `end_term` - End Term\n* `previous_semester_average` - Previous Semester Average"
             },
             "Cell": {
                 "type": "object",
@@ -7506,7 +7582,7 @@
                 "description": "`on` is the student's last day at this School; a future date schedules the leave.\n`destination` (free text) is required for a transfer out.",
                 "properties": {
                     "reason": {
-                        "$ref": "#/components/schemas/ReasonEnum"
+                        "$ref": "#/components/schemas/LeaveReasonEnum"
                     },
                     "on": {
                         "type": "string",
@@ -7542,6 +7618,15 @@
                     "id",
                     "name"
                 ]
+            },
+            "LeaveReasonEnum": {
+                "enum": [
+                    "transfer_out",
+                    "dropped_out",
+                    "graduated"
+                ],
+                "type": "string",
+                "description": "* `transfer_out` - transfer_out\n* `dropped_out` - dropped_out\n* `graduated` - graduated"
             },
             "LeaveRequest": {
                 "type": "object",
@@ -7793,6 +7878,21 @@
                 ],
                 "type": "string",
                 "description": "* `active` - Active\n* `inactive` - Inactive"
+            },
+            "MissingColumn": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/ColumnKindEnum"
+                    },
+                    "index": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "index",
+                    "kind"
+                ]
             },
             "MyPair": {
                 "type": "object",
@@ -8527,15 +8627,6 @@
                 "type": "string",
                 "description": "* `transfer_out` - Transfer Out\n* `class_change` - Class Change\n* `dropped_out` - Dropped Out\n* `graduated` - Graduated\n* `year_end` - Year End"
             },
-            "ReasonEnum": {
-                "enum": [
-                    "transfer_out",
-                    "dropped_out",
-                    "graduated"
-                ],
-                "type": "string",
-                "description": "* `transfer_out` - transfer_out\n* `dropped_out` - dropped_out\n* `graduated` - graduated"
-            },
             "ReasonStartedEnum": {
                 "enum": [
                     "new_year",
@@ -9013,10 +9104,14 @@
                         "items": {
                             "$ref": "#/components/schemas/Cell"
                         }
+                    },
+                    "averages": {
+                        "$ref": "#/components/schemas/RowAverages"
                     }
                 },
                 "required": [
                     "arrival",
+                    "averages",
                     "can_carry",
                     "carried",
                     "cells",
@@ -9024,6 +9119,27 @@
                     "in_class",
                     "left_on",
                     "name"
+                ]
+            },
+            "RowAverages": {
+                "type": "object",
+                "description": "`year` is null outside a semester 2 gradebook.",
+                "properties": {
+                    "semester": {
+                        "$ref": "#/components/schemas/Average"
+                    },
+                    "year": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Average"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "semester",
+                    "year"
                 ]
             },
             "SaveCarried": {
@@ -9523,6 +9639,18 @@
                     "mark",
                     "name"
                 ]
+            },
+            "StateEnum": {
+                "enum": [
+                    "final",
+                    "provisional",
+                    "missing",
+                    "left",
+                    "split",
+                    "unavailable"
+                ],
+                "type": "string",
+                "description": "* `final` - final\n* `provisional` - provisional\n* `missing` - missing\n* `left` - left\n* `split` - split\n* `unavailable` - unavailable"
             },
             "Step": {
                 "type": "object",

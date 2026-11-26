@@ -2248,6 +2248,28 @@ export interface components {
             readonly details: unknown;
         };
         /**
+         * @description A semester or year average (`grades/averages.py`, never stored): `value` for a scored
+         *     subject, `result` for a comment-only one, each only when `state` is `final` or
+         *     `provisional`; `missing` lists the empty columns; `carried` says a carried result was used;
+         *     `reason` explains `unavailable` (`rules`, `terms`) or a year's `no_previous_average`.
+         */
+        Average: {
+            /** Format: double */
+            value: number | null;
+            result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
+            state: components["schemas"]["StateEnum"];
+            missing: components["schemas"]["MissingColumn"][];
+            carried: boolean;
+            reason: (components["schemas"]["AverageReasonEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
+        /**
+         * @description * `rules` - rules
+         *     * `terms` - terms
+         *     * `no_previous_average` - no_previous_average
+         * @enum {string}
+         */
+        AverageReasonEnum: "rules" | "terms" | "no_previous_average";
+        /**
          * @description `IMMUTABLE` fields are read-only once the row exists: sending one with a value that differs
          *     from the stored one answers 400 `{"<field>": ["immutable"]}` (the same value is accepted, so a
          *     client may PUT the whole row back).
@@ -2284,14 +2306,14 @@ export interface components {
         };
         /** @description The current carried result of one kind and index (a cleared one is left out). */
         Carried: {
-            kind: components["schemas"]["ColumnKindEnum"];
+            kind: components["schemas"]["CarriedKindEnum"];
             index: number;
             /** Format: double */
             value: number | null;
             result: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
         };
         CarriedError: {
-            kind: components["schemas"]["ColumnKindEnum"];
+            kind: components["schemas"]["CarriedKindEnum"];
             index: number;
             code: components["schemas"]["CarriedErrorCodeEnum"];
         };
@@ -2308,11 +2330,19 @@ export interface components {
          *     neither to clear it.
          */
         CarriedInput: {
-            kind: components["schemas"]["ColumnKindEnum"];
+            kind: components["schemas"]["CarriedKindEnum"];
             index: number;
             value?: number | null;
             result?: (components["schemas"]["ResultEnum"] | components["schemas"]["NullEnum"]) | null;
         };
+        /**
+         * @description * `regular` - Regular
+         *     * `mid_term` - Mid Term
+         *     * `end_term` - End Term
+         *     * `previous_semester_average` - Previous Semester Average
+         * @enum {string}
+         */
+        CarriedKindEnum: "regular" | "mid_term" | "end_term" | "previous_semester_average";
         /**
          * @description A cell with a current entry (an empty cell has none). A cleared cell has an entry with
          *     neither value nor result.
@@ -2651,7 +2681,7 @@ export interface components {
          *     `destination` (free text) is required for a transfer out.
          */
         Leave: {
-            reason: components["schemas"]["ReasonEnum"];
+            reason: components["schemas"]["LeaveReasonEnum"];
             /** Format: date */
             on: string;
             destination?: string;
@@ -2662,6 +2692,13 @@ export interface components {
             name: string;
             class_name: string | null;
         };
+        /**
+         * @description * `transfer_out` - transfer_out
+         *     * `dropped_out` - dropped_out
+         *     * `graduated` - graduated
+         * @enum {string}
+         */
+        LeaveReasonEnum: "transfer_out" | "dropped_out" | "graduated";
         /**
          * @description A leave request with the names a ticket shows. The view sets `class_name` (the student's
          *     class on `from_on`) on each object.
@@ -2748,6 +2785,10 @@ export interface components {
          * @enum {string}
          */
         MembershipStatusEnum: "active" | "inactive";
+        MissingColumn: {
+            kind: components["schemas"]["ColumnKindEnum"];
+            index: number;
+        };
         MyPair: {
             subject: number;
             subject_name: string;
@@ -3046,13 +3087,6 @@ export interface components {
          */
         ReasonEndedEnum: "transfer_out" | "class_change" | "dropped_out" | "graduated" | "year_end";
         /**
-         * @description * `transfer_out` - transfer_out
-         *     * `dropped_out` - dropped_out
-         *     * `graduated` - graduated
-         * @enum {string}
-         */
-        ReasonEnum: "transfer_out" | "dropped_out" | "graduated";
-        /**
          * @description * `new_year` - New Year
          *     * `transfer_in` - Transfer In
          *     * `class_change` - Class Change
@@ -3228,6 +3262,12 @@ export interface components {
             arrival: components["schemas"]["Arrival"] | null;
             carried: components["schemas"]["Carried"][];
             cells: components["schemas"]["Cell"][];
+            averages: components["schemas"]["RowAverages"];
+        };
+        /** @description `year` is null outside a semester 2 gradebook. */
+        RowAverages: {
+            semester: components["schemas"]["Average"];
+            year: components["schemas"]["Average"] | null;
         };
         SaveCarried: {
             results: components["schemas"]["CarriedInput"][];
@@ -3386,6 +3426,16 @@ export interface components {
             mark: components["schemas"]["Mark"] | null;
             leave: components["schemas"]["SheetLeave"] | null;
         };
+        /**
+         * @description * `final` - final
+         *     * `provisional` - provisional
+         *     * `missing` - missing
+         *     * `left` - left
+         *     * `split` - split
+         *     * `unavailable` - unavailable
+         * @enum {string}
+         */
+        StateEnum: "final" | "provisional" | "missing" | "left" | "split" | "unavailable";
         /**
          * @description A step of the workflow, oldest first in the detail. `comment` is a return's comment or a
          *     reopen's reason (blank for the other steps).

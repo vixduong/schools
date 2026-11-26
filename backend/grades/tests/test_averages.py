@@ -6,10 +6,11 @@ import importlib
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from grades import averages
+from grades import average_data, averages
 
 CASES = json.loads((Path(__file__).parent / "fixtures" / "averages_cases.json").read_text())[
     "cases"
@@ -40,10 +41,11 @@ def cells(given):
 
 
 def columns(book):
-    regular = [("regular", i) for i in range(1, book["regular"] + 1)]
-    if book["assessment"] == "comment_only":
-        return regular  # the contract: the result is the regular comments'
-    return [*regular, ("mid_term", 1), ("end_term", 1)]
+    """The book's columns as opening a gradebook creates them (regular, mid-term, end-term),
+    through `average_data.required`."""
+    made = [("regular", i) for i in range(1, book["regular"] + 1)]
+    made += [("mid_term", 1), ("end_term", 1)]
+    return average_data.required([SimpleNamespace(kind=kind, index=index) for kind, index in made])
 
 
 def semester(rules, book):
@@ -141,3 +143,18 @@ def test_the_states_follow_their_precedence():
     year_case["book"]["local"].pop("end_term 1")
     year = compute(year_case)["year"]
     assert (year.state, year.value) == ("missing", None)
+
+
+def test_the_year_lists_no_missing_column_of_the_other_semesters_book():
+    case = copy.deepcopy(next(c for c in CASES if c["id"] == "C"))
+    case["first"]["status"] = "draft"
+    case["first"]["local"].pop("end_term 1")
+    got = compute(case)
+    assert got["first"].missing == (("end_term", 1),)
+    assert (got["year"].state, got["year"].missing) == ("missing", ())
+
+
+def test_the_required_columns_follow_the_column_order_whatever_order_they_are_read_in():
+    read = [("end_term", 1), ("regular", 2), ("mid_term", 1), ("regular", 1)]
+    got = average_data.required([SimpleNamespace(kind=kind, index=index) for kind, index in read])
+    assert got == [("regular", 1), ("regular", 2), ("mid_term", 1), ("end_term", 1)]
